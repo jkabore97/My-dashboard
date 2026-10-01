@@ -1,30 +1,50 @@
-import { env } from "./source";
 import type { Platform, SourceMode } from "./types";
 
-interface PlatformDef extends Omit<Platform, "connected" | "mode"> {
-  available: boolean;
+export interface TokenField {
+  name: string;
+  label: string;
+  placeholder?: string;
+  optional?: boolean;
+  secret?: boolean;
 }
 
-// Every platform the business touches. "available" ones have a working
-// connector in src/lib/connectors; the rest are on the roadmap (PROPOSAL.md).
+export interface PlatformDef {
+  id: string;
+  name: string;
+  category: Platform["category"];
+  /** Has a working integration today (data connector and/or webhook). */
+  available: boolean;
+  docsUrl: string;
+  note?: string;
+  /** Provider id for stored connections, when the platform supports them. */
+  provider?: "github" | "vercel" | "supabase" | "cloudflare" | "gmail";
+  oauth?: "github" | "gmail" | "vercel";
+  token?: { fields: TokenField[]; help: string };
+  webhook?: "github" | "vercel" | "stripe" | "supabase";
+  envKeys: string[];
+}
+
+const tokenField: TokenField = { name: "token", label: "API token", secret: true };
+
+// Every platform the business touches. "available" ones work today; the rest
+// are on the roadmap (PROPOSAL.md).
 export const PLATFORM_DEFS: PlatformDef[] = [
-  { id: "github", name: "GitHub", category: "code", envKeys: ["GITHUB_TOKEN"], docsUrl: "https://github.com/settings/personal-access-tokens", available: true },
-  { id: "vercel", name: "Vercel", category: "hosting", envKeys: ["VERCEL_TOKEN"], docsUrl: "https://vercel.com/account/settings/tokens", available: true },
-  { id: "cloudflare", name: "Cloudflare", category: "hosting", envKeys: ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"], docsUrl: "https://dash.cloudflare.com/profile/api-tokens", available: true },
-  { id: "supabase", name: "Supabase", category: "database", envKeys: ["SUPABASE_ACCESS_TOKEN"], docsUrl: "https://supabase.com/dashboard/account/tokens", available: true },
-  { id: "gmail", name: "Gmail", category: "email", envKeys: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GMAIL_ACCOUNTS"], docsUrl: "https://console.cloud.google.com/apis/credentials", available: true },
-  { id: "websites", name: "Website monitor", category: "analytics", envKeys: ["WEBSITES"], docsUrl: "#", available: true, note: "Uptime + sign-ups per site" },
-  { id: "outlook", name: "Microsoft 365 / Outlook", category: "email", envKeys: ["MS_CLIENT_ID", "MS_CLIENT_SECRET", "MS_REFRESH_TOKEN"], docsUrl: "https://entra.microsoft.com", available: false },
-  { id: "stripe", name: "Stripe", category: "payments", envKeys: ["STRIPE_SECRET_KEY"], docsUrl: "https://dashboard.stripe.com/apikeys", available: false, note: "Revenue, disputes, failed payments" },
-  { id: "ga4", name: "Google Analytics", category: "analytics", envKeys: ["GA4_PROPERTY_IDS"], docsUrl: "https://analytics.google.com", available: false, note: "Visitors per site" },
-  { id: "gdrive", name: "Google Drive", category: "productivity", envKeys: ["GOOGLE_CLIENT_ID"], docsUrl: "https://drive.google.com", available: false },
-  { id: "linkedin", name: "LinkedIn Page", category: "social", envKeys: ["LINKEDIN_TOKEN"], docsUrl: "https://www.linkedin.com/developers", available: false },
-  { id: "slack", name: "Slack", category: "productivity", envKeys: ["SLACK_BOT_TOKEN"], docsUrl: "https://api.slack.com/apps", available: false },
+  { id: "github", name: "GitHub", category: "code", available: true, provider: "github", oauth: "github", webhook: "github", envKeys: ["GITHUB_TOKEN"], docsUrl: "https://github.com/settings/personal-access-tokens", note: "Repos, PRs, issues, notifications, CI and security alerts", token: { fields: [tokenField], help: "Fine-grained token with read access to Metadata, Contents, Issues, Pull requests." } },
+  { id: "vercel", name: "Vercel", category: "hosting", available: true, provider: "vercel", oauth: "vercel", webhook: "vercel", envKeys: ["VERCEL_TOKEN"], docsUrl: "https://vercel.com/account/settings/tokens", note: "Projects and production deploys", token: { fields: [tokenField, { name: "teamId", label: "Team ID", placeholder: "team_…", optional: true }], help: "Create a token under Account Settings → Tokens, scoped to your team." } },
+  { id: "cloudflare", name: "Cloudflare", category: "hosting", available: true, provider: "cloudflare", envKeys: ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"], docsUrl: "https://dash.cloudflare.com/profile/api-tokens", note: "Workers and D1 databases", token: { fields: [tokenField, { name: "accountId", label: "Account ID", placeholder: "32-character ID" }], help: "Token permissions: Account Settings:Read, Workers Scripts:Read, D1:Read." } },
+  { id: "supabase", name: "Supabase", category: "database", available: true, provider: "supabase", webhook: "supabase", envKeys: ["SUPABASE_ACCESS_TOKEN"], docsUrl: "https://supabase.com/dashboard/account/tokens", note: "Project health, security advisors, user counts", token: { fields: [tokenField], help: "Personal access token from Account → Access Tokens." } },
+  { id: "gmail", name: "Gmail", category: "email", available: true, provider: "gmail", oauth: "gmail", envKeys: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"], docsUrl: "https://console.cloud.google.com/apis/credentials", note: "Connect each business mailbox (read-only)" },
+  { id: "stripe", name: "Stripe", category: "payments", available: true, webhook: "stripe", envKeys: ["STRIPE_WEBHOOK_SECRET"], docsUrl: "https://dashboard.stripe.com/webhooks", note: "Disputes, failed payments and payouts as tasks (webhook)" },
+  { id: "websites", name: "Website monitor", category: "analytics", available: true, envKeys: [], docsUrl: "/settings#websites", note: "Uptime every 5 minutes + sign-ups per site" },
+  { id: "outlook", name: "Microsoft 365 / Outlook", category: "email", available: false, envKeys: [], docsUrl: "https://entra.microsoft.com" },
+  { id: "ga4", name: "Google Analytics", category: "analytics", available: false, envKeys: [], docsUrl: "https://analytics.google.com", note: "Visitors per site" },
+  { id: "gdrive", name: "Google Drive", category: "productivity", available: false, envKeys: [], docsUrl: "https://drive.google.com" },
+  { id: "linkedin", name: "LinkedIn Page", category: "social", available: false, envKeys: [], docsUrl: "https://www.linkedin.com/developers" },
+  { id: "slack", name: "Slack", category: "productivity", available: false, envKeys: [], docsUrl: "https://api.slack.com/apps" },
 ];
 
-export function getPlatforms(modes: Record<string, SourceMode | undefined>): (Platform & { available: boolean })[] {
-  return PLATFORM_DEFS.map((p) => {
-    const connected = p.available && p.envKeys.every((k) => !!env(k));
-    return { ...p, connected, mode: modes[p.name.split(" ")[0]] ?? (connected ? "live" : "demo") };
-  });
+/** Live/demo/error status for the connectors shown on the overview. */
+export function getPlatforms(modes: Record<string, SourceMode | undefined>) {
+  // Webhook-only platforms (Stripe) have no polling mode.
+  return PLATFORM_DEFS.filter((p) => p.available).map((p) => ({ ...p, mode: modes[p.name.split(" ")[0]] ?? null }));
 }

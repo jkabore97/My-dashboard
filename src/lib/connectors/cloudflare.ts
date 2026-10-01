@@ -1,22 +1,25 @@
 import { demoDatabases, demoHosting } from "../demo";
-import { businessFor, env, fromSource, getJson } from "../source";
+import { businessFor, type BusinessRule } from "../server/config";
+import { cloudflareCreds } from "../server/credentials";
+import { fromSource, getJson } from "../source";
 import type { Database, HostingProject } from "../types";
 
-const configured = () => !!(env("CLOUDFLARE_API_TOKEN") && env("CLOUDFLARE_ACCOUNT_ID"));
+type Creds = { token: string; accountId: string };
 
-function cf<T>(path: string) {
+export function cfGet<T>(creds: Creds, path: string) {
   return getJson<{ result: T }>(
-    `https://api.cloudflare.com/client/v4/accounts/${env("CLOUDFLARE_ACCOUNT_ID")}${path}`,
-    { headers: { Authorization: `Bearer ${env("CLOUDFLARE_API_TOKEN")}` } },
+    `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(creds.accountId)}${path}`,
+    { headers: { Authorization: `Bearer ${creds.token}` } },
   ).then((r) => r.result);
 }
 
-export function getCloudflareWorkers() {
+export async function getCloudflareWorkers(rules: BusinessRule[]) {
+  const creds = await cloudflareCreds();
   return fromSource<HostingProject[]>(
     "Cloudflare",
-    configured(),
+    !!creds,
     async () => {
-      const scripts = await cf<{ id: string; modified_on: string }[]>("/workers/scripts");
+      const scripts = await cfGet<{ id: string; modified_on: string }[]>(creds!, "/workers/scripts");
       return scripts.map((s) => ({
         id: `cf-${s.id}`,
         name: s.id,
@@ -25,19 +28,20 @@ export function getCloudflareWorkers() {
         framework: "workers",
         lastDeployState: "ready" as const,
         lastDeployAt: s.modified_on,
-        business: businessFor(s.id),
+        business: businessFor(s.id, rules),
       }));
     },
     () => demoHosting().filter((h) => h.provider === "cloudflare"),
   );
 }
 
-export function getCloudflareD1() {
+export async function getCloudflareD1(rules: BusinessRule[]) {
+  const creds = await cloudflareCreds();
   return fromSource<Database[]>(
     "Cloudflare",
-    configured(),
+    !!creds,
     async () => {
-      const dbs = await cf<{ uuid: string; name: string; created_at: string }[]>("/d1/database");
+      const dbs = await cfGet<{ uuid: string; name: string; created_at: string }[]>(creds!, "/d1/database");
       return dbs.map((d) => ({
         id: d.uuid,
         name: d.name,
@@ -45,7 +49,7 @@ export function getCloudflareD1() {
         region: null,
         status: "healthy" as const,
         createdAt: d.created_at,
-        business: businessFor(d.name),
+        business: businessFor(d.name, rules),
       }));
     },
     () => demoDatabases().filter((d) => d.provider === "cloudflare-d1"),

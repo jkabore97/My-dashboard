@@ -1,12 +1,12 @@
 import { Lock } from "lucide-react";
-import { getSnapshot } from "@/lib/aggregate";
+import { getDashboard } from "@/lib/server/dashboard";
 import { Card, PageHeader, Table, td, timeAgo } from "@/components/ui";
 
 export default async function ReposPage() {
-  const s = await getSnapshot();
+  const s = await getDashboard();
   return (
     <>
-      <PageHeader title="Repositories" subtitle={`${s.repos.length} active repos, most recently pushed first.`} />
+      <PageHeader mode={s.modes.github} title="Repositories" subtitle={`${s.repos.length} active repos, most recently pushed first.`} />
       <Card>
         <Table head={["Repo", "Business", "Language", "Open PRs", "Open issues", "Last push"]}>
           {s.repos.map((r) => (

@@ -1,54 +1,83 @@
 # Kaj Command Center
 
-One private dashboard for every business Kaj Consulting runs: repositories, hosting, databases, email, websites and their users — with everything that needs attention pulled into a single to-do list ranked by severity.
+One private dashboard for every business Kaj Consulting runs: repositories, hosting, databases, email, websites and their users. Everything that needs attention is pulled into one to-do list, ranked by severity, that you can work through.
 
 ![Overview](docs/overview.png)
 
 ## What's in it
 
-| Section | Source | What you see |
-|---|---|---|
-| **Overview** | everything | Critical/high counts, top to-dos, latest notifications, a card per business |
-| **To-do** | derived | One list ranked **critical → high → medium → low**, filterable by business |
-| **Inbox** | Gmail (multi-account) | Last 14 days from every mailbox, auto-triaged by urgency |
-| **Notifications** | Gmail, GitHub, Vercel, Cloudflare | Unified feed, newest first |
-| **Websites & users** | uptime probe + Supabase auth | Up/down, response time, registered users, new sign-ups |
-| **Repositories** | GitHub | Every active repo, open PRs and issues, last push |
-| **Hosting** | Vercel, Cloudflare Workers | Latest production deploy status per project |
-| **Databases** | Supabase, Cloudflare D1 | Health, region, security & performance advisor findings |
-| **Platforms** | — | Which integrations are live, demo, broken or planned |
-
-### How the to-do list ranks things
-
-| Severity | Generated when |
+| Section | What you see and do |
 |---|---|
-| Critical | A site is down · a production deploy failed · a database is unhealthy · a Supabase security advisor reports an error · an email mentions a dispute, chargeback, security alert, suspension or failed payment |
-| High | A site is slow or erroring · a connector is broken · an email says failed, expiring, overdue, vulnerability, action required |
-| Medium | Open PRs to review · 10+ open issues · advisor warnings · unread mail from a real person |
-| Low | Paused databases · repos with open work but no push in 30 days |
+| **Overview** | Critical/high counts, top to-dos, latest notifications, a card per business |
+| **To-do** | One list ranked **critical → high → medium → low**. Mark done, snooze (4h to 1 week), reassign to a business, add your own tasks. Open / Snoozed / Done views. |
+| **Inbox** | Every connected Gmail mailbox in one list, auto-triaged by urgency |
+| **Notifications** | Email, GitHub, Vercel, Stripe, Supabase and uptime events, kept 90 days |
+| **Websites & users** | Uptime every 5 minutes with a 24-hour history strip, registered users and new sign-ups |
+| **Repositories / Hosting / Databases** | GitHub, Vercel, Cloudflare Workers, Supabase (with security advisors), Cloudflare D1 |
+| **Platforms** | Connect platforms with one click or an API token, set up webhooks, check the scheduler |
+| **Settings** | Businesses, websites, two-factor authentication, sign out everywhere, audit log |
 
-Rules live in `src/lib/aggregate.ts` (`deriveTasks`) and `src/lib/connectors/gmail.ts` (`classifyEmail`).
+### Where tasks come from
 
-## Run it
+| Origin | Examples | Closes itself when |
+|---|---|---|
+| **Signals** (checked every 5 min) | Site down, production deploy failed, Supabase RLS disabled, urgent unread email, open PRs | The condition clears. It reopens if the condition comes back. |
+| **Webhooks** (real time) | Stripe dispute or failed payout, CI failing on `main`, Dependabot or leaked-secret alert | The platform reports it fixed (dispute closed, CI green, alert fixed) |
+| **You** | Anything you add on the To-do page | You mark it done |
+
+Marking a signal task done keeps it done for as long as the condition persists. A source that is temporarily failing never auto-closes its tasks.
+
+## Security
+
+- Sign in with Google (allow-listed emails) and/or a password, then **mandatory 2FA** with an authenticator app. Ten single-use recovery codes are issued.
+- Sessions are HMAC-signed cookies (7 days). "Sign out of all devices" revokes every session.
+- Platform tokens, OAuth refresh tokens, TOTP secrets and webhook secrets are **encrypted with AES-256-GCM** before they reach the database.
+- Every webhook is signature-checked. Cron needs `CRON_SECRET`. Login and 2FA attempts are rate-limited.
+- Every sign-in, connection change, setting change and task action goes to the audit log (Settings).
+- Row-level security is enabled on all tables, so Supabase's public API keys can't read them.
+
+## Run locally
 
 ```bash
 npm install
-cp .env.example .env.local   # fill in what you have; leave the rest blank
+cp .env.example .env.local   # set DASHBOARD_PASSWORD; add REQUIRE_2FA=false to skip 2FA locally
 npm run dev                  # http://localhost:3000
 ```
 
-With no keys set it runs on demo data. Each connector switches to live data independently as soon as its keys exist. A connector whose keys are set but failing shows as **error** with the reason, and a "fix the connection" task appears.
+Without `DATABASE_URL`, an embedded Postgres (PGlite) is created in `.data/`. With nothing connected, every section shows sample data.
 
-## Deploy (Vercel)
+```bash
+npm test          # unit + database tests (in-memory Postgres)
+npm run test:pg   # database tests against a real Postgres (TEST_DATABASE_URL)
+npm run typecheck
+```
 
-1. Import this repo in Vercel.
-2. Add the variables from `.env.example`. **`DASHBOARD_PASSWORD` is required** — production refuses to serve without it.
-3. Deploy. Data is fetched per request and cached for 2 minutes per source.
+## Deploy (Vercel + Supabase)
+
+1. **Database:** create a Supabase project, or use an existing one. Copy the **transaction pooler** connection string into `DATABASE_URL`. Tables are created on first start.
+2. **Secrets:** set `SESSION_SECRET`, `ENCRYPTION_KEY`, `CRON_SECRET`, `APP_URL`, and a sign-in method (`DASHBOARD_PASSWORD` and/or Google + `ALLOWED_EMAILS`). Production refuses to start without the secrets.
+3. **Deploy** the repo on Vercel. `vercel.json` schedules `/api/cron/check` every 5 minutes. This needs a Pro plan; on Hobby, change it to daily or call the endpoint from any scheduler with `Authorization: Bearer $CRON_SECRET`.
+4. **Sign in**, scan the 2FA QR code, and save your recovery codes.
+5. **Platforms page:** connect GitHub, Vercel, Gmail (one per mailbox), Supabase and Cloudflare, then add the webhook URLs it shows to GitHub, Vercel, Stripe and Supabase.
+6. **Settings:** list your businesses and websites.
+
+## Architecture
+
+```
+Platforms ─► connectors (src/lib/connectors) ─► collect() ─► persist(): tasks, events, uptime snapshots ─► Postgres
+Webhooks ─► /api/webhooks/* (verified) ─► events + event tasks ─────────────────────────────────────────┘
+Vercel Cron ─► /api/cron/check ─► collect + persist + cleanup                                pages read ◄┘
+```
+
+- `src/lib/connectors/*`: one file per platform, normalized into `src/lib/types.ts`.
+- `src/lib/aggregate.ts`: fetches everything and derives tasks (`deriveTasks`).
+- `src/lib/server/sync.ts`: persists signals; `store/*` holds the database access; `migrations.ts` holds the schema.
+- `src/lib/server/auth.ts`, `twofactor.ts`, `session.ts`: sign-in, 2FA, sessions. `src/proxy.ts` guards every route.
 
 ## Adding a platform
 
-1. Write `src/lib/connectors/<name>.ts` that returns one of the shared types in `src/lib/types.ts` via `fromSource(...)`.
-2. Call it from `getSnapshot()` in `src/lib/aggregate.ts` and add any task rules to `deriveTasks`.
-3. Flip `available: true` for it in `src/lib/platforms.ts`.
+1. Write `src/lib/connectors/<name>.ts` returning a shared type via `fromSource(...)`. Read credentials through `src/lib/server/credentials.ts`.
+2. Call it from `collect()` in `src/lib/aggregate.ts` and add rules to `deriveTasks` with a new scope.
+3. Add it to `PLATFORM_DEFS` in `src/lib/platforms.ts`. For a webhook, add a handler in `webhook-handlers.ts` and a route.
 
 See **[PROPOSAL.md](PROPOSAL.md)** for the roadmap.

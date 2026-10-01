@@ -1,27 +1,17 @@
 import { demoEmails } from "../demo";
-import { env, fromSource, getJson } from "../source";
+import { gmailAccounts, googleClient } from "../server/credentials";
+import { fromSource, getJson } from "../source";
 import type { EmailMessage, Severity } from "../types";
 
-// GMAIL_ACCOUNTS="Kaj Consulting:<refresh-token>,Kaj Store:<refresh-token>"
-// Each refresh token comes from a one-time OAuth consent with the
-// gmail.readonly scope, using GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET.
-function accounts() {
-  return (env("GMAIL_ACCOUNTS") ?? "")
-    .split(",")
-    .map((pair) => {
-      const i = pair.lastIndexOf(":");
-      return { label: pair.slice(0, i).trim(), token: pair.slice(i + 1).trim() };
-    })
-    .filter((a) => a.label && a.token);
-}
-
-async function accessToken(refreshToken: string) {
+// Each mailbox is a refresh token from a one-time OAuth consent with the
+// gmail.readonly scope (Platforms → Connect Gmail, or GMAIL_ACCOUNTS).
+async function accessToken(client: { id: string; secret: string }, refreshToken: string) {
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      client_id: env("GOOGLE_CLIENT_ID")!,
-      client_secret: env("GOOGLE_CLIENT_SECRET")!,
+      client_id: client.id,
+      client_secret: client.secret,
       refresh_token: refreshToken,
       grant_type: "refresh_token",
     }),
@@ -55,25 +45,28 @@ interface GmailMessage {
   payload: { headers: { name: string; value: string }[] };
 }
 
-export function getEmails() {
-  const list = accounts();
+export async function getEmails() {
+  const list = await gmailAccounts();
+  const client = googleClient();
   return fromSource<EmailMessage[]>(
     "Gmail",
-    list.length > 0 && !!env("GOOGLE_CLIENT_ID") && !!env("GOOGLE_CLIENT_SECRET"),
+    list.length > 0 && !!client,
     async () => {
-      const perAccount = await Promise.all(
-        list.map(async ({ label, token }) => {
-          const headers = { Authorization: `Bearer ${await accessToken(token)}` };
+      // One broken mailbox shouldn't hide the others.
+      const settled = await Promise.allSettled(
+        list.map(async ({ label, refreshToken, email }) => {
+          const headers = { Authorization: `Bearer ${await accessToken(client!, refreshToken)}` };
           const base = "https://gmail.googleapis.com/gmail/v1/users/me/messages";
+          // Access tokens differ on every call, so skip the fetch cache here.
           const { messages = [] } = await getJson<{ messages?: { id: string }[] }>(
             `${base}?maxResults=25&q=${encodeURIComponent("in:inbox newer_than:14d")}`,
-            { headers },
+            { headers, cache: "no-store" },
           );
           return Promise.all(
             messages.map(async ({ id }) => {
               const m = await getJson<GmailMessage>(
                 `${base}/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject`,
-                { headers },
+                { headers, cache: "no-store" },
               );
               const h = (n: string) => m.payload.headers.find((x) => x.name === n)?.value ?? "";
               const labels = m.labelIds ?? [];
@@ -87,13 +80,16 @@ export function getEmails() {
                 account: label,
                 labels,
                 severity: classifyEmail(h("From"), h("Subject"), m.snippet, labels),
-                url: `https://mail.google.com/mail/u/0/#inbox/${m.threadId}`,
+                // authuser picks the right mailbox when several are signed in.
+                url: `https://mail.google.com/mail/u/${email ? `?authuser=${encodeURIComponent(email)}` : "0/"}#all/${m.threadId}`,
               };
             }),
           );
         }),
       );
-      return perAccount.flat().sort((a, b) => b.receivedAt.localeCompare(a.receivedAt));
+      const ok = settled.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
+      if (ok.length === 0) throw (settled[0] as PromiseRejectedResult).reason;
+      return ok.flat().sort((a, b) => b.receivedAt.localeCompare(a.receivedAt));
     },
     demoEmails,
   );

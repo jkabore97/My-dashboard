@@ -1,24 +1,24 @@
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
-import { getSnapshot } from "@/lib/aggregate";
-import { Card, ModePill, PageHeader, SeverityBadge, Stat, StatusDot, timeAgo } from "@/components/ui";
+import { getDashboard } from "@/lib/server/dashboard";
+import { Card, Empty, ModePill, PageHeader, SeverityBadge, Stat, StatusDot, timeAgo } from "@/components/ui";
 import { TaskRow } from "@/components/TaskRow";
 
 export default async function Overview() {
-  const s = await getSnapshot();
-  const critical = s.tasks.filter((t) => t.severity === "critical").length;
-  const high = s.tasks.filter((t) => t.severity === "high").length;
+  const s = await getDashboard();
+  const critical = s.openTasks.filter((t) => t.severity === "critical").length;
+  const high = s.openTasks.filter((t) => t.severity === "high").length;
   const unread = s.emails.filter((e) => e.unread).length;
   const failing = s.hosting.filter((h) => h.lastDeployState === "error").length;
   const sitesUp = s.websites.filter((w) => w.status === "up").length;
   const users = s.websites.reduce((n, w) => n + (w.totalUsers ?? 0), 0);
   const newUsers = s.websites.reduce((n, w) => n + (w.newUsers7d ?? 0), 0);
 
-  const businesses = [...new Set([...s.repos, ...s.hosting, ...s.databases, ...s.websites].map((x) => x.business ?? "Unassigned"))].sort();
+  const businesses = [...new Set([...s.repos, ...s.hosting, ...s.databases, ...s.websites, ...s.openTasks].map((x) => x.business ?? "Unassigned"))].sort();
 
   return (
     <>
-      <PageHeader title="Good to see you" subtitle={`${critical} critical and ${high} high-priority items across ${businesses.length} businesses.`} />
+      <PageHeader title="Overview" subtitle={`${critical} critical and ${high} high-priority items across ${businesses.length} businesses.`} />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <Stat label="Critical" value={critical} tone={critical ? "critical" : "ok"} hint="needs you today" />
@@ -30,9 +30,9 @@ export default async function Overview() {
       </div>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-5">
-        <Card className="xl:col-span-3" title="What needs you" action={<Link href="/tasks" className="text-xs text-accent hover:underline">All {s.tasks.length} →</Link>}>
+        <Card className="xl:col-span-3" title="What needs you" action={<Link href="/tasks" className="text-xs text-accent hover:underline">All {s.openTasks.length} →</Link>}>
           <ul className="-my-2 divide-y divide-line">
-            {s.tasks.slice(0, 8).map((t) => <TaskRow key={t.id} task={t} />)}
+            {s.openTasks.length === 0 ? <Empty>Nothing needs you right now.</Empty> : s.openTasks.slice(0, 8).map((t) => <TaskRow key={t.id} task={t} compact />)}
           </ul>
         </Card>
 
@@ -42,7 +42,7 @@ export default async function Overview() {
               <li key={n.id} className="flex items-start gap-3 py-2.5">
                 <SeverityBadge severity={n.severity} />
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm">{n.title}</div>
+                  <div className="truncate text-sm">{n.url ? <a href={n.url} target="_blank" rel="noreferrer" className="hover:text-accent">{n.title}</a> : n.title}</div>
                   <div className="truncate text-xs text-muted">{n.source} · {timeAgo(n.at)}</div>
                 </div>
               </li>
@@ -55,7 +55,7 @@ export default async function Overview() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {businesses.map((b) => {
           const is = (x: { business?: string }) => (x.business ?? "Unassigned") === b;
-          const t = s.tasks.filter(is);
+          const t = s.openTasks.filter(is);
           const sites = s.websites.filter(is);
           return (
             <Card key={b} title={b} action={<Link href={`/tasks?business=${encodeURIComponent(b)}`} className="text-xs text-accent hover:underline">Tasks →</Link>}>
@@ -83,9 +83,9 @@ export default async function Overview() {
 
       <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wider text-muted">Connections</h2>
       <div className="flex flex-wrap gap-2">
-        {s.platforms.filter((p) => p.available).map((p) => (
+        {s.platforms.filter((p) => p.mode).map((p) => (
           <Link key={p.id} href="/platforms" className="flex items-center gap-2 rounded-lg border border-line bg-panel px-3 py-2 text-sm hover:border-accent/50">
-            {p.name} <ModePill mode={p.mode} /> <ArrowUpRight size={12} className="text-muted" />
+            {p.name} <ModePill mode={p.mode!} /> <ArrowUpRight size={12} className="text-muted" />
           </Link>
         ))}
       </div>

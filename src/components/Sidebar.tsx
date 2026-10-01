@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { Bell, CheckSquare, Database, Globe, LayoutDashboard, Mail, Menu, Plug, Server, GitBranch, X } from "lucide-react";
+import { Bell, CheckSquare, Database, Globe, LayoutDashboard, LogOut, Mail, Menu, Plug, Server, Settings, GitBranch, X } from "lucide-react";
+import { signOut } from "@/app/actions/auth";
 
 const NAV = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
@@ -15,9 +16,10 @@ const NAV = [
   { href: "/hosting", label: "Hosting", icon: Server },
   { href: "/databases", label: "Databases", icon: Database },
   { href: "/platforms", label: "Platforms", icon: Plug },
+  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
-export function Sidebar({ counts }: { counts: Record<string, number> }) {
+export function Sidebar({ counts, email }: { counts: Record<string, number>; email: string }) {
   const path = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -42,6 +44,15 @@ export function Sidebar({ counts }: { counts: Record<string, number> }) {
     </nav>
   );
 
+  const footer = (
+    <div className="mt-6 border-t border-line px-3 pt-4">
+      <div className="truncate text-xs text-muted" title={email}>{email}</div>
+      <form action={signOut}>
+        <button className="mt-2 inline-flex items-center gap-2 text-xs text-muted hover:text-ink"><LogOut size={12} /> Sign out</button>
+      </form>
+    </div>
+  );
+
   const brand = (
     <div className="mb-6 px-3">
       <div className="text-xs uppercase tracking-[0.2em] text-muted">Kaj Consulting</div>
@@ -57,16 +68,18 @@ export function Sidebar({ counts }: { counts: Record<string, number> }) {
       </div>
       {open && (
         <div className="fixed inset-0 z-40 bg-black/60 lg:hidden" onClick={() => setOpen(false)}>
-          <aside className="h-full w-72 border-r border-line bg-panel p-4" onClick={(e) => e.stopPropagation()}>
+          <aside className="h-full w-72 overflow-y-auto border-r border-line bg-panel p-4" onClick={(e) => e.stopPropagation()}>
             <button aria-label="Close menu" onClick={() => setOpen(false)} className="mb-2 ml-auto block rounded-md p-1.5 hover:bg-panel-2"><X size={18} /></button>
             {brand}
             {nav}
+            {footer}
           </aside>
         </div>
       )}
-      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 border-r border-line bg-panel p-4 lg:block">
+      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col overflow-y-auto border-r border-line bg-panel p-4 lg:flex">
         {brand}
         {nav}
+        <div className="mt-auto">{footer}</div>
       </aside>
     </>
   );

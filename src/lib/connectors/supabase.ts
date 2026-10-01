@@ -1,9 +1,11 @@
 import { demoDatabases } from "../demo";
-import { businessFor, env, fromSource, getJson } from "../source";
+import { businessFor, type BusinessRule } from "../server/config";
+import { supabaseToken } from "../server/credentials";
+import { fromSource, getJson } from "../source";
 import type { Database, Severity } from "../types";
 
 const API = "https://api.supabase.com/v1";
-const auth = () => ({ Authorization: `Bearer ${env("SUPABASE_ACCESS_TOKEN")}` });
+const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
 
 interface SbProject {
   id: string;
@@ -28,11 +30,11 @@ function mapStatus(s: string): Database["status"] {
   return "unknown";
 }
 
-async function advisories(ref: string) {
+async function advisories(token: string, ref: string) {
   const kinds = ["security", "performance"] as const;
   const results = await Promise.all(
     kinds.map((k) =>
-      getJson<{ lints: SbLint[] }>(`${API}/projects/${ref}/advisors/${k}`, { headers: auth() })
+      getJson<{ lints: SbLint[] }>(`${API}/projects/${ref}/advisors/${k}`, { headers: auth(token) })
         .then((r) => r.lints)
         .catch(() => [] as SbLint[]),
     ),
@@ -40,12 +42,13 @@ async function advisories(ref: string) {
   return results.flat().map((l) => ({ level: LINT_SEVERITY[l.level] ?? "low", title: l.detail ?? l.title }));
 }
 
-export function getSupabaseProjects() {
+export async function getSupabaseProjects(rules: BusinessRule[]) {
+  const token = await supabaseToken();
   return fromSource<Database[]>(
     "Supabase",
-    !!env("SUPABASE_ACCESS_TOKEN"),
+    !!token,
     async () => {
-      const projects = await getJson<SbProject[]>(`${API}/projects`, { headers: auth() });
+      const projects = await getJson<SbProject[]>(`${API}/projects`, { headers: auth(token!) });
       return Promise.all(
         projects.map(async (p) => {
           const status = mapStatus(p.status);
@@ -56,8 +59,8 @@ export function getSupabaseProjects() {
             region: p.region,
             status,
             createdAt: p.created_at,
-            advisories: status === "paused" ? [] : await advisories(p.id),
-            business: businessFor(p.name),
+            advisories: status === "paused" ? [] : await advisories(token!, p.id),
+            business: businessFor(p.name, rules),
           };
         }),
       );
@@ -69,11 +72,12 @@ export function getSupabaseProjects() {
 // Counts sign-ups in a Supabase project's auth.users via the Management API
 // query endpoint (a single select). Used for the "Websites & users" view.
 export async function countAuthUsers(ref: string): Promise<{ total: number; new7d: number } | null> {
-  if (!env("SUPABASE_ACCESS_TOKEN")) return null;
+  const token = await supabaseToken();
+  if (!token) return null;
   try {
-    const res = await fetch(`${API}/projects/${ref}/database/query`, {
+    const res = await fetch(`${API}/projects/${encodeURIComponent(ref)}/database/query`, {
       method: "POST",
-      headers: { ...auth(), "Content-Type": "application/json" },
+      headers: { ...auth(token), "Content-Type": "application/json" },
       body: JSON.stringify({
         query: "select count(*)::int as total, count(*) filter (where created_at > now() - interval '7 days')::int as new7d from auth.users",
       }),

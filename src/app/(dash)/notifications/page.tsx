@@ -1,11 +1,11 @@
-import { getSnapshot } from "@/lib/aggregate";
+import { getDashboard } from "@/lib/server/dashboard";
 import { Card, Empty, PageHeader, SeverityBadge, timeAgo } from "@/components/ui";
 
 export default async function NotificationsPage() {
-  const s = await getSnapshot();
+  const s = await getDashboard();
   return (
     <>
-      <PageHeader title="Notifications" subtitle="Email, GitHub and deploy events from every platform, newest first." />
+      <PageHeader title="Notifications" subtitle="Email, GitHub, Vercel, Stripe, Supabase and uptime events, newest first. Kept for 90 days." />
       <Card>
         {s.notifications.length === 0 ? <Empty>All quiet.</Empty> : (
           <ul className="-my-2 divide-y divide-line">

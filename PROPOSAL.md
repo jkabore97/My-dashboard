@@ -19,7 +19,7 @@ A working Next.js app, deployable to Vercel, protected by a password.
 - **Platforms page**: what's connected, what's broken and why, what's planned.
 - Every connector works on its own: missing keys show demo data, broken keys show an error and create a "fix this" task.
 
-**Limits of v0.1:** it is read-only, keeps no history, and only knows what it fetched in the last 2 minutes. Phase 1 fixes that.
+**Limits of v0.1:** it was read-only, kept no history, and only knew what it fetched in the last 2 minutes. Phase 1 (below, now shipped) fixed that.
 
 ---
 
@@ -35,8 +35,8 @@ A working Next.js app, deployable to Vercel, protected by a password.
 
 ## 3. Roadmap
 
-### Phase 1: Foundation (≈ 1–2 weeks)
-*Gives the dashboard memory and real-time updates.*
+### Phase 1: Foundation ✅ shipped
+*Gives the dashboard memory and real-time updates.* Everything in the table below is built; see the README for setup.
 
 | Item | Why |
 |---|---|
@@ -44,7 +44,8 @@ A working Next.js app, deployable to Vercel, protected by a password.
 | **Task actions**: done, snooze, assign a business, add manual tasks | Today the list regenerates every load; you need to be able to clear things |
 | **Webhooks** from GitHub, Vercel, Stripe, Supabase | Events arrive in seconds instead of on the next refresh |
 | **Scheduled checks** (Vercel Cron, every 5 min) | Uptime and expiries get checked even when the dashboard is closed |
-| **Proper login**: Google sign-in or passkey plus 2FA, replacing the shared password | Same reason a bank doesn't use one shared password |
+| **Proper login**: Google sign-in (allow-listed) and/or password, plus mandatory authenticator-app 2FA with recovery codes | Same reason a bank doesn't use one shared password |
+| **Audit log, rate limiting, sign out everywhere** | Know who did what; stop password guessing |
 | **Connect from the UI**: OAuth "Connect Gmail / GitHub / Vercel" buttons, tokens encrypted at rest | No more pasting tokens into environment variables |
 
 ### Phase 2: Money & risk (≈ 2 weeks)
@@ -100,20 +101,20 @@ A working Next.js app, deployable to Vercel, protected by a password.
                                           Claude: triage, Q&A, drafts
 ```
 
-- **Today:** the dashboard calls each API when you open it and caches the result for 2 minutes. Stateless, no database.
-- **Phase 1+:** cron jobs and webhooks write into Supabase. The dashboard reads from its own database, so it's instant, has history, and shows events that happened while it was closed.
+- **v0.1:** the dashboard called each API when opened and cached the result for 2 minutes. Stateless, no database.
+- **Phase 1 (now):** cron jobs and webhooks write into Postgres (Supabase). The dashboard reads from its own database, so it's instant, has history, and shows events that happened while it was closed.
 - The connector pattern already in the code (`src/lib/connectors/*`) stays. Each new platform is one file.
 
 ---
 
 ## 5. Security plan
 
-| Now (v0.1) | Phase 1 |
-|---|---|
-| One password, hashed session cookie, production won't run without it | Google sign-in or passkeys, 2FA required |
-| API tokens in Vercel env vars | OAuth tokens encrypted in the database, read-only scopes wherever they exist |
-| Read-only access to every platform | Write actions (redeploy, reply) need a confirmation and are recorded in an audit log |
-| Not indexed by search engines | Optional IP or Cloudflare Access protection in front |
+| v0.1 | Phase 1 (shipped) | Later |
+|---|---|---|
+| One shared password | Google sign-in (allow-list) or password, **plus mandatory 2FA** and recovery codes | Passkeys |
+| API tokens in env vars | OAuth/API tokens **encrypted (AES-256-GCM)** in the database; env vars as fallback | Key rotation tool |
+| No record of actions | **Audit log** of sign-ins, connections, settings and task changes; rate-limited login | Alerts on suspicious sign-ins |
+| — | Signed webhooks, secret-protected cron, RLS on every table | Optional Cloudflare Access in front |
 
 ---
 

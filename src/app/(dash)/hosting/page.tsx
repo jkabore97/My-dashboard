@@ -1,13 +1,13 @@
-import { getSnapshot } from "@/lib/aggregate";
+import { getDashboard } from "@/lib/server/dashboard";
 import { Card, PageHeader, StatusDot, Table, td, timeAgo } from "@/components/ui";
 
 const DOT = { ready: "ok", building: "warn", queued: "warn", error: "bad", canceled: "idle" } as const;
 
 export default async function HostingPage() {
-  const s = await getSnapshot();
+  const s = await getDashboard();
   return (
     <>
-      <PageHeader title="Hosting" subtitle="Vercel projects and Cloudflare Workers with their latest production deploy." />
+      <PageHeader mode={s.modes.vercel === "live" || s.modes.workers === "live" ? "live" : s.modes.vercel} title="Hosting" subtitle="Vercel projects and Cloudflare Workers with their latest production deploy." />
       <Card>
         <Table head={["Project", "Provider", "Business", "Last deploy", "When", "URL"]}>
           {s.hosting.map((h) => (

@@ -15,11 +15,11 @@ export function Card({ title, action, children, className = "" }: { title?: Reac
   );
 }
 
-export function PageHeader({ title, subtitle, children }: { title: string; subtitle?: string; children?: ReactNode }) {
+export function PageHeader({ title, subtitle, mode, children }: { title: string; subtitle?: string; mode?: SourceMode; children?: ReactNode }) {
   return (
     <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
       <div>
-        <h1 className="text-2xl font-semibold">{title}</h1>
+        <h1 className="flex items-center gap-3 text-2xl font-semibold">{title}{mode && mode !== "live" && <ModePill mode={mode} />}</h1>
         {subtitle && <p className="mt-1 text-sm text-muted">{subtitle}</p>}
       </div>
       {children}
@@ -59,13 +59,14 @@ export function StatusDot({ status }: { status: "ok" | "warn" | "bad" | "idle" }
 }
 
 export function ModePill({ mode }: { mode: SourceMode | "planned" }) {
+  const title = { live: "Live data", demo: "Sample data: connect this platform to see yours", error: "Connection failing; showing sample data", planned: "Planned" }[mode];
   const style = {
     live: "bg-ok/15 text-ok",
     demo: "bg-low/20 text-muted",
     error: "bg-critical/15 text-critical",
     planned: "bg-accent/10 text-accent",
   }[mode];
-  return <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${style}`}>{mode}</span>;
+  return <span title={title} className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${style}`}>{mode === "demo" ? "sample data" : mode}</span>;
 }
 
 export function Empty({ children }: { children: ReactNode }) {

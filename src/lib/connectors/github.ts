@@ -1,12 +1,14 @@
 import { demoRepos } from "../demo";
-import { businessFor, env, fromSource, getJson } from "../source";
+import { businessFor, type BusinessRule } from "../server/config";
+import { githubToken } from "../server/credentials";
+import { fromSource, getJson } from "../source";
 import type { Notification, Repo, Severity } from "../types";
 
 const API = "https://api.github.com";
 
-function headers() {
+function headers(token: string) {
   return {
-    Authorization: `Bearer ${env("GITHUB_TOKEN")}`,
+    Authorization: `Bearer ${token}`,
     Accept: "application/vnd.github+json",
     "X-GitHub-Api-Version": "2022-11-28",
   };
@@ -25,20 +27,21 @@ interface GhRepo {
   archived: boolean;
 }
 
-export function getRepos() {
+export async function getRepos(rules: BusinessRule[]) {
+  const token = await githubToken();
   return fromSource<Repo[]>(
     "GitHub",
-    !!env("GITHUB_TOKEN"),
+    !!token,
     async () => {
       const repos = await getJson<GhRepo[]>(
         `${API}/user/repos?per_page=100&sort=pushed&affiliation=owner,organization_member`,
-        { headers: headers() },
+        { headers: headers(token!) },
       );
       const active = repos.filter((r) => !r.archived);
       // open_issues_count includes PRs; count PRs separately for the most active repos.
       const prCounts = await Promise.all(
         active.slice(0, 15).map((r) =>
-          getJson<unknown[]>(`${API}/repos/${r.full_name}/pulls?state=open&per_page=100`, { headers: headers() })
+          getJson<unknown[]>(`${API}/repos/${r.full_name}/pulls?state=open&per_page=100`, { headers: headers(token!) })
             .then((prs) => prs.length)
             .catch(() => 0),
         ),
@@ -56,7 +59,7 @@ export function getRepos() {
           openIssues: Math.max(0, r.open_issues_count - prs),
           openPullRequests: prs,
           pushedAt: r.pushed_at,
-          business: businessFor(r.name),
+          business: businessFor(r.name, rules),
         };
       });
     },
@@ -81,14 +84,15 @@ const REASON_SEVERITY: Record<string, Severity> = {
   team_mention: "medium",
 };
 
-export function getGithubNotifications() {
+export async function getGithubNotifications() {
+  const token = await githubToken();
   return fromSource<Notification[]>(
     "GitHub",
-    !!env("GITHUB_TOKEN"),
+    !!token,
     async () => {
-      const items = await getJson<GhNotification[]>(`${API}/notifications?per_page=30`, { headers: headers() });
+      const items = await getJson<GhNotification[]>(`${API}/notifications?per_page=30`, { headers: headers(token!) });
       return items.map((n) => ({
-        id: `gh-${n.id}`,
+        id: `gh-${n.id}-${n.updated_at}`,
         source: "GitHub",
         title: n.subject.title,
         body: `${n.repository.full_name} · ${n.reason.replace(/_/g, " ")}`,

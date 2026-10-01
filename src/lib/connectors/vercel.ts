@@ -1,5 +1,7 @@
 import { demoHosting } from "../demo";
-import { businessFor, env, fromSource, getJson } from "../source";
+import { businessFor, type BusinessRule } from "../server/config";
+import { vercelCreds } from "../server/credentials";
+import { fromSource, getJson } from "../source";
 import type { DeployState, HostingProject } from "../types";
 
 interface VercelProject {
@@ -7,12 +9,11 @@ interface VercelProject {
   name: string;
   framework: string | null;
   link?: { repo?: string };
-  alias?: { domain: string }[];
   targets?: { production?: { alias?: string[]; readyState?: string; createdAt?: number } };
   latestDeployments?: { readyState?: string; createdAt?: number; url?: string }[];
 }
 
-function mapState(s?: string): DeployState | null {
+export function mapVercelState(s?: string): DeployState | null {
   switch (s) {
     case "READY": return "ready";
     case "ERROR": return "error";
@@ -24,30 +25,31 @@ function mapState(s?: string): DeployState | null {
   }
 }
 
-export function getVercelProjects() {
-  const team = env("VERCEL_TEAM_ID");
+export async function getVercelProjects(rules: BusinessRule[]) {
+  const creds = await vercelCreds();
   return fromSource<HostingProject[]>(
     "Vercel",
-    !!env("VERCEL_TOKEN"),
+    !!creds,
     async () => {
       const { projects } = await getJson<{ projects: VercelProject[] }>(
-        `https://api.vercel.com/v9/projects?limit=100${team ? `&teamId=${team}` : ""}`,
-        { headers: { Authorization: `Bearer ${env("VERCEL_TOKEN")}` } },
+        `https://api.vercel.com/v9/projects?limit=100${creds!.teamId ? `&teamId=${encodeURIComponent(creds!.teamId)}` : ""}`,
+        { headers: { Authorization: `Bearer ${creds!.token}` } },
       );
       return projects.map((p) => {
         const prod = p.targets?.production;
         const latest = p.latestDeployments?.[0];
         const domain = prod?.alias?.find((a) => !a.endsWith(".vercel.app")) ?? prod?.alias?.[0] ?? latest?.url;
+        const at = prod?.createdAt ?? latest?.createdAt;
         return {
           id: p.id,
           name: p.name,
           provider: "vercel" as const,
           url: domain ? `https://${domain}` : null,
           framework: p.framework,
-          lastDeployState: mapState(prod?.readyState ?? latest?.readyState),
-          lastDeployAt: (prod?.createdAt ?? latest?.createdAt) ? new Date((prod?.createdAt ?? latest?.createdAt)!).toISOString() : null,
+          lastDeployState: mapVercelState(prod?.readyState ?? latest?.readyState),
+          lastDeployAt: at ? new Date(at).toISOString() : null,
           repo: p.link?.repo,
-          business: businessFor(p.name),
+          business: businessFor(p.name, rules),
         };
       });
     },

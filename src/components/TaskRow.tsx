@@ -1,22 +1,35 @@
 import { ExternalLink } from "lucide-react";
-import type { Task } from "@/lib/types";
+import type { TaskView } from "@/lib/server/dashboard";
 import { SeverityBadge, timeAgo } from "./ui";
+import { TaskActions } from "./TaskActions";
 
-export function TaskRow({ task: t }: { task: Task }) {
+export function TaskRow({ task: t, businesses = [], compact = false }: { task: TaskView; businesses?: string[]; compact?: boolean }) {
+  const meta = [
+    t.source,
+    t.business && !t.source.includes(t.business) ? t.business : null,
+    timeAgo(t.createdAt),
+    t.status === "snoozed" && t.snoozedUntil ? `snoozed until ${new Date(t.snoozedUntil).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" })}` : null,
+    t.detail,
+  ].filter(Boolean);
+  const external = t.url && /^https?:/.test(t.url);
   return (
-    <li className="flex items-start gap-3 py-2.5">
+    <li className="flex flex-wrap items-start gap-x-3 gap-y-2 py-2.5">
       <SeverityBadge severity={t.severity} />
-      <div className="min-w-0 flex-1">
-        <div className="break-words text-sm">{t.title}</div>
-        <div className="truncate text-xs text-muted">
-          {t.source}{t.business && !t.source.includes(t.business) ? ` · ${t.business}` : ""} · {timeAgo(t.createdAt)}{t.detail ? ` · ${t.detail}` : ""}
+      <div className="min-w-0 flex-1 basis-48">
+        <div className={`break-words text-sm ${t.status === "done" ? "text-muted line-through" : ""}`}>
+          {t.url ? (
+            <a href={t.url} target={external ? "_blank" : undefined} rel="noreferrer" className="hover:text-accent">
+              {t.title}
+              {external && <ExternalLink size={11} className="ml-1 inline align-baseline text-muted" />}
+            </a>
+          ) : (
+            t.title
+          )}
+          {t.origin === "demo" && <span className="ml-2 rounded bg-low/20 px-1 text-[10px] uppercase tracking-wider text-muted">demo</span>}
         </div>
+        <div className="truncate text-xs text-muted">{meta.join(" · ")}</div>
       </div>
-      {t.url && (
-        <a href={t.url} target="_blank" rel="noreferrer" aria-label="Open" className="rounded p-1 text-muted hover:bg-panel-2 hover:text-ink">
-          <ExternalLink size={14} />
-        </a>
-      )}
+      {!compact && t.actionable && <TaskActions id={t.id} status={t.status} manual={t.origin === "manual"} business={t.business} businesses={businesses} />}
     </li>
   );
 }

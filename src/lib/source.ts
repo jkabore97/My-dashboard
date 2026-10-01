@@ -22,7 +22,7 @@ export async function fromSource<T>(
 }
 
 export async function getJson<T>(url: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(url, { ...init, next: { revalidate: REVALIDATE_SECONDS } });
+  const res = await fetch(url, init.cache ? init : { ...init, next: { revalidate: REVALIDATE_SECONDS } });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(`${res.status} ${res.statusText} from ${new URL(url).host}${body ? `: ${body.slice(0, 160)}` : ""}`);
@@ -33,16 +33,4 @@ export async function getJson<T>(url: string, init: RequestInit = {}): Promise<T
 export function env(name: string): string | undefined {
   const v = process.env[name];
   return v && v.trim() ? v.trim() : undefined;
-}
-
-// BUSINESS_MAP="repo-or-project-name=Business Name,other=Other Biz" lets one
-// dashboard group resources across several companies.
-export function businessFor(name: string): string | undefined {
-  const raw = env("BUSINESS_MAP");
-  if (!raw) return undefined;
-  for (const pair of raw.split(",")) {
-    const [key, value] = pair.split("=").map((s) => s.trim());
-    if (key && value && name.toLowerCase().includes(key.toLowerCase())) return value;
-  }
-  return undefined;
 }

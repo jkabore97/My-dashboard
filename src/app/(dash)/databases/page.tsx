@@ -1,13 +1,13 @@
-import { getSnapshot } from "@/lib/aggregate";
+import { getDashboard } from "@/lib/server/dashboard";
 import { Card, PageHeader, SeverityBadge, StatusDot, Table, td, timeAgo } from "@/components/ui";
 
 const DOT = { healthy: "ok", degraded: "bad", paused: "idle", unknown: "idle" } as const;
 
 export default async function DatabasesPage() {
-  const s = await getSnapshot();
+  const s = await getDashboard();
   return (
     <>
-      <PageHeader title="Databases" subtitle="Supabase projects (with security and performance advisors) and Cloudflare D1." />
+      <PageHeader mode={s.modes.supabase === "live" || s.modes.d1 === "live" ? "live" : s.modes.supabase} title="Databases" subtitle="Supabase projects (with security and performance advisors) and Cloudflare D1." />
       <Card>
         <Table head={["Database", "Provider", "Business", "Region", "Status", "Advisories", "Created"]}>
           {s.databases.map((d) => (
