@@ -8,16 +8,16 @@ import { readConnections, type Connection, type Provider } from "./store/connect
 const loadConnections = cache(async () => {
   try {
     const { list, undecryptable } = await readConnections<Record<string, string>>();
-    return { ok: undecryptable === 0, list, undecryptable };
+    return { ok: undecryptable.length === 0, list, undecryptable };
   } catch {
-    return { ok: false, list: [], undecryptable: 0 };
+    return { ok: false, list: [], undecryptable: [] as { provider: Provider; account: string }[] };
   }
 });
 
 /**
  * `readable` is false when stored connections couldn't all be read (database
  * down, or rows that no longer decrypt), so a provider that looks unconnected
- * may not be. `undecryptable` counts the latter.
+ * may not be. `undecryptable` lists the latter.
  */
 export const connectionHealth = async () => {
   const { ok, undecryptable } = await loadConnections();

@@ -37,7 +37,8 @@ export const collect = cache(async () => {
   const databases = [...supabase.data, ...d1.data];
   // When stored connections couldn't be read, "demo" may mean "credentials
   // unknown" rather than "not connected", so it can't be used to close tasks.
-  const { readable: credentialsKnown, undecryptable: undecryptableConnections } = await connectionHealth();
+  const { readable: credentialsKnown, undecryptable } = await connectionHealth();
+  const guards = undecryptableGuards(undecryptable);
 
   const sources: SourceResult<unknown>[] = [repos, vercel, workers, supabase, d1, emails, websites];
   const modes = {
@@ -88,9 +89,10 @@ export const collect = cache(async () => {
       Website: websites.mode,
     }),
     sources: sources.map(({ source, mode, error, partial, fetchedAt }) => ({ source, mode, error, partial, fetchedAt })),
-    unobserved: unobservedKeys({ gmail: emails.partial, supabase: supabase.partial, github: repos.partial }),
+    unobserved: [...unobservedKeys({ gmail: emails.partial, supabase: supabase.partial, github: repos.partial }), ...guards.unobserved],
+    skipScopes: guards.skipScopes,
     credentialsKnown,
-    undecryptableConnections,
+    undecryptableConnections: undecryptable.length,
     allDemo: sources.every((s) => s.mode === "demo"),
   };
 });
@@ -182,4 +184,19 @@ export function unobservedKeys(p: { gmail?: { key: string }[]; supabase?: { key:
     ...(p.supabase ?? []).map(({ key }) => `supabase/advisor:${key}:`),
     ...(p.github ?? []).flatMap(({ key }) => ["prs", "issues", "stale"].map((k) => `github/${k}:${key}`)),
   ];
+}
+
+const PROVIDER_SCOPES: Record<string, Scope[]> = { github: ["github"], vercel: ["vercel"], supabase: ["supabase"], cloudflare: ["workers", "d1"] };
+
+/**
+ * A stored connection that no longer decrypts is an account we can't see, even
+ * if an env fallback (or another mailbox) keeps the source live: its tasks
+ * must not auto-close. Gmail is protected per mailbox (keyed by address, as in
+ * deriveTasks); single-account providers lose reconciliation entirely.
+ */
+export function undecryptableGuards(rows: { provider: string; account: string }[]): { unobserved: string[]; skipScopes: string[] } {
+  return {
+    unobserved: rows.filter((r) => r.provider === "gmail").map((r) => `gmail/${encodeURIComponent(r.account)}/`),
+    skipScopes: [...new Set(rows.flatMap((r) => PROVIDER_SCOPES[r.provider] ?? []))],
+  };
 }

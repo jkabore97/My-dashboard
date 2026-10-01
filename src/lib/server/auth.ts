@@ -30,9 +30,29 @@ export const require2fa = () => env("REQUIRE_2FA") !== "false";
 export const googleSignInEnabled = () => !!(env("GOOGLE_CLIENT_ID") && env("GOOGLE_CLIENT_SECRET") && allowedEmails().length);
 export const passwordSignInEnabled = () => !!env("DASHBOARD_PASSWORD");
 
+/** Whether this deployment can know a caller's real IP (see pickClientIp). */
+export const clientIpVerifiable = () => !!process.env.VERCEL || env("TRUSTED_PROXY") === "true";
+
+/** Shown in Settings when password sign-in falls back to the shared limit for unknown IPs. */
+export const sharedLoginLimitWarning = () =>
+  isProduction() && passwordSignInEnabled() && !clientIpVerifiable()
+    ? "Client IPs can't be verified, so password sign-in uses one shared rate limit that anyone can exhaust. Set TRUSTED_PROXY=true behind a proxy that sets X-Real-IP, or deploy on Vercel."
+    : null;
+
+let warnedNoIp = false;
+
 /** The caller's IP, or null when no trustworthy source for it exists. */
 export async function clientIp(): Promise<string | null> {
-  return pickClientIp(await headers(), { onVercel: !!process.env.VERCEL, trustedProxy: env("TRUSTED_PROXY") === "true" });
+  const ip = pickClientIp(await headers(), { onVercel: !!process.env.VERCEL, trustedProxy: env("TRUSTED_PROXY") === "true" });
+  if (ip === null && isProduction() && !warnedNoIp) {
+    warnedNoIp = true;
+    console.warn(
+      clientIpVerifiable()
+        ? "[auth] A request arrived without the expected client-IP header; it shares the sign-in limit for unknown IPs."
+        : "[auth] Client IPs can't be verified (not on Vercel, TRUSTED_PROXY unset), so password sign-in uses one shared rate limit that anyone can exhaust. Set TRUSTED_PROXY=true behind a proxy that sets X-Real-IP.",
+    );
+  }
+  return ip;
 }
 
 /**

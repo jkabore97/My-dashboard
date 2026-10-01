@@ -20,8 +20,9 @@ export async function persist(c: Collected, { force = false } = {}) {
   // A source that is failing (wholly, or the parts in c.unobserved) never
   // auto-resolves the tasks it couldn't see. A source that isn't configured
   // (demo) has no conditions left, so its tasks close: that's a disconnect.
+  // skipScopes: providers with a stored connection that no longer decrypts.
   const scopes = (Object.entries(c.modes) as [string, string][])
-    .filter(([, m]) => m === "live" || (m === "demo" && c.credentialsKnown))
+    .filter(([k, m]) => (m === "live" || (m === "demo" && c.credentialsKnown)) && !c.skipScopes.includes(k))
     .map(([k]) => k);
   await reconcileDerived(c.derivedTasks.filter((t) => t.live), ["connector", ...scopes], c.unobserved);
 

@@ -1,8 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { decrypt, encrypt, safeEqual } from "@/lib/server/crypto";
 import { base32Decode, base32Encode, hotp, totp, verifyTotp, currentStep } from "@/lib/server/totp";
 import { signSession, verifySession } from "@/lib/session";
-import { pickClientIp } from "@/lib/server/auth";
+import { clientIp, pickClientIp, sharedLoginLimitWarning } from "@/lib/server/auth";
+
+vi.mock("next/headers", async (orig) => ({ ...(await orig<object>()), headers: async () => new Headers({ "x-real-ip": "6.6.6.6" }) }));
 
 describe("encryption", () => {
   it("round-trips and uses a fresh IV each time", () => {
@@ -80,5 +82,35 @@ describe("client IP", () => {
   it("behind a trusted proxy, uses what the proxy set, never the left-most X-Forwarded-For entry", () => {
     expect(pickClientIp(h(spoofable), { onVercel: false, trustedProxy: true })).toBe("10.0.0.2");
     expect(pickClientIp(h({ "x-forwarded-for": "6.6.6.6, 10.0.0.1" }), { onVercel: false, trustedProxy: true })).toBe("10.0.0.1");
+  });
+});
+
+describe("shared login limit warning", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  it("shows only in production with password sign-in and no verifiable IP", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("DASHBOARD_PASSWORD", "pw");
+    vi.stubEnv("VERCEL", "");
+    vi.stubEnv("TRUSTED_PROXY", "");
+    expect(sharedLoginLimitWarning()).toMatch(/TRUSTED_PROXY=true/);
+    vi.stubEnv("TRUSTED_PROXY", "true");
+    expect(sharedLoginLimitWarning()).toBeNull();
+    vi.stubEnv("TRUSTED_PROXY", "");
+    vi.stubEnv("VERCEL", "1");
+    expect(sharedLoginLimitWarning()).toBeNull();
+    vi.stubEnv("VERCEL", "");
+    vi.stubEnv("NODE_ENV", "development");
+    expect(sharedLoginLimitWarning()).toBeNull();
+  });
+  it("logs once when production can't tell client IPs apart", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL", "");
+    vi.stubEnv("TRUSTED_PROXY", "");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(await clientIp()).toBeNull(); // the forged x-real-ip is ignored
+    expect(await clientIp()).toBeNull();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0][0])).toMatch(/TRUSTED_PROXY/);
+    warn.mockRestore();
   });
 });

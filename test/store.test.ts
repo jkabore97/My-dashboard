@@ -10,7 +10,7 @@ import { deleteConnection, listConnections, readConnections, saveConnection } fr
 import { consumeRecoveryCode, ensureUser, markTotpStep, setRecoveryCodes } from "@/lib/server/store/users";
 import type { Task } from "@/lib/types";
 import { persist } from "@/lib/server/sync";
-import type { Collected } from "@/lib/aggregate";
+import { undecryptableGuards, type Collected } from "@/lib/aggregate";
 
 const t = (id: string, extra: Partial<Task> = {}): Task => ({ id, title: id, severity: "high", source: "Test", createdAt: new Date().toISOString(), ...extra });
 
@@ -62,11 +62,19 @@ describe("derived task reconciliation", () => {
   it("closes tasks of a disconnected source, not of a failing one", async () => {
     await reconcileDerived([t("github/a"), t("gmail/A/m1")], ["github", "gmail"]);
     const c = (credentialsKnown: boolean) =>
-      ({ modes: { github: "demo", gmail: "error", websites: "demo" }, derivedTasks: [], notifications: [], websites: [], unobserved: [], credentialsKnown }) as unknown as Collected;
+      ({ modes: { github: "demo", gmail: "error", websites: "demo" }, derivedTasks: [], notifications: [], websites: [], unobserved: [], skipScopes: [], credentialsKnown }) as unknown as Collected;
     await persist(c(false), { force: true }); // connections unreadable: demo may not mean disconnected
     expect(await listTasks("open")).toHaveLength(2);
     await persist(c(true), { force: true });
     expect((await listTasks("open")).map((x) => x.title)).toEqual(["gmail/A/m1"]);
+  });
+
+  it("an undecryptable connection keeps its tasks open even when a fallback keeps the source live", async () => {
+    await reconcileDerived([t("github/prs:a"), t("gmail/a%40x.co/m1"), t("gmail/b%40x.co/m2"), t("workers/deploy-failed:w")], ["github", "gmail", "workers"]);
+    const guards = undecryptableGuards([{ provider: "github", account: "kaj" }, { provider: "gmail", account: "a@x.co" }]);
+    const c = { modes: { github: "live", gmail: "live", workers: "live" }, derivedTasks: [], notifications: [], websites: [], credentialsKnown: false, ...guards } as unknown as Collected;
+    await persist(c, { force: true }); // env token / other mailbox answered with nothing
+    expect((await listTasks("open")).map((x) => x.title).sort()).toEqual(["github/prs:a", "gmail/a%40x.co/m1"]);
   });
 
   it("keeps a business override across refreshes", async () => {
@@ -200,13 +208,29 @@ describe("connections and users", () => {
     await saveConnection({ provider: "github", account: "kaj", secret: { token: "t" } });
     await saveConnection({ provider: "gmail", account: "a@x.co", secret: { refreshToken: "r" } });
     const { connectionHealth } = await import("@/lib/server/credentials");
-    expect(await connectionHealth()).toEqual({ readable: true, undecryptable: 0 });
+    expect(await connectionHealth()).toEqual({ readable: true, undecryptable: [] });
     const db = await getDb();
     await db.query("update connections set secret = 'v1:AAAA:BBBB:CCCC' where provider = 'github'"); // as if ENCRYPTION_KEY changed
     const { list, undecryptable } = await readConnections();
     expect(list.map((c) => c.provider)).toEqual(["gmail"]);
-    expect(undecryptable).toBe(1);
-    expect(await connectionHealth()).toEqual({ readable: false, undecryptable: 1 });
+    expect(undecryptable).toEqual([{ provider: "github", account: "kaj" }]);
+    expect(await connectionHealth()).toEqual({ readable: false, undecryptable: [{ provider: "github", account: "kaj" }] });
+  });
+  it("TOTP-only verification never consumes a recovery code", async () => {
+    const { generateSecret, totp } = await import("@/lib/server/totp");
+    const { encrypt } = await import("@/lib/server/crypto");
+    const { newRecoveryCodes, verifySecondFactor, verifyTotpOnly } = await import("@/lib/server/twofactor");
+    const { enableTotp } = await import("@/lib/server/store/users");
+    const secret = generateSecret();
+    const { codes, hashes } = newRecoveryCodes(2);
+    await ensureUser("t@x.co");
+    await enableTotp("t@x.co", encrypt(secret), 0, hashes);
+    expect(await verifyTotpOnly("t@x.co", codes[0])).toBe(false);
+    expect(await verifySecondFactor("t@x.co", codes[0])).toBe("recovery"); // still unused
+    const code = totp(secret);
+    expect(await verifyTotpOnly("t@x.co", code)).toBe(true);
+    expect(await verifyTotpOnly("t@x.co", code)).toBe(false); // no replay
+    expect(await verifySecondFactor("t@x.co", "000000")).toBe(null);
   });
   it("TOTP steps only move forward; recovery codes are single-use", async () => {
     await ensureUser("a@b.c");

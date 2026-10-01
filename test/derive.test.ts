@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveTasks, unobservedKeys } from "@/lib/aggregate";
+import { deriveTasks, undecryptableGuards, unobservedKeys } from "@/lib/aggregate";
 import { classifyEmail } from "@/lib/connectors/gmail";
 import { parseBusinessRules, parseSites, businessFor } from "@/lib/server/config";
 import { demoDatabases, demoEmails, demoHosting, demoRepos, demoWebsites } from "@/lib/demo";
@@ -68,6 +68,15 @@ describe("partial failures", () => {
       "github/issues:kaj/unknown",
       "github/stale:kaj/unknown",
     ]);
+  });
+});
+
+describe("undecryptable connections", () => {
+  it("protect that mailbox, or every scope of that provider", () => {
+    expect(undecryptableGuards([{ provider: "gmail", account: "a@x.co" }, { provider: "cloudflare", account: "abc" }, { provider: "vercel", account: "t" }])).toEqual({
+      unobserved: ["gmail/a%40x.co/"],
+      skipScopes: ["workers", "d1", "vercel"],
+    });
   });
 });
 

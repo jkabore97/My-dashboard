@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { signOutEverywhere } from "@/app/actions/auth";
-import { requireUser, require2fa } from "@/lib/server/auth";
+import { requireUser, require2fa, sharedLoginLimitWarning } from "@/lib/server/auth";
 import { formatBusinessRules, formatSites, getConfig } from "@/lib/server/config";
 import { listAudit } from "@/lib/server/store/audit";
 import { getUser } from "@/lib/server/store/users";
@@ -47,6 +47,12 @@ export default async function SettingsPage() {
                   <dd><ResetTwoFactorForm /></dd>
                 </div>
               </>
+            )}
+            {sharedLoginLimitWarning() && (
+              <div>
+                <dt className="font-medium">Sign-in rate limit</dt>
+                <dd className="mt-1 text-high">{sharedLoginLimitWarning()}</dd>
+              </div>
             )}
             <div>
               <dt className="mb-2 font-medium">Sessions</dt>

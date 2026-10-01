@@ -42,19 +42,27 @@ export async function confirmEnrollment(email: string, code: string): Promise<st
   return codes;
 }
 
+const isTotpShaped = (s: string) => /^\d[\d\s]{5,7}$/.test(s);
+
 /** Verifies a TOTP code (no reuse) or consumes a recovery code. */
 export async function verifySecondFactor(email: string, input: string): Promise<"totp" | "recovery" | null> {
-  const user = await getUser(email);
-  if (!user?.totp_secret) return null;
+  if (await verifyTotpOnly(email, input)) return "totp";
   const trimmed = input.trim();
-  if (/^\d[\d\s]{5,7}$/.test(trimmed)) {
-    const last = user.totp_last_step == null ? null : Number(user.totp_last_step);
-    const step = verifyTotp(decrypt(user.totp_secret), trimmed, last);
-    if (step !== null && (await markTotpStep(email, step))) return "totp";
-    return null;
-  }
-  if (normalizeRecovery(trimmed).length === 12 && (await consumeRecoveryCode(email, hashRecovery(trimmed)))) return "recovery";
+  if (isTotpShaped(trimmed)) return null;
+  const user = await getUser(email);
+  if (user?.totp_secret && normalizeRecovery(trimmed).length === 12 && (await consumeRecoveryCode(email, hashRecovery(trimmed)))) return "recovery";
   return null;
+}
+
+/** Verifies an authenticator code (no reuse). Never touches recovery codes. */
+export async function verifyTotpOnly(email: string, input: string): Promise<boolean> {
+  const trimmed = input.trim();
+  if (!isTotpShaped(trimmed)) return false;
+  const user = await getUser(email);
+  if (!user?.totp_secret) return false;
+  const last = user.totp_last_step == null ? null : Number(user.totp_last_step);
+  const step = verifyTotp(decrypt(user.totp_secret), trimmed, last);
+  return step !== null && (await markTotpStep(email, step));
 }
 
 /** One-time token that lets the browser that just enrolled upgrade its session. */

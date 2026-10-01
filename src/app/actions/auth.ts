@@ -6,7 +6,7 @@ import { safeEqual } from "@/lib/server/crypto";
 import { attempt, loginLimit, succeeded, twoFactorLimit } from "@/lib/server/limits";
 import { audit } from "@/lib/server/store/audit";
 import { bumpSessionVersion, getUser, resetTotp, setRecoveryCodes } from "@/lib/server/store/users";
-import { confirmEnrollment, consumeFinishToken, createFinishToken, newRecoveryCodes, verifySecondFactor } from "@/lib/server/twofactor";
+import { confirmEnrollment, consumeFinishToken, createFinishToken, newRecoveryCodes, verifySecondFactor, verifyTotpOnly } from "@/lib/server/twofactor";
 
 export interface FormState {
   error?: string;
@@ -111,7 +111,7 @@ export async function regenerateRecoveryCodes(_prev: FormState, form: FormData):
   const user = await requireUser();
   const limit = twoFactorLimit(user.email);
   if (!(await attempt(limit, user.email, await clientIp()))) return { error: "Too many attempts. Wait 10 minutes." };
-  if ((await verifySecondFactor(user.email, String(form.get("code") ?? ""))) !== "totp") return { error: "Enter a current code from your authenticator app." };
+  if (!(await verifyTotpOnly(user.email, String(form.get("code") ?? "")))) return { error: "Enter a current code from your authenticator app." };
   await succeeded(limit);
   const { codes, hashes } = newRecoveryCodes();
   await setRecoveryCodes(user.email, hashes);
