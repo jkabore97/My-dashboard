@@ -26,18 +26,25 @@ interface Row {
 }
 
 export async function listConnections<S = Record<string, string>>(provider?: Provider): Promise<Connection<S>[]> {
+  return (await readConnections<S>(provider)).list;
+}
+
+/** Decrypted connections, plus how many rows couldn't be decrypted (ENCRYPTION_KEY changed). */
+export async function readConnections<S = Record<string, string>>(provider?: Provider) {
   const db = await getDb();
   const rows = provider
     ? await db.query<Row>("select * from connections where provider = $1 order by created_at", [provider])
     : await db.query<Row>("select * from connections order by provider, created_at");
-  return rows.flatMap((r) => {
+  let undecryptable = 0;
+  const list = rows.flatMap((r): Connection<S>[] => {
     try {
       return [{ id: r.id, provider: r.provider, account: r.account, label: r.label, business: r.business, meta: r.meta ?? {}, createdAt: new Date(r.created_at).toISOString(), secret: decryptJson<S>(r.secret) }];
     } catch {
-      // Undecryptable (ENCRYPTION_KEY changed): treat as disconnected.
+      undecryptable++;
       return [];
     }
   });
+  return { list, undecryptable };
 }
 
 /** Lists connections without decrypting secrets — for display only. */

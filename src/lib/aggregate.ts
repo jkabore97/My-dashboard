@@ -7,7 +7,7 @@ import { getVercelProjects } from "./connectors/vercel";
 import { getWebsites } from "./connectors/websites";
 import { getPlatforms } from "./platforms";
 import { getConfig } from "./server/config";
-import { connectionsReadable } from "./server/credentials";
+import { connectionHealth } from "./server/credentials";
 import type { Database, EmailMessage, HostingProject, Notification, Repo, SourceMode, SourceResult, Task, Website } from "./types";
 
 const DAY = 86_400_000;
@@ -37,7 +37,7 @@ export const collect = cache(async () => {
   const databases = [...supabase.data, ...d1.data];
   // When stored connections couldn't be read, "demo" may mean "credentials
   // unknown" rather than "not connected", so it can't be used to close tasks.
-  const credentialsKnown = await connectionsReadable();
+  const { readable: credentialsKnown, undecryptable: undecryptableConnections } = await connectionHealth();
 
   const sources: SourceResult<unknown>[] = [repos, vercel, workers, supabase, d1, emails, websites];
   const modes = {
@@ -90,6 +90,7 @@ export const collect = cache(async () => {
     sources: sources.map(({ source, mode, error, partial, fetchedAt }) => ({ source, mode, error, partial, fetchedAt })),
     unobserved: unobservedKeys({ gmail: emails.partial, supabase: supabase.partial, github: repos.partial }),
     credentialsKnown,
+    undecryptableConnections,
     allDemo: sources.every((s) => s.mode === "demo"),
   };
 });
@@ -152,7 +153,7 @@ export function deriveTasks(s: DeriveInput): DerivedTask[] {
 
   for (const e of s.emails) {
     if (e.unread && e.severity !== "low") {
-      add("gmail", `${encodeURIComponent(e.account)}/${e.id}`, { title: e.subject, detail: `From ${e.from}`, severity: e.severity, source: `Email · ${e.account}`, url: e.url, createdAt: e.receivedAt, business: e.account });
+      add("gmail", `${encodeURIComponent(e.mailbox)}/${e.id}`, { title: e.subject, detail: `From ${e.from}`, severity: e.severity, source: `Email · ${e.account}`, url: e.url, createdAt: e.receivedAt, business: e.account });
     }
   }
 

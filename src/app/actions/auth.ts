@@ -3,8 +3,8 @@
 import { redirect, unstable_rethrow } from "next/navigation";
 import { clearSession, clientIp, completeFirstFactor, currentUser, enrollingUser, ownerIdentity, passwordSignInEnabled, pendingUser, readSession, requireUser, writeSession } from "@/lib/server/auth";
 import { safeEqual } from "@/lib/server/crypto";
+import { attempt, loginLimit, succeeded, twoFactorLimit } from "@/lib/server/limits";
 import { audit } from "@/lib/server/store/audit";
-import { hitRateLimit } from "@/lib/server/store/ratelimit";
 import { bumpSessionVersion, getUser, resetTotp, setRecoveryCodes } from "@/lib/server/store/users";
 import { confirmEnrollment, consumeFinishToken, createFinishToken, newRecoveryCodes, verifySecondFactor } from "@/lib/server/twofactor";
 
@@ -34,15 +34,14 @@ async function passwordLoginInner(_prev: FormState, form: FormData): Promise<For
   const password = process.env.DASHBOARD_PASSWORD;
   if (!passwordSignInEnabled() || !password) return { error: "Password sign-in is disabled." };
   const ip = await clientIp();
-  // Per IP, plus a cap across all IPs in case the address can be spoofed or a guesser is distributed.
-  if (!(await hitRateLimit(`login:${ip}`, 10, 15 * 60)) || !(await hitRateLimit(`login:${ownerIdentity()}`, 30, 15 * 60))) {
-    return { error: "Too many attempts. Wait 15 minutes and try again." };
-  }
+  const limit = loginLimit(ip, ownerIdentity());
+  if (!(await attempt(limit, ownerIdentity(), ip))) return { error: "Too many attempts. Wait a while and try again." };
   const given = String(form.get("password") ?? "");
   if (!safeEqual(given, password)) {
     await audit(ownerIdentity(), "login.password.failed", null, null, ip);
     return { error: "Wrong password." };
   }
+  await succeeded(limit);
   await audit(ownerIdentity(), "login.password.first_factor", null, null, ip);
   redirect(await completeFirstFactor(ownerIdentity()));
 }
@@ -55,12 +54,14 @@ async function verifyTwoFactorInner(_prev: FormState, form: FormData): Promise<F
   const email = await pendingUser();
   if (!email) redirect("/login");
   const ip = await clientIp();
-  if (!(await hitRateLimit(`2fa:${email}`, 6, 10 * 60))) return { error: "Too many attempts. Wait 10 minutes and try again." };
+  const limit = twoFactorLimit(email);
+  if (!(await attempt(limit, email, ip))) return { error: "Too many attempts. Wait 10 minutes and try again." };
   const method = await verifySecondFactor(email, String(form.get("code") ?? ""));
   if (!method) {
     await audit(email, "login.2fa.failed", null, null, ip);
     return { error: "That code didn't work. Codes change every 30 seconds and can only be used once." };
   }
+  await succeeded(limit);
   const user = (await getUser(email))!;
   await writeSession(email, "full", user.session_version);
   await audit(email, method === "recovery" ? "login.recovery_code_used" : "login.success", null, { remainingRecoveryCodes: method === "recovery" ? user.recovery_codes.length : undefined }, ip);
@@ -70,9 +71,11 @@ async function verifyTwoFactorInner(_prev: FormState, form: FormData): Promise<F
 export async function enrollTwoFactor(_prev: FormState, form: FormData): Promise<FormState> {
   const email = await enrollingUser();
   if (!email) return { error: "Your sign-in expired. Start again." };
-  if (!(await hitRateLimit(`2fa:${email}`, 6, 10 * 60))) return { error: "Too many attempts. Wait 10 minutes and try again." };
+  const limit = twoFactorLimit(email);
+  if (!(await attempt(limit, email, await clientIp()))) return { error: "Too many attempts. Wait 10 minutes and try again." };
   const codes = await confirmEnrollment(email, String(form.get("code") ?? ""));
   if (!codes) return { error: "That code didn't match. Check the time on your phone and try the newest code." };
+  await succeeded(limit);
   await audit(email, "2fa.enabled", null, null, await clientIp());
   // The session is upgraded in a second step so this response can show the
   // recovery codes without the page re-rendering (cookie changes refresh it).
@@ -106,8 +109,10 @@ export async function signOutEverywhere() {
 
 export async function regenerateRecoveryCodes(_prev: FormState, form: FormData): Promise<FormState> {
   const user = await requireUser();
-  if (!(await hitRateLimit(`2fa:${user.email}`, 6, 10 * 60))) return { error: "Too many attempts. Wait 10 minutes." };
+  const limit = twoFactorLimit(user.email);
+  if (!(await attempt(limit, user.email, await clientIp()))) return { error: "Too many attempts. Wait 10 minutes." };
   if ((await verifySecondFactor(user.email, String(form.get("code") ?? ""))) !== "totp") return { error: "Enter a current code from your authenticator app." };
+  await succeeded(limit);
   const { codes, hashes } = newRecoveryCodes();
   await setRecoveryCodes(user.email, hashes);
   await audit(user.email, "2fa.recovery_codes_regenerated", null, null, await clientIp());
@@ -118,8 +123,10 @@ export async function regenerateRecoveryCodes(_prev: FormState, form: FormData):
 export async function resetTwoFactor(_prev: FormState, form: FormData): Promise<FormState> {
   const user = await currentUser();
   if (!user) redirect("/login");
-  if (!(await hitRateLimit(`2fa:${user.email}`, 6, 10 * 60))) return { error: "Too many attempts. Wait 10 minutes." };
+  const limit = twoFactorLimit(user.email);
+  if (!(await attempt(limit, user.email, await clientIp()))) return { error: "Too many attempts. Wait 10 minutes." };
   if (!(await verifySecondFactor(user.email, String(form.get("code") ?? "")))) return { error: "Enter a current code (or a recovery code) to confirm." };
+  await succeeded(limit);
   await resetTotp(user.email);
   await bumpSessionVersion(user.email);
   await audit(user.email, "2fa.reset", null, null, await clientIp());

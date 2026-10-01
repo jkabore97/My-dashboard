@@ -1,20 +1,28 @@
 import { cache } from "react";
 import { env } from "../source";
-import { listConnections, type Connection, type Provider } from "./store/connections";
+import { readConnections, type Connection, type Provider } from "./store/connections";
 
 // Credentials come from connections made in the UI (encrypted in the
 // database) first, then fall back to environment variables.
 
 const loadConnections = cache(async () => {
   try {
-    return { ok: true, list: await listConnections<Record<string, string>>() };
+    const { list, undecryptable } = await readConnections<Record<string, string>>();
+    return { ok: undecryptable === 0, list, undecryptable };
   } catch {
-    return { ok: false, list: [] };
+    return { ok: false, list: [], undecryptable: 0 };
   }
 });
 
-/** False when stored connections couldn't be read (database down), so env fallbacks may be wrong. */
-export const connectionsReadable = async () => (await loadConnections()).ok;
+/**
+ * `readable` is false when stored connections couldn't all be read (database
+ * down, or rows that no longer decrypt), so a provider that looks unconnected
+ * may not be. `undecryptable` counts the latter.
+ */
+export const connectionHealth = async () => {
+  const { ok, undecryptable } = await loadConnections();
+  return { readable: ok, undecryptable };
+};
 
 // One connection per provider except Gmail (connecting another replaces it);
 // the newest wins should older duplicates exist.
@@ -43,6 +51,8 @@ export const cloudflareCreds = cache(async () => {
 });
 
 export interface GmailAccount {
+  /** Stable across relabeling: the address, or env:<label> for GMAIL_ACCOUNTS entries. */
+  id: string;
   label: string;
   refreshToken: string;
   email?: string;
@@ -51,13 +61,13 @@ export interface GmailAccount {
 export const gmailAccounts = cache(async (): Promise<GmailAccount[]> => {
   const out: GmailAccount[] = [];
   for (const c of (await loadConnections()).list) {
-    if (c.provider === "gmail") out.push({ label: c.label || c.business || c.account, refreshToken: c.secret.refreshToken, email: c.account });
+    if (c.provider === "gmail") out.push({ id: c.account, label: c.label || c.business || c.account, refreshToken: c.secret.refreshToken, email: c.account });
   }
   for (const pair of (env("GMAIL_ACCOUNTS") ?? "").split(",")) {
     const i = pair.lastIndexOf(":");
     const label = pair.slice(0, i).trim();
     const refreshToken = pair.slice(i + 1).trim();
-    if (label && refreshToken && i > 0) out.push({ label, refreshToken });
+    if (label && refreshToken && i > 0) out.push({ id: `env:${label}`, label, refreshToken });
   }
   return out;
 });

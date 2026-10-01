@@ -2,9 +2,11 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { getDb, migrate, pgliteDb, postgresDb, useDb } from "@/lib/server/db";
 import { addManualTask, completeTask, listTasks, reconcileDerived, resolveEventTask, setTaskBusiness, snoozeTask, upsertEventTask } from "@/lib/server/store/tasks";
 import { listEvents, recordEvent } from "@/lib/server/store/events";
-import { hitRateLimit } from "@/lib/server/store/ratelimit";
+import { takeAttempt } from "@/lib/server/store/ratelimit";
+import { attempt, loginLimit, succeeded } from "@/lib/server/limits";
+import { listAudit } from "@/lib/server/store/audit";
 import { claimInterval } from "@/lib/server/store/settings";
-import { deleteConnection, listConnections, saveConnection } from "@/lib/server/store/connections";
+import { deleteConnection, listConnections, readConnections, saveConnection } from "@/lib/server/store/connections";
 import { consumeRecoveryCode, ensureUser, markTotpStep, setRecoveryCodes } from "@/lib/server/store/users";
 import type { Task } from "@/lib/types";
 import { persist } from "@/lib/server/sync";
@@ -145,10 +147,28 @@ describe("events, rate limits, intervals", () => {
     expect(await recordEvent(e)).toBe(false);
     expect(await listEvents()).toHaveLength(1);
   });
-  it("rate limits after the limit", async () => {
+  it("counts attempts in a window", async () => {
     const results = [];
-    for (let i = 0; i < 4; i++) results.push(await hitRateLimit("login:1.2.3.4", 3, 60));
-    expect(results).toEqual([true, true, true, false]);
+    for (let i = 0; i < 4; i++) results.push(await takeAttempt("k:1.2.3.4", 60));
+    expect(results).toEqual([1, 2, 3, 4]);
+  });
+  it("other IPs' failures never block the correct password from a trusted IP", async () => {
+    for (let i = 0; i < 50; i++) expect(await attempt(loginLimit(`10.0.0.${i}`, "owner"), "owner", `10.0.0.${i}`)).toBe(true);
+    const mine = loginLimit("192.0.2.1", "owner");
+    for (let i = 0; i < 9; i++) await attempt(mine, "owner", "192.0.2.1"); // 9 own failures
+    expect(await attempt(mine, "owner", "192.0.2.1")).toBe(true); // correct password
+    await succeeded(mine); // ...isn't counted
+    expect(await attempt(mine, "owner", "192.0.2.1")).toBe(true); // 10th failure still allowed
+    expect(await attempt(mine, "owner", "192.0.2.1")).toBe(false);
+    expect((await listAudit(10)).filter((a) => a.action === "login.rate_limited")).toHaveLength(1);
+  });
+  it("an unknown IP falls back to a loose bucket for the identity", async () => {
+    const l = loginLimit(null, "owner");
+    expect(l).toMatchObject({ key: "login:unknown-ip:owner", limit: 100 });
+    for (let i = 0; i < 100; i++) expect(await attempt(l, "owner", null)).toBe(true);
+    expect(await attempt(l, "owner", null)).toBe(false);
+    expect(await attempt(l, "owner", null)).toBe(false);
+    expect((await listAudit(10)).filter((a) => a.action === "login.rate_limited")).toHaveLength(1);
   });
   it("claims an interval once", async () => {
     expect(await claimInterval("job:test", 60)).toBe(true);
@@ -175,6 +195,18 @@ describe("connections and users", () => {
     await saveConnection({ provider: "gmail", account: "a@x.co", secret: { refreshToken: "1" } });
     expect(await saveConnection({ provider: "gmail", account: "b@x.co", secret: { refreshToken: "2" } })).toEqual([]);
     expect(await listConnections("gmail")).toHaveLength(2);
+  });
+  it("reports rows that no longer decrypt, so credentials count as unknown", async () => {
+    await saveConnection({ provider: "github", account: "kaj", secret: { token: "t" } });
+    await saveConnection({ provider: "gmail", account: "a@x.co", secret: { refreshToken: "r" } });
+    const { connectionHealth } = await import("@/lib/server/credentials");
+    expect(await connectionHealth()).toEqual({ readable: true, undecryptable: 0 });
+    const db = await getDb();
+    await db.query("update connections set secret = 'v1:AAAA:BBBB:CCCC' where provider = 'github'"); // as if ENCRYPTION_KEY changed
+    const { list, undecryptable } = await readConnections();
+    expect(list.map((c) => c.provider)).toEqual(["gmail"]);
+    expect(undecryptable).toBe(1);
+    expect(await connectionHealth()).toEqual({ readable: false, undecryptable: 1 });
   });
   it("TOTP steps only move forward; recovery codes are single-use", async () => {
     await ensureUser("a@b.c");

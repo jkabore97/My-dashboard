@@ -69,14 +69,16 @@ describe("sessions", () => {
 
 describe("client IP", () => {
   const h = (o: Record<string, string>) => new Headers(o);
-  it("never trusts the client-supplied left-most X-Forwarded-For entry", () => {
-    expect(pickClientIp(h({ "x-forwarded-for": "6.6.6.6, 10.0.0.1" }), false)).toBe("10.0.0.1");
-    expect(pickClientIp(h({ "x-forwarded-for": "6.6.6.6, 10.0.0.1", "x-real-ip": "10.0.0.2" }), false)).toBe("10.0.0.2");
+  const spoofable = { "x-forwarded-for": "6.6.6.6, 10.0.0.1", "x-real-ip": "10.0.0.2", "x-vercel-forwarded-for": "1.1.1.1" };
+  it("is unknown without a platform or proxy that sets the headers", () => {
+    expect(pickClientIp(h(spoofable), { onVercel: false, trustedProxy: false })).toBeNull();
   });
-  it("uses Vercel's header only on Vercel", () => {
-    const hs = h({ "x-vercel-forwarded-for": "1.1.1.1", "x-real-ip": "2.2.2.2" });
-    expect(pickClientIp(hs, true)).toBe("1.1.1.1");
-    expect(pickClientIp(hs, false)).toBe("2.2.2.2");
-    expect(pickClientIp(h({}), false)).toBe("unknown");
+  it("uses Vercel's header on Vercel", () => {
+    expect(pickClientIp(h(spoofable), { onVercel: true, trustedProxy: false })).toBe("1.1.1.1");
+    expect(pickClientIp(h({ "x-real-ip": "2.2.2.2" }), { onVercel: true, trustedProxy: false })).toBeNull();
+  });
+  it("behind a trusted proxy, uses what the proxy set, never the left-most X-Forwarded-For entry", () => {
+    expect(pickClientIp(h(spoofable), { onVercel: false, trustedProxy: true })).toBe("10.0.0.2");
+    expect(pickClientIp(h({ "x-forwarded-for": "6.6.6.6, 10.0.0.1" }), { onVercel: false, trustedProxy: true })).toBe("10.0.0.1");
   });
 });

@@ -41,7 +41,7 @@ describe("partial failures", () => {
     databases: [],
     emails: demoEmails(),
     websites: [],
-    sources: [{ source: "Gmail", mode: "live", partial: [{ key: "Kaj Store", error: "Kaj Store: Google token refresh failed (400)" }] }],
+    sources: [{ source: "Gmail", mode: "live", partial: [{ key: "demo:Kaj Store", error: "Kaj Store: Google token refresh failed (400)" }] }],
     modes: allLive,
   });
   it("raises a connector task while the source stays live", () => {
@@ -49,12 +49,15 @@ describe("partial failures", () => {
     expect(fix?.title).toBe("Fix the Gmail connection");
     expect(fix?.detail).toContain("Kaj Store");
   });
-  it("scopes email tasks by mailbox so one mailbox can be left alone", () => {
+  it("keys email tasks by the stable mailbox id, not its editable label", () => {
     const mail = tasks.filter((t) => t.scope === "gmail");
     expect(mail.length).toBeGreaterThan(0);
-    for (const t of mail) expect(t.id.startsWith(`gmail/${encodeURIComponent(t.business!)}/`)).toBe(true);
-    const [prefix] = unobservedKeys({ gmail: [{ key: "Kaj Store" }] });
-    expect(prefix).toBe("gmail/Kaj%20Store/");
+    for (const t of mail) expect(t.id.startsWith(`gmail/${encodeURIComponent(`demo:${t.business}`)}/`)).toBe(true);
+    const email = { ...demoEmails()[0], id: "a@x.co:m1", mailbox: "a@x.co" };
+    const keyFor = (account: string) => deriveTasks({ repos: [], hosting: [], databases: [], emails: [{ ...email, account }], websites: [], sources: [], modes: allLive })[0].id;
+    expect(keyFor("Old label")).toBe(keyFor("Renamed")); // relabeling keeps done/snoozed state
+    expect(keyFor("x").startsWith(unobservedKeys({ gmail: [{ key: "a@x.co" }] })[0])).toBe(true);
+    expect(unobservedKeys({ gmail: [{ key: "env:Kaj Store" }] })).toEqual(["gmail/env%3AKaj%20Store/"]);
   });
   it("skips repo tasks whose counts are unknown", () => {
     expect(tasks.some((t) => t.id.endsWith(":kaj/unknown"))).toBe(false);

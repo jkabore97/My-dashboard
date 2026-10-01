@@ -31,6 +31,12 @@ export default async function DashLayout({ children }: { children: React.ReactNo
             <span className="text-muted">Nothing is connected yet. Connect platforms on the <a href="/platforms" className="text-accent hover:underline">Platforms</a> page and each section switches to live data on its own.</span>
           </div>
         )}
+        {d.undecryptableConnections > 0 && (
+          <div className="mb-6 rounded-lg border border-critical/40 bg-critical/10 px-4 py-3 text-sm">
+            <strong className="text-critical">Stored connections can&apos;t be decrypted.</strong>{" "}
+            <span className="text-muted">{d.undecryptableConnections} connection{d.undecryptableConnections === 1 ? "" : "s"} no longer decrypt{d.undecryptableConnections === 1 ? "s" : ""}. Did ENCRYPTION_KEY change? Restore the old key, or reconnect or disconnect them on the <a href="/platforms" className="text-accent hover:underline">Platforms</a> page. Their tasks are left as they are until then.</span>
+          </div>
+        )}
         {errors.length > 0 && (
           <div className="mb-6 rounded-lg border border-critical/40 bg-critical/10 px-4 py-3 text-sm">
             <strong className="text-critical">Connector errors:</strong>{" "}

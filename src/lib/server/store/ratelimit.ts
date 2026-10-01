@@ -1,10 +1,11 @@
 import { getDb } from "../db";
 
 /**
- * Fixed-window counter. Returns false once `limit` attempts happened inside
- * `windowSeconds` for this key.
+ * Fixed-window counter: atomically counts one attempt for `key` and returns
+ * the count inside the current window. Taking the attempt before acting (and
+ * refunding it on success) means parallel requests can't overshoot a limit.
  */
-export async function hitRateLimit(key: string, limit: number, windowSeconds: number): Promise<boolean> {
+export async function takeAttempt(key: string, windowSeconds: number): Promise<number> {
   const db = await getDb();
   const [row] = await db.query<{ count: number }>(
     `insert into rate_limits (key, count, window_start) values ($1, 1, now())
@@ -14,7 +15,13 @@ export async function hitRateLimit(key: string, limit: number, windowSeconds: nu
      returning count`,
     [key, windowSeconds],
   );
-  return Number(row.count) <= limit;
+  return Number(row.count);
+}
+
+/** Gives back an attempt that succeeded, so only failures count. */
+export async function refundAttempt(key: string) {
+  const db = await getDb();
+  await db.query("update rate_limits set count = greatest(count - 1, 0) where key = $1", [key]);
 }
 
 export async function clearRateLimit(key: string) {

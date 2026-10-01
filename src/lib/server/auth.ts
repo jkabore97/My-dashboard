@@ -30,18 +30,22 @@ export const require2fa = () => env("REQUIRE_2FA") !== "false";
 export const googleSignInEnabled = () => !!(env("GOOGLE_CLIENT_ID") && env("GOOGLE_CLIENT_SECRET") && allowedEmails().length);
 export const passwordSignInEnabled = () => !!env("DASHBOARD_PASSWORD");
 
-export async function clientIp() {
-  return pickClientIp(await headers(), !!process.env.VERCEL);
+/** The caller's IP, or null when no trustworthy source for it exists. */
+export async function clientIp(): Promise<string | null> {
+  return pickClientIp(await headers(), { onVercel: !!process.env.VERCEL, trustedProxy: env("TRUSTED_PROXY") === "true" });
 }
 
 /**
- * The left-most X-Forwarded-For entry is whatever the client sent, so it's
- * never trusted. On Vercel the platform sets x-vercel-forwarded-for; behind
- * another proxy, x-real-ip or the entry that proxy appended (the last one).
+ * Every forwarding header can be set by the client unless a proxy in front of
+ * the app overwrites it. On Vercel the platform sets x-vercel-forwarded-for.
+ * Elsewhere x-real-ip / the last X-Forwarded-For entry are only meaningful
+ * when TRUSTED_PROXY=true says a reverse proxy sets them; otherwise the IP is
+ * unknown (null) rather than attacker-chosen.
  */
-export function pickClientIp(h: Pick<Headers, "get">, onVercel: boolean) {
-  const vercel = onVercel ? h.get("x-vercel-forwarded-for")?.split(",")[0]?.trim() : undefined;
-  return vercel || h.get("x-real-ip")?.trim() || h.get("x-forwarded-for")?.split(",").at(-1)?.trim() || "unknown";
+export function pickClientIp(h: Pick<Headers, "get">, o: { onVercel: boolean; trustedProxy: boolean }): string | null {
+  if (o.onVercel) return h.get("x-vercel-forwarded-for")?.split(",")[0]?.trim() || null;
+  if (o.trustedProxy) return h.get("x-real-ip")?.trim() || h.get("x-forwarded-for")?.split(",").at(-1)?.trim() || null;
+  return null;
 }
 
 export async function readSession(): Promise<SessionPayload | null> {

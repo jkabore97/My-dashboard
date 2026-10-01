@@ -55,7 +55,7 @@ export async function getEmails() {
       // One broken mailbox shouldn't hide the others, but it is reported so
       // its tasks stay open and the UI shows which mailbox needs reconnecting.
       const settled = await Promise.allSettled(
-        list.map(async ({ label, refreshToken, email }) => {
+        list.map(async ({ id: mailbox, label, refreshToken, email }) => {
           const headers = { Authorization: `Bearer ${await accessToken(client!, refreshToken)}` };
           const base = "https://gmail.googleapis.com/gmail/v1/users/me/messages";
           // Access tokens differ on every call, so skip the fetch cache here.
@@ -72,13 +72,14 @@ export async function getEmails() {
               const h = (n: string) => m.payload.headers.find((x) => x.name === n)?.value ?? "";
               const labels = m.labelIds ?? [];
               return {
-                id: `${label}-${m.id}`,
+                id: `${mailbox}:${m.id}`,
                 from: h("From"),
                 subject: h("Subject") || "(no subject)",
                 snippet: m.snippet,
                 receivedAt: new Date(Number(m.internalDate)).toISOString(),
                 unread: labels.includes("UNREAD"),
                 account: label,
+                mailbox,
                 labels,
                 severity: classifyEmail(h("From"), h("Subject"), m.snippet, labels),
                 // authuser picks the right mailbox when several are signed in.
@@ -90,7 +91,7 @@ export async function getEmails() {
       );
       const ok = settled.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
       if (ok.length === 0) throw (settled[0] as PromiseRejectedResult).reason;
-      settled.forEach((r, i) => r.status === "rejected" && fail(list[i].label, `${list[i].label}: ${errorMessage(r.reason)}`));
+      settled.forEach((r, i) => r.status === "rejected" && fail(list[i].id, `${list[i].label}: ${errorMessage(r.reason)}`));
       return ok.flat().sort((a, b) => b.receivedAt.localeCompare(a.receivedAt));
     },
     demoEmails,

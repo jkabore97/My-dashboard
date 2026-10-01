@@ -32,7 +32,7 @@ Marking a signal task done keeps it done for as long as the condition persists. 
 - Sign in with Google (allow-listed emails) and/or a password, then **mandatory 2FA** with an authenticator app. Ten single-use recovery codes are issued.
 - Sessions are HMAC-signed cookies (7 days). "Sign out of all devices" revokes every session.
 - Platform tokens, OAuth refresh tokens, TOTP secrets and webhook secrets are **encrypted with AES-256-GCM** before they reach the database.
-- Every webhook is signature-checked. Cron needs `CRON_SECRET`. Login and 2FA attempts are rate-limited.
+- Every webhook is signature-checked. Cron needs `CRON_SECRET`. Failed login and 2FA attempts are rate-limited (a correct one doesn't count). Password sign-in is limited per IP on Vercel, or behind your own reverse proxy with `TRUSTED_PROXY=true`; without a trustworthy IP, all callers share one looser limit (100 failures an hour), and a tripped limit is audited.
 - Every sign-in, connection change, setting change and task action goes to the audit log (Settings).
 - Row-level security is enabled on all tables, so Supabase's public API keys can't read them.
 

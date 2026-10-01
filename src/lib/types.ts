@@ -64,7 +64,10 @@ export interface EmailMessage {
   snippet: string;
   receivedAt: string;
   unread: boolean;
+  /** Display label of the mailbox (editable). */
   account: string;
+  /** Stable mailbox id (the address, or env:<label>); task keys use this. */
+  mailbox: string;
   labels: string[];
   severity: Severity;
   url?: string;
