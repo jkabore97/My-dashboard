@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { clientIp, requireUser } from "@/lib/server/auth";
+import { auditConnection } from "@/lib/server/connect";
 import { getAuthed } from "@/lib/server/oauth";
 import { audit } from "@/lib/server/store/audit";
 import { deleteConnection, saveConnection, updateConnectionLabel, type Provider } from "@/lib/server/store/connections";
@@ -11,6 +12,7 @@ export interface ConnectState {
   ok?: string;
 }
 
+const replacedNote = (replaced: string[]) => (replaced.length ? `, replacing ${replaced.join(", ")}` : "");
 const field = (form: FormData, name: string) => String(form.get(name) ?? "").trim();
 
 /** Saves a pasted API token after checking it actually works. */
@@ -41,17 +43,17 @@ export async function saveTokenConnection(_prev: ConnectState, form: FormData): 
       const res = await getAuthed<{ result: { name: string } }>(`https://api.cloudflare.com/client/v4/accounts/${accountId}`, token);
       account = accountId;
       secret = { token, accountId };
-      await saveConnection({ provider, account, label: res.result.name, secret, meta: { via: "token" } });
-      await audit(user.email, "connection.add", `${provider}:${account}`, { via: "token" }, await clientIp());
+      const replaced = await saveConnection({ provider, account, label: res.result.name, secret, meta: { via: "token" } });
+      await auditConnection(user.email, provider, account, "token", replaced);
       revalidatePath("/", "layout");
-      return { ok: `Connected Cloudflare (${res.result.name}).` };
+      return { ok: `Connected Cloudflare (${res.result.name})${replacedNote(replaced)}.` };
     } else {
       return { error: "This platform connects with the Connect button instead." };
     }
-    await saveConnection({ provider, account, label: account, secret, meta: { via: "token" } });
-    await audit(user.email, "connection.add", `${provider}:${account}`, { via: "token" }, await clientIp());
+    const replaced = await saveConnection({ provider, account, label: account, secret, meta: { via: "token" } });
+    await auditConnection(user.email, provider, account, "token", replaced);
     revalidatePath("/", "layout");
-    return { ok: `Connected ${account}.` };
+    return { ok: `Connected ${account}${replacedNote(replaced)}.` };
   } catch (err) {
     return { error: `The platform rejected that token (${err instanceof Error ? err.message : "unknown error"}).` };
   }

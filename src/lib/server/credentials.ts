@@ -1,16 +1,26 @@
 import { cache } from "react";
 import { env } from "../source";
-import { listConnections } from "./store/connections";
+import { listConnections, type Connection, type Provider } from "./store/connections";
 
 // Credentials come from connections made in the UI (encrypted in the
 // database) first, then fall back to environment variables.
 
-async function first<S>(provider: Parameters<typeof listConnections>[0]) {
+const loadConnections = cache(async () => {
   try {
-    return (await listConnections<S>(provider))[0] ?? null;
+    return { ok: true, list: await listConnections<Record<string, string>>() };
   } catch {
-    return null;
+    return { ok: false, list: [] };
   }
+});
+
+/** False when stored connections couldn't be read (database down), so env fallbacks may be wrong. */
+export const connectionsReadable = async () => (await loadConnections()).ok;
+
+// One connection per provider except Gmail (connecting another replaces it);
+// the newest wins should older duplicates exist.
+async function first<S>(provider: Provider) {
+  const mine = (await loadConnections()).list.filter((c) => c.provider === provider);
+  return (mine.at(-1) as Connection<S> | undefined) ?? null;
 }
 
 export const githubToken = cache(async () => (await first<{ token: string }>("github"))?.secret.token ?? env("GITHUB_TOKEN") ?? null);
@@ -40,12 +50,8 @@ export interface GmailAccount {
 
 export const gmailAccounts = cache(async (): Promise<GmailAccount[]> => {
   const out: GmailAccount[] = [];
-  try {
-    for (const c of await listConnections<{ refreshToken: string }>("gmail")) {
-      out.push({ label: c.label || c.business || c.account, refreshToken: c.secret.refreshToken, email: c.account });
-    }
-  } catch {
-    /* database unavailable: env only */
+  for (const c of (await loadConnections()).list) {
+    if (c.provider === "gmail") out.push({ label: c.label || c.business || c.account, refreshToken: c.secret.refreshToken, email: c.account });
   }
   for (const pair of (env("GMAIL_ACCOUNTS") ?? "").split(",")) {
     const i = pair.lastIndexOf(":");

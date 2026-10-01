@@ -1,7 +1,7 @@
 import { demoRepos } from "../demo";
 import { businessFor, type BusinessRule } from "../server/config";
 import { githubToken } from "../server/credentials";
-import { fromSource, getJson } from "../source";
+import { errorMessage, fromSource, getJson } from "../source";
 import type { Notification, Repo, Severity } from "../types";
 
 const API = "https://api.github.com";
@@ -32,7 +32,7 @@ export async function getRepos(rules: BusinessRule[]) {
   return fromSource<Repo[]>(
     "GitHub",
     !!token,
-    async () => {
+    async (fail) => {
       const repos = await getJson<GhRepo[]>(
         `${API}/user/repos?per_page=100&sort=pushed&affiliation=owner,organization_member`,
         { headers: headers(token!) },
@@ -43,11 +43,12 @@ export async function getRepos(rules: BusinessRule[]) {
         active.slice(0, 15).map((r) =>
           getJson<unknown[]>(`${API}/repos/${r.full_name}/pulls?state=open&per_page=100`, { headers: headers(token!) })
             .then((prs) => prs.length)
-            .catch(() => 0),
+            .catch((err) => (fail(r.full_name, `${r.full_name} pull requests: ${errorMessage(err)}`), null)),
         ),
       );
       return active.map((r, i) => {
-        const prs = prCounts[i] ?? 0;
+        // Repos beyond the first 15 aren't counted: their issue count includes PRs.
+        const prs = i < prCounts.length ? prCounts[i] : 0;
         return {
           id: String(r.id),
           name: r.name,
@@ -56,7 +57,7 @@ export async function getRepos(rules: BusinessRule[]) {
           private: r.private,
           language: r.language,
           defaultBranch: r.default_branch,
-          openIssues: Math.max(0, r.open_issues_count - prs),
+          openIssues: prs == null ? null : Math.max(0, r.open_issues_count - prs),
           openPullRequests: prs,
           pushedAt: r.pushed_at,
           business: businessFor(r.name, rules),

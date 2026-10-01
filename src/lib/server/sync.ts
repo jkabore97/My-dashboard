@@ -17,10 +17,13 @@ export async function persist(c: Collected, { force = false } = {}) {
   if (!(await claimInterval("job:sync", force ? 0 : PAGE_SYNC_SECONDS))) return false;
 
   // Only live data is persisted; demo/errored sources would pollute history.
-  // Reconciliation is limited to scopes that answered, so a source that is
-  // temporarily failing doesn't auto-resolve the tasks it couldn't see.
-  const liveScopes = (Object.entries(c.modes) as [string, string][]).filter(([, m]) => m === "live").map(([k]) => k);
-  await reconcileDerived(c.derivedTasks.filter((t) => t.live), ["connector", ...liveScopes]);
+  // A source that is failing (wholly, or the parts in c.unobserved) never
+  // auto-resolves the tasks it couldn't see. A source that isn't configured
+  // (demo) has no conditions left, so its tasks close: that's a disconnect.
+  const scopes = (Object.entries(c.modes) as [string, string][])
+    .filter(([, m]) => m === "live" || (m === "demo" && c.credentialsKnown))
+    .map(([k]) => k);
+  await reconcileDerived(c.derivedTasks.filter((t) => t.live), ["connector", ...scopes], c.unobserved);
 
   for (const n of c.notifications) {
     if (!n.live) continue;
@@ -84,7 +87,7 @@ export async function runScheduledChecks() {
   await setSetting("job:last_cron", { at: new Date().toISOString(), ms: Date.now() - started });
   return {
     ms: Date.now() - started,
-    sources: c.sources.map((s) => ({ source: s.source, mode: s.mode, error: s.error })),
+    sources: c.sources.map((s) => ({ source: s.source, mode: s.mode, error: s.error, partial: s.partial })),
     tasks: c.derivedTasks.filter((t) => t.live).length,
   };
 }

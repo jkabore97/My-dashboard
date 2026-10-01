@@ -12,6 +12,8 @@ export interface SourceResult<T> {
   mode: SourceMode;
   data: T;
   error?: string;
+  /** Parts that failed while the rest answered (a mailbox, a project's advisors…), keyed by that part's id. */
+  partial?: { key: string; error: string }[];
   fetchedAt: string;
 }
 
@@ -23,8 +25,9 @@ export interface Repo {
   private: boolean;
   language: string | null;
   defaultBranch: string;
-  openIssues: number;
-  openPullRequests: number;
+  /** Null when the PR count couldn't be fetched (issues can't be told apart from PRs then). */
+  openIssues: number | null;
+  openPullRequests: number | null;
   pushedAt: string;
   business?: string;
 }

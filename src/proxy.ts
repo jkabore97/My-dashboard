@@ -2,8 +2,12 @@ import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE, sessionSecret, verifySession } from "@/lib/session";
 
 // First line of defence: every non-public route needs a validly signed, fully
-// authenticated session. Pages and actions re-check against the database
-// (revocation, allow-list) via requireUser().
+// authenticated session. Revocation, allow-list and 2FA are checked against
+// the database by requireUser() wherever data is read (getDashboard, pages,
+// actions); the layout alone isn't enough because client-side navigation
+// re-renders only the page segment. The database check isn't done here: the
+// proxy is bundled separately and would open its own connection pool (or a
+// second embedded PGlite on the same data directory in development).
 const PUBLIC = [/^\/login(\/|$)/, /^\/api\/auth\//, /^\/api\/webhooks\//, /^\/api\/cron\//];
 
 export async function proxy(req: NextRequest) {

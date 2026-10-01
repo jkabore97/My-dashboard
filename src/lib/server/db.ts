@@ -78,27 +78,27 @@ export async function pgliteDb(dataDir?: string): Promise<Db> {
   return wrap(pg, true);
 }
 
-async function migrate(db: Db) {
-  await db.exec(`
-    create table if not exists schema_migrations (
-      version integer primary key,
-      name text not null,
-      applied_at timestamptz not null default now()
-    );
-  `);
-  const pending = async () => {
-    const done = await db.query<{ version: number }>("select version from schema_migrations");
-    const applied = new Set(done.map((r) => Number(r.version)));
-    return MIGRATIONS.filter((m) => !applied.has(m.version));
-  };
-  if ((await pending()).length === 0) return;
-  // Serialize concurrent cold starts with an advisory lock held by the transaction.
+export async function migrate(db: Db) {
+  // Fast path without the lock. Any failure here (typically: the table doesn't
+  // exist yet on a fresh database) falls through to the locked path below.
+  const applied = await db.query<{ version: number }>("select version from schema_migrations").catch(() => null);
+  if (applied && MIGRATIONS.every((m) => applied.some((r) => Number(r.version) === m.version))) return;
+  // Serialize concurrent cold starts with an advisory lock held by the
+  // transaction; it is taken before creating schema_migrations because
+  // concurrent "create table if not exists" can fail.
   await db.tx(async (tx) => {
     await tx.query("select pg_advisory_xact_lock($1)", [MIGRATION_LOCK]);
+    await tx.exec(`
+      create table if not exists schema_migrations (
+        version integer primary key,
+        name text not null,
+        applied_at timestamptz not null default now()
+      );
+    `);
     const done = await tx.query<{ version: number }>("select version from schema_migrations");
-    const applied = new Set(done.map((r) => Number(r.version)));
+    const versions = new Set(done.map((r) => Number(r.version)));
     for (const m of MIGRATIONS) {
-      if (applied.has(m.version)) continue;
+      if (versions.has(m.version)) continue;
       await tx.exec(m.sql);
       await tx.query("insert into schema_migrations (version, name) values ($1, $2)", [m.version, m.name]);
     }

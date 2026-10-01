@@ -34,7 +34,10 @@ async function passwordLoginInner(_prev: FormState, form: FormData): Promise<For
   const password = process.env.DASHBOARD_PASSWORD;
   if (!passwordSignInEnabled() || !password) return { error: "Password sign-in is disabled." };
   const ip = await clientIp();
-  if (!(await hitRateLimit(`login:${ip}`, 10, 15 * 60))) return { error: "Too many attempts. Wait 15 minutes and try again." };
+  // Per IP, plus a cap across all IPs in case the address can be spoofed or a guesser is distributed.
+  if (!(await hitRateLimit(`login:${ip}`, 10, 15 * 60)) || !(await hitRateLimit(`login:${ownerIdentity()}`, 30, 15 * 60))) {
+    return { error: "Too many attempts. Wait 15 minutes and try again." };
+  }
   const given = String(form.get("password") ?? "");
   if (!safeEqual(given, password)) {
     await audit(ownerIdentity(), "login.password.failed", null, null, ip);

@@ -31,8 +31,17 @@ export const googleSignInEnabled = () => !!(env("GOOGLE_CLIENT_ID") && env("GOOG
 export const passwordSignInEnabled = () => !!env("DASHBOARD_PASSWORD");
 
 export async function clientIp() {
-  const h = await headers();
-  return h.get("x-forwarded-for")?.split(",")[0]?.trim() || h.get("x-real-ip") || "unknown";
+  return pickClientIp(await headers(), !!process.env.VERCEL);
+}
+
+/**
+ * The left-most X-Forwarded-For entry is whatever the client sent, so it's
+ * never trusted. On Vercel the platform sets x-vercel-forwarded-for; behind
+ * another proxy, x-real-ip or the entry that proxy appended (the last one).
+ */
+export function pickClientIp(h: Pick<Headers, "get">, onVercel: boolean) {
+  const vercel = onVercel ? h.get("x-vercel-forwarded-for")?.split(",")[0]?.trim() : undefined;
+  return vercel || h.get("x-real-ip")?.trim() || h.get("x-forwarded-for")?.split(",").at(-1)?.trim() || "unknown";
 }
 
 export async function readSession(): Promise<SessionPayload | null> {

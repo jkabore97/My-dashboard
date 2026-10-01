@@ -112,4 +112,10 @@ alter table audit_log enable row level security;
 alter table rate_limits enable row level security;
 `,
   },
+  {
+    version: 2,
+    name: "rls_schema_migrations",
+    // Created by migrate() itself, so it missed the RLS above.
+    sql: "alter table schema_migrations enable row level security;",
+  },
 ];

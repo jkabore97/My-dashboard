@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveTasks } from "@/lib/aggregate";
+import { deriveTasks, unobservedKeys } from "@/lib/aggregate";
 import { classifyEmail } from "@/lib/connectors/gmail";
 import { parseBusinessRules, parseSites, businessFor } from "@/lib/server/config";
 import { demoDatabases, demoEmails, demoHosting, demoRepos, demoWebsites } from "@/lib/demo";
@@ -32,6 +32,42 @@ describe("deriveTasks", () => {
   });
 });
 
+describe("partial failures", () => {
+  const allLive = { github: "live", vercel: "live", workers: "live", supabase: "live", d1: "live", gmail: "live", websites: "live" } as const;
+  const repo = demoRepos()[1];
+  const tasks = deriveTasks({
+    repos: [repo, { ...repo, id: "x", fullName: "kaj/unknown", openPullRequests: null, openIssues: null }],
+    hosting: [],
+    databases: [],
+    emails: demoEmails(),
+    websites: [],
+    sources: [{ source: "Gmail", mode: "live", partial: [{ key: "Kaj Store", error: "Kaj Store: Google token refresh failed (400)" }] }],
+    modes: allLive,
+  });
+  it("raises a connector task while the source stays live", () => {
+    const fix = tasks.find((t) => t.id === "connector/Gmail");
+    expect(fix?.title).toBe("Fix the Gmail connection");
+    expect(fix?.detail).toContain("Kaj Store");
+  });
+  it("scopes email tasks by mailbox so one mailbox can be left alone", () => {
+    const mail = tasks.filter((t) => t.scope === "gmail");
+    expect(mail.length).toBeGreaterThan(0);
+    for (const t of mail) expect(t.id.startsWith(`gmail/${encodeURIComponent(t.business!)}/`)).toBe(true);
+    const [prefix] = unobservedKeys({ gmail: [{ key: "Kaj Store" }] });
+    expect(prefix).toBe("gmail/Kaj%20Store/");
+  });
+  it("skips repo tasks whose counts are unknown", () => {
+    expect(tasks.some((t) => t.id.endsWith(":kaj/unknown"))).toBe(false);
+    expect(tasks.some((t) => t.id === `github/prs:${repo.fullName}`)).toBe(true);
+    expect(unobservedKeys({ github: [{ key: "kaj/unknown" }], supabase: [{ key: "ref1" }] })).toEqual([
+      "supabase/advisor:ref1:",
+      "github/prs:kaj/unknown",
+      "github/issues:kaj/unknown",
+      "github/stale:kaj/unknown",
+    ]);
+  });
+});
+
 describe("email triage", () => {
   it("ranks money and security first", () => {
     expect(classifyEmail("Stripe <no-reply@stripe.com>", "Dispute opened", "", [])).toBe("critical");
@@ -50,5 +86,21 @@ describe("config parsing", () => {
       { domain: "example.com", business: "Biz", supabaseRef: "abcdefghijklmnopqrst" },
       { domain: "foo.io", business: "Unassigned" },
     ]);
+  });
+});
+
+describe("connector problems", () => {
+  it("merges sources that share a platform name into one task", () => {
+    const tasks = deriveTasks({
+      repos: [], hosting: [], databases: [], emails: [], websites: [],
+      sources: [
+        { source: "Cloudflare", mode: "error", error: "workers 403" },
+        { source: "Cloudflare", mode: "error", error: "d1 403" },
+      ],
+      modes,
+    });
+    const cf = tasks.filter((t) => t.id === "connector/Cloudflare");
+    expect(cf).toHaveLength(1);
+    expect(cf[0].detail).toBe("workers 403 · d1 403");
   });
 });

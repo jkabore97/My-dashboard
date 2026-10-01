@@ -75,13 +75,14 @@ export async function getTask(id: string) {
 /**
  * Syncs auto-generated tasks with the latest signals. `derived` must be the
  * complete current list (keyed by Task.id = "<scope>/<key>") for every scope
- * in `scopes`; tasks belonging to other scopes are left untouched.
+ * in `scopes`; tasks belonging to other scopes, or whose key starts with one
+ * of the `unobserved` prefixes, are left untouched.
  *  - new condition            -> open task
  *  - condition still present  -> refresh title/severity, keep user's status
  *  - condition gone           -> auto-resolve (so it reopens if it comes back)
  *  - condition back after an auto-resolve -> reopen
  */
-export async function reconcileDerived(derived: Task[], scopes: string[]) {
+export async function reconcileDerived(derived: Task[], scopes: string[], unobserved: string[] = []) {
   const db = await getDb();
   await db.tx(async (tx) => {
     const existing = await tx.query<{ source_key: string; status: TaskStatus; resolved_by: string | null }>(
@@ -108,7 +109,7 @@ export async function reconcileDerived(derived: Task[], scopes: string[]) {
         [t.id, t.title, t.detail ?? null, t.severity, t.source, t.url ?? null, t.business ?? null, t.createdAt, reopen],
       );
     }
-    const inScope = (key: string) => scopes.some((sc) => key.startsWith(`${sc}/`));
+    const inScope = (key: string) => scopes.some((sc) => key.startsWith(`${sc}/`)) && !unobserved.some((p) => key.startsWith(p));
     const gone = existing.map((r) => r.source_key).filter((k) => !seen.has(k) && inScope(k));
     if (gone.length) {
       await tx.query(
@@ -138,11 +139,17 @@ export async function upsertEventTask(key: string, t: Omit<Task, "id">) {
   );
 }
 
-/** Closes an event task when the platform reports the problem resolved. */
+/**
+ * Closes an event task when the platform reports the problem resolved. A task
+ * the user already marked done becomes auto-resolved too, so the next
+ * occurrence reopens it (upsertEventTask only reopens auto-resolved tasks).
+ */
 export async function resolveEventTask(key: string) {
   const db = await getDb();
   await db.query(
-    "update tasks set status = 'done', resolved_by = 'auto', resolved_at = now(), updated_at = now() where source_key = $1 and status <> 'done'",
+    `update tasks set status = 'done', resolved_by = 'auto', resolved_at = coalesce(case when status = 'done' then resolved_at end, now()),
+       snoozed_until = null, updated_at = now()
+     where source_key = $1 and origin = 'event' and (status <> 'done' or resolved_by = 'user')`,
     [key],
   );
 }

@@ -7,6 +7,7 @@ import { getVercelProjects } from "./connectors/vercel";
 import { getWebsites } from "./connectors/websites";
 import { getPlatforms } from "./platforms";
 import { getConfig } from "./server/config";
+import { connectionsReadable } from "./server/credentials";
 import type { Database, EmailMessage, HostingProject, Notification, Repo, SourceMode, SourceResult, Task, Website } from "./types";
 
 const DAY = 86_400_000;
@@ -34,6 +35,9 @@ export const collect = cache(async () => {
   const hosting = [...vercel.data, ...workers.data];
   const websites = await getWebsites(sites, hosting);
   const databases = [...supabase.data, ...d1.data];
+  // When stored connections couldn't be read, "demo" may mean "credentials
+  // unknown" rather than "not connected", so it can't be used to close tasks.
+  const credentialsKnown = await connectionsReadable();
 
   const sources: SourceResult<unknown>[] = [repos, vercel, workers, supabase, d1, emails, websites];
   const modes = {
@@ -83,7 +87,9 @@ export const collect = cache(async () => {
       Gmail: emails.mode,
       Website: websites.mode,
     }),
-    sources: sources.map(({ source, mode, error, fetchedAt }) => ({ source, mode, error, fetchedAt })),
+    sources: sources.map(({ source, mode, error, partial, fetchedAt }) => ({ source, mode, error, partial, fetchedAt })),
+    unobserved: unobservedKeys({ gmail: emails.partial, supabase: supabase.partial, github: repos.partial }),
+    credentialsKnown,
     allDemo: sources.every((s) => s.mode === "demo"),
   };
 });
@@ -96,7 +102,7 @@ interface DeriveInput {
   databases: Database[];
   emails: EmailMessage[];
   websites: Website[];
-  sources: Pick<SourceResult<unknown>, "source" | "mode" | "error">[];
+  sources: Pick<SourceResult<unknown>, "source" | "mode" | "error" | "partial">[];
   modes: Record<"github" | "vercel" | "workers" | "supabase" | "d1" | "gmail" | "websites", SourceMode>;
 }
 
@@ -111,10 +117,15 @@ export function deriveTasks(s: DeriveInput): DerivedTask[] {
   const add = (scope: Scope, key: string, t: Omit<Task, "id">) =>
     tasks.push({ ...t, id: `${scope}/${key}`, scope, live: scope === "connector" || s.modes[scope] === "live" });
 
+  // Several sources can share a platform name (Cloudflare Workers + D1), so
+  // problems are merged into one task per platform.
+  const problems = new Map<string, string[]>();
   for (const src of s.sources) {
-    if (src.mode === "error") {
-      add("connector", src.source, { title: `Fix the ${src.source} connection`, detail: src.error, severity: "high", source: "Dashboard", url: "/platforms", createdAt: now });
-    }
+    const errors = src.mode === "error" ? [src.error ?? "unknown error"] : (src.partial ?? []).map((p) => p.error);
+    if (errors.length) problems.set(src.source, [...(problems.get(src.source) ?? []), ...errors]);
+  }
+  for (const [source, errors] of problems) {
+    add("connector", source, { title: `Fix the ${source} connection`, detail: [...new Set(errors)].join(" · "), severity: "high", source: "Dashboard", url: "/platforms", createdAt: now });
   }
 
   for (const w of s.websites) {
@@ -141,11 +152,12 @@ export function deriveTasks(s: DeriveInput): DerivedTask[] {
 
   for (const e of s.emails) {
     if (e.unread && e.severity !== "low") {
-      add("gmail", e.id, { title: e.subject, detail: `From ${e.from}`, severity: e.severity, source: `Email · ${e.account}`, url: e.url, createdAt: e.receivedAt, business: e.account });
+      add("gmail", `${encodeURIComponent(e.account)}/${e.id}`, { title: e.subject, detail: `From ${e.from}`, severity: e.severity, source: `Email · ${e.account}`, url: e.url, createdAt: e.receivedAt, business: e.account });
     }
   }
 
   for (const r of s.repos) {
+    if (r.openPullRequests == null || r.openIssues == null) continue; // counts unknown this round
     if (r.openPullRequests > 0) add("github", `prs:${r.fullName}`, { title: `Review ${r.openPullRequests} open PR${r.openPullRequests > 1 ? "s" : ""} in ${r.name}`, severity: "medium", source: "GitHub", url: `${r.url}/pulls`, createdAt: r.pushedAt, business: r.business });
     if (r.openIssues >= 10) add("github", `issues:${r.fullName}`, { title: `Triage ${r.openIssues} open issues in ${r.name}`, severity: "medium", source: "GitHub", url: `${r.url}/issues`, createdAt: r.pushedAt, business: r.business });
     if (Date.now() - Date.parse(r.pushedAt) > 30 * DAY && r.openIssues + r.openPullRequests > 0) {
@@ -154,4 +166,19 @@ export function deriveTasks(s: DeriveInput): DerivedTask[] {
   }
 
   return tasks;
+}
+
+/**
+ * Task-key prefixes (within otherwise live scopes) whose condition couldn't be
+ * checked this round because part of a source failed. Reconciliation leaves
+ * them alone. Keys must match the formats used in deriveTasks. A prefix may
+ * also cover a sibling (e.g. repo "a/site" covers "a/site-2"), which only
+ * delays that sibling's auto-resolve by a round.
+ */
+export function unobservedKeys(p: { gmail?: { key: string }[]; supabase?: { key: string }[]; github?: { key: string }[] }): string[] {
+  return [
+    ...(p.gmail ?? []).map(({ key }) => `gmail/${encodeURIComponent(key)}/`),
+    ...(p.supabase ?? []).map(({ key }) => `supabase/advisor:${key}:`),
+    ...(p.github ?? []).flatMap(({ key }) => ["prs", "issues", "stale"].map((k) => `github/${k}:${key}`)),
+  ];
 }

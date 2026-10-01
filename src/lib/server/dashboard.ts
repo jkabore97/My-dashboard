@@ -1,6 +1,7 @@
 import { cache } from "react";
 import { collect, type DerivedTask } from "../aggregate";
 import type { Notification, Task } from "../types";
+import { requireUser } from "./auth";
 import { listEvents } from "./store/events";
 import { listTasks, sortTasks, type StoredTask, type TaskStatus } from "./store/tasks";
 import { persist } from "./sync";
@@ -20,8 +21,12 @@ const fromStored = (t: StoredTask): TaskView => ({ ...t, actionable: true });
  * Everything a page needs: live platform data plus persisted tasks and event
  * history. If the database is unreachable the dashboard still renders from
  * live data, with tasks read-only.
+ *
+ * Auth is checked here, not only in the (dash) layout: client-side navigation
+ * re-renders just the page segment, so the layout's check doesn't run then.
  */
 export const getDashboard = cache(async () => {
+  await requireUser();
   const c = await collect();
   let dbError: string | null = null;
   let openTasks: TaskView[];
@@ -47,5 +52,6 @@ export const getDashboard = cache(async () => {
 export type Dashboard = Awaited<ReturnType<typeof getDashboard>>;
 
 export async function getTasksByStatus(status: TaskStatus): Promise<TaskView[]> {
+  await requireUser();
   return (await listTasks(status)).map(fromStored);
 }

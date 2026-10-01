@@ -1,4 +1,5 @@
 import { headers } from "next/headers";
+import { requireUser } from "@/lib/server/auth";
 import { getDashboard } from "@/lib/server/dashboard";
 import { PLATFORM_DEFS } from "@/lib/platforms";
 import { oauthConfigured } from "@/lib/server/connect";
@@ -19,6 +20,7 @@ const WEBHOOK_HELP: Record<string, string> = {
 
 export default async function PlatformsPage({ searchParams }: { searchParams: Promise<{ error?: string; connected?: string }> }) {
   const { error, connected } = await searchParams;
+  await requireUser(); // reads the database directly below
   const d = await getDashboard();
   const h = await headers();
   const origin = env("APP_URL") ?? `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host")}`;
@@ -39,17 +41,19 @@ export default async function PlatformsPage({ searchParams }: { searchParams: Pr
           const mine = connections.filter((c) => c.provider === p.provider);
           const envSet = p.envKeys.length > 0 && p.envKeys.every((k) => !!env(k));
           const mode = modes[p.id];
+          const problems = d.sources.filter((s) => s.source === p.name).flatMap((s) => (s.error ? [s.error] : (s.partial ?? []).map((x) => x.error)));
+          const multi = p.provider === "gmail";
           return (
             <Card key={p.id} title={p.name} action={mode ? <ModePill mode={mode} /> : null}>
               {p.note && <p className="text-sm text-muted">{p.note}</p>}
-              {d.sources.find((s) => s.source === p.name && s.error) && <p className="mt-2 break-words text-xs text-critical">{d.sources.find((s) => s.source === p.name)?.error}</p>}
+              {problems.length > 0 && <p className="mt-2 break-words text-xs text-critical">{problems.join(" · ")}</p>}
 
               {mine.length > 0 && (
                 <ul className="mt-3 space-y-2 border-t border-line pt-3">
-                  {mine.map((c) => (
+                  {mine.map((c, i) => (
                     <li key={c.id} className="text-sm">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="truncate">{c.label ?? c.account}{c.label && c.label !== c.account ? <span className="text-muted"> · {c.account}</span> : null}</span>
+                        <span className="truncate">{c.label ?? c.account}{c.label && c.label !== c.account ? <span className="text-muted"> · {c.account}</span> : null}{!multi && i < mine.length - 1 ? <span className="text-high"> · not in use</span> : null}</span>
                         <DisconnectButton id={c.id} name={c.label ?? c.account} />
                       </div>
                       <div className="text-xs text-muted">{c.business ? `${c.business} · ` : ""}connected {timeAgo(c.createdAt)}</div>
@@ -64,14 +68,15 @@ export default async function PlatformsPage({ searchParams }: { searchParams: Pr
                 <div className="mt-3 border-t border-line pt-3">
                   {p.oauth && (oauthConfigured(p.oauth) ? (
                     <a href={`/api/connect/${p.oauth}`} className="inline-block rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-bg hover:opacity-90">
-                      {mine.length && p.provider === "gmail" ? "Connect another mailbox" : mine.length ? "Reconnect" : `Connect ${p.name}`}
+                      {mine.length && multi ? "Connect another mailbox" : mine.length ? "Reconnect or replace" : `Connect ${p.name}`}
                     </a>
                   ) : (
                     <p className="text-xs text-muted">One-click connect needs {p.oauth === "github" ? "GITHUB_OAUTH_CLIENT_ID/SECRET" : p.oauth === "gmail" ? "GOOGLE_CLIENT_ID/SECRET" : "VERCEL_INTEGRATION_SLUG and VERCEL_CLIENT_ID/SECRET"} (see README).</p>
                   ))}
+                  {mine.length > 0 && !multi && <p className="mt-2 text-xs text-muted">One {p.name} account at a time: connecting another replaces this one.</p>}
                   {p.token && (
                     <details className="mt-2">
-                      <summary className="cursor-pointer text-xs text-accent">Use an API token instead</summary>
+                      <summary className="cursor-pointer text-xs text-accent">{mine.length && !multi ? "Replace with an API token" : "Use an API token instead"}</summary>
                       <TokenForm provider={p.provider!} fields={p.token.fields} help={p.token.help} />
                     </details>
                   )}

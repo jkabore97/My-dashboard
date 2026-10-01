@@ -1,10 +1,12 @@
 import Link from "next/link";
+import { requireUser } from "@/lib/server/auth";
 import { getDashboard } from "@/lib/server/dashboard";
 import { snapshotHistory } from "@/lib/server/store/snapshots";
 import { Card, PageHeader, Stat, StatusDot, Table, td } from "@/components/ui";
 import { UptimeStrip, type UptimePoint } from "@/components/UptimeStrip";
 
 export default async function WebsitesPage() {
+  await requireUser(); // reads the database directly below
   const s = await getDashboard();
   const history = new Map<string, UptimePoint[]>();
   if (!s.dbError) {

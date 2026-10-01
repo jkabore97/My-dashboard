@@ -1,6 +1,6 @@
 import { demoEmails } from "../demo";
 import { gmailAccounts, googleClient } from "../server/credentials";
-import { fromSource, getJson } from "../source";
+import { errorMessage, fromSource, getJson } from "../source";
 import type { EmailMessage, Severity } from "../types";
 
 // Each mailbox is a refresh token from a one-time OAuth consent with the
@@ -51,8 +51,9 @@ export async function getEmails() {
   return fromSource<EmailMessage[]>(
     "Gmail",
     list.length > 0 && !!client,
-    async () => {
-      // One broken mailbox shouldn't hide the others.
+    async (fail) => {
+      // One broken mailbox shouldn't hide the others, but it is reported so
+      // its tasks stay open and the UI shows which mailbox needs reconnecting.
       const settled = await Promise.allSettled(
         list.map(async ({ label, refreshToken, email }) => {
           const headers = { Authorization: `Bearer ${await accessToken(client!, refreshToken)}` };
@@ -89,6 +90,7 @@ export async function getEmails() {
       );
       const ok = settled.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
       if (ok.length === 0) throw (settled[0] as PromiseRejectedResult).reason;
+      settled.forEach((r, i) => r.status === "rejected" && fail(list[i].label, `${list[i].label}: ${errorMessage(r.reason)}`));
       return ok.flat().sort((a, b) => b.receivedAt.localeCompare(a.receivedAt));
     },
     demoEmails,

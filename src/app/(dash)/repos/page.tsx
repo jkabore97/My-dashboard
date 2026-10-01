@@ -18,8 +18,8 @@ export default async function ReposPage() {
               </td>
               <td className={`${td} text-muted`}>{r.business ?? "—"}</td>
               <td className={`${td} text-muted`}>{r.language ?? "—"}</td>
-              <td className={`${td} tabular-nums ${r.openPullRequests ? "text-medium" : "text-muted"}`}>{r.openPullRequests}</td>
-              <td className={`${td} tabular-nums ${r.openIssues >= 10 ? "text-high" : "text-muted"}`}>{r.openIssues}</td>
+              <td className={`${td} tabular-nums ${r.openPullRequests ? "text-medium" : "text-muted"}`}>{r.openPullRequests ?? "—"}</td>
+              <td className={`${td} tabular-nums ${(r.openIssues ?? 0) >= 10 ? "text-high" : "text-muted"}`}>{r.openIssues ?? "—"}</td>
               <td className={`${td} text-muted`}>{timeAgo(r.pushedAt)}</td>
             </tr>
           ))}

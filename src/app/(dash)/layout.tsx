@@ -13,7 +13,7 @@ export default async function DashLayout({ children }: { children: React.ReactNo
     "/inbox": d.emails.filter((e) => e.unread && e.severity === "critical").length,
     "/websites": d.websites.filter((w) => w.status === "down").length,
   };
-  const errors = d.sources.filter((s) => s.mode === "error");
+  const errors = d.sources.flatMap((s) => (s.mode === "error" ? [`${s.source} (${s.error})`] : (s.partial ?? []).map((p) => `${s.source} (${p.error})`)));
 
   return (
     <div className="lg:flex">
@@ -34,7 +34,7 @@ export default async function DashLayout({ children }: { children: React.ReactNo
         {errors.length > 0 && (
           <div className="mb-6 rounded-lg border border-critical/40 bg-critical/10 px-4 py-3 text-sm">
             <strong className="text-critical">Connector errors:</strong>{" "}
-            <span className="break-words text-muted">{errors.map((e) => `${e.source} (${e.error})`).join(" · ")}</span>
+            <span className="break-words text-muted">{errors.join(" · ")}</span>
           </div>
         )}
         {children}

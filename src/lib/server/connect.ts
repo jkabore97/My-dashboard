@@ -1,4 +1,6 @@
 import { env } from "../source";
+import { clientIp } from "./auth";
+import { audit } from "./store/audit";
 import type { Provider } from "./store/connections";
 
 // OAuth "Connect" flows for platforms whose data the dashboard reads.
@@ -44,3 +46,10 @@ export const PROVIDER_NAMES: Record<Provider, string> = {
   cloudflare: "Cloudflare",
   gmail: "Gmail",
 };
+
+/** Audit entries for a new connection and any account it replaced. */
+export async function auditConnection(actor: string, provider: Provider, account: string, via: "token" | "oauth", replaced: string[]) {
+  const ip = await clientIp();
+  await audit(actor, "connection.add", `${provider}:${account}`, { via }, ip);
+  for (const old of replaced) await audit(actor, "connection.replace", `${provider}:${old}`, { by: account }, ip);
+}

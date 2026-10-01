@@ -25,7 +25,7 @@ One private dashboard for every business Kaj Consulting runs: repositories, host
 | **Webhooks** (real time) | Stripe dispute or failed payout, CI failing on `main`, Dependabot or leaked-secret alert | The platform reports it fixed (dispute closed, CI green, alert fixed) |
 | **You** | Anything you add on the To-do page | You mark it done |
 
-Marking a signal task done keeps it done for as long as the condition persists. A source that is temporarily failing never auto-closes its tasks.
+Marking a signal task done keeps it done for as long as the condition persists. A source that is temporarily failing (or one failing mailbox, project or repo within it) never auto-closes its tasks; it shows up as a connector error instead. Disconnecting a platform closes its signal tasks.
 
 ## Security
 
@@ -58,7 +58,7 @@ npm run typecheck
 2. **Secrets:** set `SESSION_SECRET`, `ENCRYPTION_KEY`, `CRON_SECRET`, `APP_URL`, and a sign-in method (`DASHBOARD_PASSWORD` and/or Google + `ALLOWED_EMAILS`). Production refuses to start without the secrets.
 3. **Deploy** the repo on Vercel. `vercel.json` schedules `/api/cron/check` every 5 minutes. This needs a Pro plan; on Hobby, change it to daily or call the endpoint from any scheduler with `Authorization: Bearer $CRON_SECRET`.
 4. **Sign in**, scan the 2FA QR code, and save your recovery codes.
-5. **Platforms page:** connect GitHub, Vercel, Gmail (one per mailbox), Supabase and Cloudflare, then add the webhook URLs it shows to GitHub, Vercel, Stripe and Supabase.
+5. **Platforms page:** connect GitHub, Vercel, Gmail (one per mailbox), Supabase and Cloudflare (one account each; connecting another replaces it), then add the webhook URLs it shows to GitHub, Vercel, Stripe and Supabase.
 6. **Settings:** list your businesses and websites.
 
 ## Architecture

@@ -47,14 +47,24 @@ export async function listConnectionSummaries() {
   return rows.map((r) => ({ id: r.id, provider: r.provider, account: r.account, label: r.label, business: r.business, createdAt: new Date(r.created_at).toISOString() }));
 }
 
+/**
+ * Stores a connection. Gmail keeps one per mailbox; every other provider has
+ * a single active account, so connecting another replaces the old one(s).
+ * Returns the accounts that were replaced.
+ */
 export async function saveConnection(c: { provider: Provider; account: string; label?: string | null; business?: string | null; secret: unknown; meta?: Record<string, unknown> }) {
   const db = await getDb();
-  await db.query(
-    `insert into connections (provider, account, label, business, secret, meta) values ($1, $2, $3, $4, $5, $6::text::jsonb)
-     on conflict (provider, account) do update set label = coalesce(excluded.label, connections.label),
-       business = coalesce(excluded.business, connections.business), secret = excluded.secret, meta = excluded.meta, updated_at = now()`,
-    [c.provider, c.account, c.label ?? null, c.business ?? null, encryptJson(c.secret), JSON.stringify(c.meta ?? {})],
-  );
+  return db.tx(async (tx) => {
+    await tx.query(
+      `insert into connections (provider, account, label, business, secret, meta) values ($1, $2, $3, $4, $5, $6::text::jsonb)
+       on conflict (provider, account) do update set label = coalesce(excluded.label, connections.label),
+         business = coalesce(excluded.business, connections.business), secret = excluded.secret, meta = excluded.meta, updated_at = now()`,
+      [c.provider, c.account, c.label ?? null, c.business ?? null, encryptJson(c.secret), JSON.stringify(c.meta ?? {})],
+    );
+    if (c.provider === "gmail") return [];
+    const removed = await tx.query<{ account: string }>("delete from connections where provider = $1 and account <> $2 returning account", [c.provider, c.account]);
+    return removed.map((r) => r.account);
+  });
 }
 
 export async function updateConnectionLabel(id: string, label: string | null, business: string | null) {

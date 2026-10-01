@@ -31,7 +31,7 @@ export default async function SettingsPage() {
                 {me.hasTotp ? (
                   <>On since {new Date(user!.totp_enabled_at!).toLocaleDateString()}. {user!.recovery_codes.length} recovery code{user!.recovery_codes.length === 1 ? "" : "s"} left.</>
                 ) : (
-                  <>Off.{" "}<Link href="/login/2fa/setup" className="text-accent hover:underline">Turn it on →</Link>{require2fa() ? "" : " (Required unless REQUIRE_2FA=false.)"}</>
+                  <>Off.{" "}<Link href="/login/2fa/setup" className="text-accent hover:underline">Turn it on →</Link>{require2fa() ? "" : " (Optional because REQUIRE_2FA=false.)"}</>
                 )}
               </dd>
             </div>

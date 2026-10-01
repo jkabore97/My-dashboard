@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { decrypt, encrypt, safeEqual } from "@/lib/server/crypto";
 import { base32Decode, base32Encode, hotp, totp, verifyTotp, currentStep } from "@/lib/server/totp";
 import { signSession, verifySession } from "@/lib/session";
+import { pickClientIp } from "@/lib/server/auth";
 
 describe("encryption", () => {
   it("round-trips and uses a fresh IV each time", () => {
@@ -63,5 +64,19 @@ describe("sessions", () => {
     expect(await verifySession(`${body}.`, secret)).toBeNull();
     const expired = await signSession({ sub: "a@b.c", stage: "full", sv: 1 }, -1, secret);
     expect(await verifySession(expired, secret)).toBeNull();
+  });
+});
+
+describe("client IP", () => {
+  const h = (o: Record<string, string>) => new Headers(o);
+  it("never trusts the client-supplied left-most X-Forwarded-For entry", () => {
+    expect(pickClientIp(h({ "x-forwarded-for": "6.6.6.6, 10.0.0.1" }), false)).toBe("10.0.0.1");
+    expect(pickClientIp(h({ "x-forwarded-for": "6.6.6.6, 10.0.0.1", "x-real-ip": "10.0.0.2" }), false)).toBe("10.0.0.2");
+  });
+  it("uses Vercel's header only on Vercel", () => {
+    const hs = h({ "x-vercel-forwarded-for": "1.1.1.1", "x-real-ip": "2.2.2.2" });
+    expect(pickClientIp(hs, true)).toBe("1.1.1.1");
+    expect(pickClientIp(hs, false)).toBe("2.2.2.2");
+    expect(pickClientIp(h({}), false)).toBe("unknown");
   });
 });

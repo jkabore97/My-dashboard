@@ -1,7 +1,7 @@
 import { demoDatabases } from "../demo";
 import { businessFor, type BusinessRule } from "../server/config";
 import { supabaseToken } from "../server/credentials";
-import { fromSource, getJson } from "../source";
+import { errorMessage, fromSource, getJson } from "../source";
 import type { Database, Severity } from "../types";
 
 const API = "https://api.supabase.com/v1";
@@ -32,14 +32,8 @@ function mapStatus(s: string): Database["status"] {
 
 async function advisories(token: string, ref: string) {
   const kinds = ["security", "performance"] as const;
-  const results = await Promise.all(
-    kinds.map((k) =>
-      getJson<{ lints: SbLint[] }>(`${API}/projects/${ref}/advisors/${k}`, { headers: auth(token) })
-        .then((r) => r.lints)
-        .catch(() => [] as SbLint[]),
-    ),
-  );
-  return results.flat().map((l) => ({ level: LINT_SEVERITY[l.level] ?? "low", title: l.detail ?? l.title }));
+  const results = await Promise.all(kinds.map((k) => getJson<{ lints: SbLint[] }>(`${API}/projects/${ref}/advisors/${k}`, { headers: auth(token) })));
+  return results.flatMap((r) => r.lints).map((l) => ({ level: LINT_SEVERITY[l.level] ?? "low", title: l.detail ?? l.title }));
 }
 
 export async function getSupabaseProjects(rules: BusinessRule[]) {
@@ -47,11 +41,13 @@ export async function getSupabaseProjects(rules: BusinessRule[]) {
   return fromSource<Database[]>(
     "Supabase",
     !!token,
-    async () => {
+    async (fail) => {
       const projects = await getJson<SbProject[]>(`${API}/projects`, { headers: auth(token!) });
       return Promise.all(
         projects.map(async (p) => {
           const status = mapStatus(p.status);
+          // A failed advisor call (e.g. rate limit) must not read as "no findings".
+          const advs = status === "paused" ? [] : await advisories(token!, p.id).catch((err) => (fail(p.id, `${p.name} advisors: ${errorMessage(err)}`), []));
           return {
             id: p.id,
             name: p.name,
@@ -59,7 +55,7 @@ export async function getSupabaseProjects(rules: BusinessRule[]) {
             region: p.region,
             status,
             createdAt: p.created_at,
-            advisories: status === "paused" ? [] : await advisories(token!, p.id),
+            advisories: advs,
             business: businessFor(p.name, rules),
           };
         }),
