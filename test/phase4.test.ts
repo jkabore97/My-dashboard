@@ -644,4 +644,20 @@ describe("H9: unreadable camera status", () => {
     const { tasks } = deriveDeviceTasks({ cameras: [site], solar: [], solarSettings: DEFAULT_SOLAR_SETTINGS, timeZone: "UTC", modes: { cameras: "live", solar: "live" }, partial: { cameras: [site.id] } });
     expect(tasks).toEqual([]);
   });
+
+  it("treats a camera without a storage endpoint as having no disks, not as partly read", async () => {
+    const cam: Record<string, () => Response> = {
+      "/ISAPI/System/deviceInfo": () => new Response(`<DeviceInfo ${NSX}><model>DS-2CD2143G2-I</model></DeviceInfo>`),
+      "/ISAPI/System/Video/inputs/channels": () => new Response(`<VideoInputChannelList ${NSX}><VideoInputChannel><id>1</id><name>Gate</name></VideoInputChannel></VideoInputChannelList>`),
+    };
+    for (const storage of [() => new Response("", { status: 404 }), () => new Response("", { status: 403 }), () => new Response(`<ResponseStatus ${NSX}><statusCode>4</statusCode><subStatusCode>notSupport</subStatusCode></ResponseStatus>`, { status: 400 })]) {
+      vi.stubGlobal("fetch", async (url: string) => ({ ...cam, "/ISAPI/ContentMgmt/Storage": storage } as Record<string, () => Response>)[new URL(url).pathname]?.() ?? new Response("", { status: 404 }));
+      const site = await fetchSite({ id: "cam.example.com", label: "Gate", business: null, baseUrl: "https://cam.example.com", username: "u", password: "p" });
+      expect(site.warnings).toBeUndefined();
+      expect(site.disks).toEqual([]);
+    }
+    vi.stubGlobal("fetch", async (url: string) => ({ ...cam, "/ISAPI/ContentMgmt/Storage": () => new Response("busy", { status: 503 }) } as Record<string, () => Response>)[new URL(url).pathname]!());
+    const failing = await fetchSite({ id: "cam.example.com", label: "Gate", business: null, baseUrl: "https://cam.example.com", username: "u", password: "p" });
+    expect(failing.warnings?.[0]).toMatch(/disk status unavailable/);
+  });
 });

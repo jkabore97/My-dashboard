@@ -115,6 +115,19 @@ async function isapiText(s: HikvisionSite, path: string) {
   return res.text();
 }
 
+/**
+ * Recording disks. A device without local storage (many standalone cameras,
+ * older firmware) answers 403/404 or "notSupport": that means no disks, not a
+ * failure. Timeouts, server errors and network failures still throw.
+ */
+async function readDisks(s: HikvisionSite): Promise<CameraDisk[]> {
+  const res = await isapi(s, "/ISAPI/ContentMgmt/Storage");
+  const body = await res.text();
+  if (res.status === 403 || res.status === 404 || /notSupport|invalidOperation/i.test(body)) return [];
+  if (!res.ok) throw new Error(`${res.status} from /ISAPI/ContentMgmt/Storage`);
+  return parseStorage(body);
+}
+
 export async function fetchSite(s: HikvisionSite): Promise<CameraSiteStatus> {
   const device = parseDeviceInfo(await isapiText(s, "/ISAPI/System/deviceInfo"));
   const warnings: string[] = [];
@@ -131,7 +144,7 @@ export async function fetchSite(s: HikvisionSite): Promise<CameraSiteStatus> {
   } else {
     channels = parseVideoInputs(await isapiText(s, "/ISAPI/System/Video/inputs/channels"));
   }
-  const disks = await isapiText(s, "/ISAPI/ContentMgmt/Storage").then(parseStorage).catch((err) => (warnings.push(`disk status unavailable (${errorMessage(err)})`), [] as CameraDisk[]));
+  const disks = await readDisks(s).catch((err) => (warnings.push(`disk status unavailable (${errorMessage(err)})`), [] as CameraDisk[]));
   return { id: s.id, label: s.label, business: s.business, device, channels, disks, checkedAt: new Date().toISOString(), ...(warnings.length ? { warnings } : {}) };
 }
 
