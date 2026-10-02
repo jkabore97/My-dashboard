@@ -116,6 +116,10 @@ describe("decide()", () => {
     expect(splitForRateLimit([1, 2, 3], 0)).toEqual({ individual: [1, 2, 3], folded: [] });
     expect(splitForRateLimit([1, 2], 5)).toEqual({ individual: [], folded: [1, 2] });
     expect(splitForRateLimit([1, 2], 3)).toEqual({ individual: [1, 2], folded: [] });
+    // Criticals are never folded, and use up the budget for the rest.
+    const crit = (n: number) => n < 3;
+    expect(splitForRateLimit([0, 1, 2, 3, 4, 5], 0, crit)).toEqual({ individual: [0, 1, 2, 3], folded: [4, 5] });
+    expect(splitForRateLimit([0, 1, 2, 9], 5, crit)).toEqual({ individual: [0, 1, 2], folded: [9] });
   });
 });
 
@@ -179,6 +183,17 @@ describe("alert routing (PGlite)", () => {
     expect(new Set((await deliveryLog({ email: "boss@kaj.com", role: "owner", businesses: null }, true)).map((r) => r.userEmail)).size).toBe(3);
   });
 
+  it("doesn't count rows about tasks the person can no longer see as unread", async () => {
+    await task("github-ci:kaj/store:ci:a", "critical", { business: "Kaj Store" });
+    await task("github-ci:kaj/store:ci:b", "critical", { business: "Kaj Store" });
+    await runAlerts();
+    const db = await getDb();
+    await db.query("update tasks set business = 'Kaj Consulting' where source_key = 'github-ci:kaj/store:ci:b'");
+    const bell = await bellFor({ email: "dev@kaj.com", role: "developer", businesses: ["Kaj Store"] });
+    expect(bell.unread).toBe(1);
+    expect(bell.items).toHaveLength(1);
+  });
+
   it("alerts the assignee even outside their sections", async () => {
     const id = await task("stripe-dispute:dp_7", "critical", { business: "Kaj Store" });
     const db = await getDb();
@@ -217,12 +232,38 @@ describe("alert routing (PGlite)", () => {
     expect(rows.every((x) => x.kind === "alert" && x.status === "suppressed" && x.reason === "resolved before delivery")).toBe(true);
   });
 
-  it("doesn't push tasks that were open long before alerting existed", async () => {
-    const id = await task("stripe-dispute:dp_old", "critical");
+  it("treats tasks open long before alerting as a baseline: no push, but an escalation alerts", async () => {
+    const id = await task("stripe-dispute:dp_old", "medium");
     const db = await getDb();
-    await db.query("update tasks set created_at = now() - interval '3 days', occurred_at = now() - interval '3 days' where id = $1", [id]);
+    await db.query("update tasks set created_at = now() - interval '3 weeks', occurred_at = now() - interval '3 weeks', status_changed_at = now() - interval '3 weeks' where id = $1", [id]);
     await runAlerts();
     expect(mocks.sendNotification).not.toHaveBeenCalled();
+    const [inc] = await db.query<{ routed_severity: string }>("select routed_severity from alert_incidents where task_id = $1", [id]);
+    expect(inc.routed_severity).toBe("medium");
+    await db.query("update tasks set severity = 'critical' where id = $1", [id]); // e.g. a deadline now days away
+    await runAlerts();
+    expect(payloads().map((p) => p.title)).toEqual(["Critical: Problem stripe-dispute:dp_old"]);
+  });
+
+  it("alerts for a task that changed status recently even if it's old (reopened by hand)", async () => {
+    const id = await task("stripe-dispute:dp_reopen", "critical");
+    const db = await getDb();
+    await completeTask(id);
+    await db.query("update tasks set created_at = now() - interval '3 weeks', occurred_at = now() - interval '3 weeks' where id = $1", [id]);
+    await reopenTask(id); // status_changed_at = now
+    await runAlerts();
+    expect(sentTo()).toEqual(["boss@kaj.com"]);
+  });
+
+  it("re-routes harmlessly if a run died between writing rows and marking the incident", async () => {
+    await task("stripe-dispute:crash", "critical", { business: "Kaj Consulting" });
+    await runAlerts();
+    const db = await getDb();
+    await db.query("update alert_incidents set routed_severity = null");
+    const r = await runAlerts();
+    expect(r.routed).toBe(1);
+    expect(r.sent).toBe(0);
+    expect(mocks.sendNotification).toHaveBeenCalledTimes(2);
   });
 
   it("confirms a website problem with a second check before pushing", async () => {
@@ -240,8 +281,8 @@ describe("alert routing (PGlite)", () => {
     expect(n).toBe(0); // never alerted, so no Resolved either
   });
 
-  it("folds more than 5 pushes in 10 minutes into one summary", async () => {
-    for (let i = 0; i < 8; i++) await task(`stripe-dispute:many_${i}`, "critical"); // no business: boss only
+  it("folds more than 5 non-critical pushes in 10 minutes into one summary", async () => {
+    for (let i = 0; i < 8; i++) await task(`stripe-dispute:many_${i}`, "high"); // no business: boss only
     const r = await runAlerts();
     expect(mocks.sendNotification).toHaveBeenCalledTimes(5);
     expect(r.folded).toBe(4);
@@ -250,11 +291,32 @@ describe("alert routing (PGlite)", () => {
     const db = await getDb();
     const counts = await db.query<{ status: string; n: number }>("select status, count(*)::int as n from alert_log group by status order by status");
     expect(counts).toEqual([{ status: "folded", n: 4 }, { status: "sent", n: 5 }]);
-    // The next one within the window is folded too (one summary push).
-    await task("stripe-dispute:many_9", "critical");
+    // The next one within the window is folded too (one summary push)…
+    await task("stripe-dispute:many_9", "high");
     await runAlerts();
     expect(mocks.sendNotification).toHaveBeenCalledTimes(6);
     expect(payloads().at(-1)).toMatchObject({ kind: "digest", title: "1 more alert" });
+    // …but a critical always goes out on its own, demanding attention.
+    await task("stripe-dispute:fire", "critical");
+    await runAlerts();
+    expect(payloads().at(-1)).toMatchObject({ kind: "alert", title: "Critical: Problem stripe-dispute:fire", requireInteraction: true });
+  });
+
+  it("settles items to an earlier summary's outcome instead of leaving them queued", async () => {
+    await task("stripe-dispute:d1", "medium");
+    await task("stripe-dispute:d2", "medium");
+    await runAlerts();
+    const db = await getDb();
+    const items = await db.query<{ id: string }>("select id from alert_log where status = 'queued' order by id");
+    // A previous run sent this digest and died before marking its items.
+    await db.query(
+      "insert into alert_log (user_email, kind, severity, title, status, dedupe_key, sent_at) values ('boss@kaj.com', 'digest', 'medium', 'Noon digest: 2 items', 'sent', $1, now())",
+      [`digest:${items.map((i) => i.id).sort().join(",")}`],
+    );
+    await runAlerts({ now: nextLocalHour(new Date(), 12, "UTC") });
+    expect(mocks.sendNotification).not.toHaveBeenCalled();
+    const after = await db.query<{ status: string }>("select status from alert_log where id = any($1::uuid[])", [items.map((i) => i.id)]);
+    expect(after.map((a) => a.status)).toEqual(["folded", "folded"]);
   });
 
   it("drops a queued alert when the task closes before quiet hours end", async () => {
@@ -331,6 +393,21 @@ describe("alert routing (PGlite)", () => {
       expect((await post({ id: devRow.id, action: "snooze" })).status).toBe(403);
     });
 
+    it("a snooze from the notification alerts again when it ends, if still open", async () => {
+      const id = await task("github-ci:kaj/store:ci:snz", "critical", { business: "Kaj Store" });
+      await runAlerts();
+      const db = await getDb();
+      const [devRow] = await db.query<{ id: string }>("select id from alert_log where user_email = 'dev@kaj.com'");
+      as("dev@kaj.com", "developer", ["Kaj Store"]);
+      expect((await post({ id: devRow.id, action: "snooze" })).status).toBe(200);
+      mocks.sendNotification.mockClear();
+      expect((await runAlerts({ now: minutes(30) })).sent).toBe(0);
+      await runAlerts({ now: minutes(61) });
+      expect(sentTo()).toEqual(["boss@kaj.com", "dev@kaj.com"]);
+      const [inc] = await db.query<{ period: number }>("select period from alert_incidents where task_id = $1", [id]);
+      expect(inc.period).toBe(2);
+    });
+
     it("acknowledging drops what is still queued for that person", async () => {
       const h = new Date().getUTCHours();
       const db = await getDb();
@@ -358,6 +435,7 @@ describe("alert routing (PGlite)", () => {
       vi.stubEnv("CRON_SECRET", "cron-secret-0123456789");
       expect(await authorizeTick(null, "Bearer cron-secret-0123456789")).toBe(true);
       expect(await authorizeTick(null, "Bearer nope")).toBe(false);
+      expect(await authorizeTick(null, `Bearer ${token}`)).toBe(true); // the preferred form: token in a header
       const replaced = await createTickToken();
       expect(await authorizeTick(token, null)).toBe(false);
       expect(await authorizeTick(replaced, null)).toBe(true);
@@ -368,6 +446,7 @@ describe("alert routing (PGlite)", () => {
       const call = (t: string) => tickGET(new Request(`https://dash.example/api/tick/${t}`), { params: Promise.resolve({ token: t }) });
       expect((await call("tick_wrong")).status).toBe(401);
       expect((await tickBearerGET(new Request("https://dash.example/api/tick"))).status).toBe(401);
+      expect((await tickBearerGET(new Request("https://dash.example/api/tick", { headers: { authorization: "Bearer tick_wrong" } }))).status).toBe(401);
       const db = await getDb();
       await db.query("insert into settings (key, value, updated_at) values ('job:tick', 'null', now())"); // a run just started
       const res = await call(token);
@@ -375,6 +454,7 @@ describe("alert routing (PGlite)", () => {
       const body = await res.json();
       expect(body).toMatchObject({ ok: true, skipped: expect.any(String) });
       expect(JSON.stringify(body)).not.toContain(token);
+      expect((await tickBearerGET(new Request("https://dash.example/api/tick", { headers: { authorization: `Bearer ${token}` } }))).status).toBe(200);
     });
   });
 });

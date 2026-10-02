@@ -139,13 +139,13 @@ export default async function SettingsPage() {
           </p>
           <SchedulerLinkForm exists={tickOn} />
           <ol className="mt-3 grid list-decimal gap-1 pl-5 text-[13px] text-muted marker:text-cyan">
-            <li>Click <span className="text-ink">Create scheduler link</span> and copy the link (it is shown once).</li>
+            <li>Click <span className="text-ink">Create scheduler link</span>; copy the URL and the header value (shown once).</li>
             <li>Sign up free at <a href="https://cron-job.org" target="_blank" rel="noreferrer" className="text-cyan hover:underline">cron-job.org</a> → <span className="text-ink">Create cronjob</span>.</li>
-            <li>Paste the link as the URL; schedule <span className="text-ink">Every 5 minutes</span>; request method GET.</li>
-            <li>Under Advanced, set the timeout to 60 seconds; turn on failure notifications if you like. Save.</li>
+            <li>Paste the URL; schedule <span className="text-ink">Every 5 minutes</span>.</li>
+            <li>Under <span className="text-ink">Advanced → Headers</span>, add key <C>Authorization</C> with the value <C>Bearer tick_…</C>; set the timeout to 60 seconds. Save.</li>
             <li>Come back here in 10 minutes: this panel shows when it was last called.</li>
           </ol>
-          <p className="mt-2 text-[12px] text-muted">Keep the link private: anyone with it can trigger a check (nothing else). Replacing it stops the old one. Schedulers that send headers can call <C>/api/tick</C> with <C>Authorization: Bearer CRON_SECRET</C> instead.</p>
+          <p className="mt-2 text-[12px] text-muted">Keep the token private: it can only trigger a check, nothing else. Prefer the header: a token inside the URL (the fallback, for schedulers without headers) can end up in access logs. Replacing it stops the old one. <C>Authorization: Bearer CRON_SECRET</C> works on <C>/api/tick</C> too.</p>
         </Sub>
       )}
       {owner && (

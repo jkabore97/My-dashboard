@@ -348,6 +348,21 @@ alter table users add column ms_subject text unique;
 -- Environment owners get a users row when they first sign in, so this covers them too.
 alter table users add column notify_prefs jsonb not null default '{}'::jsonb;
 
+-- When a task last changed status (opened, reopened, snoozed, woke, closed),
+-- so the alert router can tell a new problem from one that was already open.
+alter table tasks add column status_changed_at timestamptz;
+update tasks set status_changed_at = greatest(created_at, occurred_at, coalesce(resolved_at, created_at));
+alter table tasks alter column status_changed_at set default now();
+alter table tasks alter column status_changed_at set not null;
+create or replace function touch_task_status_changed() returns trigger
+language plpgsql set search_path = public as $$
+begin
+  new.status_changed_at := now();
+  return new;
+end $$;
+create trigger tasks_status_changed before update of status on tasks
+for each row when (old.status is distinct from new.status) execute function touch_task_status_changed();
+
 -- One row per task: its current open period. A task alerts once per period;
 -- when it closes and later reopens or recurs, period goes up and it may alert
 -- again. Unlike "notified", nothing here is cleared by a trigger.

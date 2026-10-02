@@ -47,7 +47,6 @@ interface LogRow {
   t_business: string | null;
   t_source_key: string | null;
   t_assignee: string | null;
-  unread?: number;
 }
 
 const iso = (v: Date | string | null) => (v == null ? null : new Date(v).toISOString());
@@ -116,20 +115,25 @@ export async function savePrefs(email: string, prefs: NotifyPrefs) {
 
 /**
  * The bell: a person's latest alerts and resolved messages, with the unread
- * count, in one query. Summaries (digests) aren't listed: their items are.
+ * count, in one query. The count is taken after the same visibility check as
+ * the list (rows about tasks they can no longer see don't count). Summaries
+ * (digests) aren't listed: their items are.
  */
 export async function bellFor(viewer: Access & { email: string }, limit = 20): Promise<{ unread: number; items: AlertEntry[] }> {
   const db = await getDb();
-  const rows = await db.query<LogRow>(
-    `${SELECT}, count(*) filter (where l.read_at is null and l.status <> 'queued') over () as unread
-     from alert_log l left join tasks t on t.id = l.task_id
-     where l.user_email = $1 and l.kind in ('alert', 'resolved') and l.status in ('sent', 'folded', 'failed', 'queued')
-     order by l.created_at desc limit $2`,
+  const rows = await db.query<LogRow & { rn: number }>(
+    `with mine as (
+       ${SELECT}, row_number() over (order by l.created_at desc, l.id) as rn
+       from alert_log l left join tasks t on t.id = l.task_id
+       where l.user_email = $1 and l.kind in ('alert', 'resolved') and l.status in ('sent', 'folded', 'failed', 'queued'))
+     select * from mine where rn <= $2 or (read_at is null and status <> 'queued') order by created_at desc, id limit 500`,
     [viewer.email, limit],
   );
   const visible = rows.filter(visibleTo(viewer, viewer.email));
-  const hidden = rows.filter((r) => !visibleTo(viewer, viewer.email)(r) && !r.read_at && r.status !== "queued").length;
-  return { unread: Math.max(0, Number(rows[0]?.unread ?? 0) - hidden), items: visible.map(toEntry) };
+  return {
+    unread: visible.filter((r) => !r.read_at && r.status !== "queued").length,
+    items: visible.filter((r) => Number(r.rn) <= limit).map(toEntry),
+  };
 }
 
 /** Delivery log: everyone's (full owners) or the viewer's own. */

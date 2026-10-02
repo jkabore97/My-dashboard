@@ -118,13 +118,13 @@ What arrives (only alerts the person is allowed to see: their role's sections an
 
 Vercel's free plan runs the dashboard's own check once a day. Without this step, alerts still arrive at once for webhooks (step 9) and whenever someone opens the dashboard, but a website going down at night would wait. To check every 5 minutes, for free:
 
-1. Dashboard → **Settings → Notifications → Instant alerts every 5 minutes → Create scheduler link**. Copy the link now (it's shown once; only a fingerprint of it is stored).
+1. Dashboard → **Settings → Notifications → Instant alerts every 5 minutes → Create scheduler link**. Copy the **URL** (`https://kaj-command-center.vercel.app/api/tick`) and the **header value** (`Bearer tick_…`). They're shown once; only a fingerprint of the token is stored.
 2. Sign up at **cron-job.org** (free) → **Cronjobs → Create cronjob**.
-3. **URL**: paste the link. **Execution schedule**: every 5 minutes. Method GET.
-4. **Advanced**: timeout 60 seconds. Optionally turn on "notify me when the job fails". **Create**.
+3. **URL**: paste the URL. **Execution schedule**: every 5 minutes.
+4. **Advanced → Headers**: add `Authorization` = `Bearer tick_…` (the value you copied). Timeout 60 seconds. Optionally turn on "notify me when the job fails". **Create**.
 5. After ~10 minutes, the Settings panel shows *Running · last call N minutes ago*.
 
-Keep the link private: it can only trigger a check, nothing else. **Replace scheduler link** makes a new one and stops the old one (update cron-job.org afterwards). Schedulers that can send headers may call `https://kaj-command-center.vercel.app/api/tick` with `Authorization: Bearer <CRON_SECRET>` instead.
+Keep the token private: it can only trigger a check, nothing else. Prefer the header: the panel also shows a fallback URL with the token inside it (`/api/tick/tick_…`) for schedulers that can't send headers, but a token in a URL can end up in access logs. **Replace scheduler link** makes a new token and stops the old one (update cron-job.org afterwards). `Authorization: Bearer <CRON_SECRET>` also works. When the daily check and the scheduler land in the same few minutes, only one of them refetches the platforms.
 
 ## 14. Morning brief and weekly reports by email — optional
 

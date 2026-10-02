@@ -36,6 +36,13 @@ export const WEBSITE_CONFIRM_MS = 4 * 60_000;
 /** More than this many pushes per person in RATE_WINDOW_MS are folded into one summary. */
 export const RATE_LIMIT = 5;
 export const RATE_WINDOW_MS = 10 * 60_000;
+/**
+ * A task first seen by the router counts as new (and is pushed) only if it
+ * appeared or changed status within this window. Older ones existed before
+ * alerting did: their current severity becomes the baseline, and only an
+ * escalation above it alerts. Keeps the first deploy from replaying old problems.
+ */
+export const FRESH_MS = 60 * 60_000;
 
 export const validZone = (tz: unknown): tz is string => {
   if (typeof tz !== "string" || !tz || tz.length > 64) return false;
@@ -176,10 +183,16 @@ export function routeAfter(sourceKey: string | null, firstSeen: Date): Date {
   return sourceKey?.startsWith("websites/") ? new Date(firstSeen.getTime() + WEBSITE_CONFIRM_MS) : firstSeen;
 }
 
-/** Per-person rate limit: how many due items go out one by one; the rest fold into one summary. */
-export function splitForRateLimit<T>(due: T[], sentRecently: number): { individual: T[]; folded: T[] } {
-  const allowed = Math.max(0, RATE_LIMIT - sentRecently);
-  if (due.length <= allowed) return { individual: due, folded: [] };
+/**
+ * Per-person rate limit: which due items go out one by one; the rest fold
+ * into one summary push. Critical items are never folded: they always go
+ * out on their own (and use up the budget for everything else).
+ */
+export function splitForRateLimit<T>(due: T[], sentRecently: number, isCritical: (t: T) => boolean = () => false): { individual: T[]; folded: T[] } {
+  const critical = due.filter(isCritical);
+  const rest = due.filter((t) => !isCritical(t));
+  const allowed = Math.max(0, RATE_LIMIT - sentRecently - critical.length);
+  if (rest.length <= allowed) return { individual: [...critical, ...rest], folded: [] };
   const n = Math.max(0, allowed - 1);
-  return { individual: due.slice(0, n), folded: due.slice(n) };
+  return { individual: [...critical, ...rest.slice(0, n)], folded: rest.slice(n) };
 }

@@ -490,7 +490,7 @@ describe("H1/H2 with a database", () => {
       const at = (min: number) => new Date(Date.now() + min * 60_000);
       await reconcileDerived([critical("websites/down:old.com"), critical("websites/down:new.com")], ["websites"]);
       // Open for days before alerting existed: tracked, never pushed.
-      await db.query("update tasks set occurred_at = now() - interval '3 days', created_at = now() - interval '3 days' where source_key = 'websites/down:old.com'");
+      await db.query("update tasks set occurred_at = now() - interval '3 days', created_at = now() - interval '3 days', status_changed_at = now() - interval '3 days' where source_key = 'websites/down:old.com'");
       await runAlerts({ now: at(0) }); // websites wait for a second check
       expect(mocks.sendNotification).toHaveBeenCalledTimes(0);
       expect((await runAlerts({ now: at(5) })).sent).toBe(1);

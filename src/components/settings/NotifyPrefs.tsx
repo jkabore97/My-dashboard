@@ -3,7 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { Copy, Pause, Play } from "lucide-react";
 import { useFormState } from "@/components/useFormState";
-import { createSchedulerLink, pauseAlerts, saveNotifyPrefs, type PausePreset } from "@/app/actions/alerts";
+import { createSchedulerLink, pauseAlerts, saveNotifyPrefs, type PausePreset, type SchedulerLink } from "@/app/actions/alerts";
 import { btn } from "@/components/ui";
 
 const button = `${btn("solid")} min-h-10 sm:min-h-0`;
@@ -119,30 +119,40 @@ export function PauseButtons({ pausedUntil, timeZone }: { pausedUntil: string | 
   );
 }
 
-/** Owner: makes the scheduler link (shown once) for cron-job.org. */
+function CopyRow({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="grid gap-1">
+      <span className="hud-label text-[10.5px] text-muted">{label}</span>
+      <div className="flex min-w-0 items-stretch gap-2">
+        <code className="min-w-0 flex-1 break-all bg-cyan/5 px-2 py-1.5 font-mono text-xs text-[#9be7ff]">{value}</code>
+        <button type="button" className={outline} onClick={() => navigator.clipboard?.writeText(value).then(() => setCopied(true)).catch(() => {})}><Copy size={13} />{copied ? "Copied" : "Copy"}</button>
+      </div>
+    </div>
+  );
+}
+
+/** Owner: makes the scheduler token (shown once) for cron-job.org. */
 export function SchedulerLinkForm({ exists }: { exists: boolean }) {
   const [pending, start] = useTransition();
-  const [state, setState] = useState<{ ok?: string; error?: string; url?: string }>({});
-  const [copied, setCopied] = useState(false);
+  const [state, setState] = useState<SchedulerLink>({});
   const create = () => {
-    if (exists && !state.url && !confirm("Create a new scheduler link? The current one stops working until you update cron-job.org.")) return;
-    start(async () => {
-      setCopied(false);
-      setState(await createSchedulerLink());
-    });
+    if (exists && !state.endpoint && !confirm("Create a new scheduler token? The current one stops working until you update cron-job.org.")) return;
+    start(async () => setState(await createSchedulerLink()));
   };
   return (
-    <div className="grid gap-2">
+    <div className="grid gap-2.5">
       <div className="flex flex-wrap items-center gap-3">
         <button type="button" disabled={pending} onClick={create} className={exists ? outline : button}>{exists ? "Replace scheduler link" : "Create scheduler link"}</button>
         {state.error && <span className="text-xs text-critical">{state.error}</span>}
         {state.ok && <span className="text-xs text-emerald">✓ {state.ok}</span>}
       </div>
-      {state.url && (
-        <div className="flex min-w-0 items-stretch gap-2">
-          <code className="min-w-0 flex-1 break-all bg-cyan/5 px-2 py-1.5 font-mono text-xs text-[#9be7ff]">{state.url}</code>
-          <button type="button" className={outline} onClick={() => navigator.clipboard?.writeText(state.url!).then(() => setCopied(true)).catch(() => {})}><Copy size={13} />{copied ? "Copied" : "Copy"}</button>
-        </div>
+      {state.endpoint && state.header && state.fallbackUrl && (
+        <>
+          <CopyRow label="URL" value={state.endpoint} />
+          <CopyRow label="Header: Authorization" value={state.header} />
+          <CopyRow label="Fallback (no headers): token in the URL" value={state.fallbackUrl} />
+        </>
       )}
     </div>
   );

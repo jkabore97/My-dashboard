@@ -22,6 +22,13 @@ const PAGE_SYNC_SECONDS = 60;
 export const requestSync = () => expireInterval("job:sync");
 
 /**
+ * Whether this run should fetch every platform afresh. The daily cron and the
+ * tick share one ~4 minute lease, so the two don't both refetch in the same window;
+ * the loser works from the saved copy the winner just wrote.
+ */
+export const claimRefetch = () => claimInterval("job:refetch", 240).catch(() => true);
+
+/**
  * Persists what the latest collection saw: derived tasks, new events and
  * website health snapshots. Throttled so concurrent page loads don't repeat
  * the work; cron passes force.
@@ -113,7 +120,9 @@ const TRIAGE_LATEST_START_MS = 40_000;
 /** Cron entry point: sync, then notifications, then the slow optional work. */
 export async function runScheduledChecks() {
   const started = Date.now();
-  refetchExternal(); // cron always looks at the platforms afresh, without emptying the shared copy
+  // Cron looks at the platforms afresh (without emptying the shared copy),
+  // unless the 5-minute tick just did: then the saved copy is fresh already.
+  if (await claimRefetch()) refetchExternal();
   const c = await collect();
   await persist(c, { force: true, alerts: false });
   // Alerts and the brief come right after the sync, before anything slow can

@@ -2,13 +2,15 @@ import { collect, refetchExternal } from "../../aggregate";
 import { errorMessage } from "../../source";
 import { randomToken, safeEqual, sha256Hex } from "../crypto";
 import { claimInterval, getSetting, lastRun, setSetting } from "../store/settings";
-import { persist } from "../sync";
-import { runAlertsSafe, type AlertRunSummary } from "./run";
+import { claimRefetch, persist } from "../sync";
+import { emptySummary, runAlertsSafe, type AlertRunSummary } from "./run";
 
 // The 5-minute scheduler. Vercel Hobby runs crons once a day, so a free
-// external scheduler (cron-job.org) calls /api/tick/<token> every 5 minutes.
-// The token is made in Settings and only its SHA-256 is stored, like the
-// solar ingest token. Authorization: Bearer $CRON_SECRET works too.
+// external scheduler (cron-job.org) calls /api/tick every 5 minutes with
+// "Authorization: Bearer <token>" (the token made in Settings; only its
+// SHA-256 is stored, like the solar ingest token) or Bearer $CRON_SECRET.
+// /api/tick/<token> is the fallback for schedulers that can't send headers
+// (a token in the path can end up in access logs).
 
 export const TICK_TOKEN_KEY = "tick_token_hash";
 const TICK_LEASE_SECONDS = 240;
@@ -24,14 +26,17 @@ export async function createTickToken(): Promise<string> {
   return token;
 }
 
-/** A path token matching the stored hash, or the CRON_SECRET bearer header. */
+/** Bearer CRON_SECRET, or the scheduler token (as a Bearer header, or in the path). */
 export async function authorizeTick(pathToken: string | null, authorization: string | null): Promise<boolean> {
   const secret = process.env.CRON_SECRET?.trim();
   if (secret && authorization && safeEqual(authorization, `Bearer ${secret}`)) return true;
-  if (!pathToken || pathToken.length > 200) return false;
+  const bearer = authorization?.match(/^Bearer\s+(\S+)$/i)?.[1] ?? null;
   const hash = await getSetting<string | null>(TICK_TOKEN_KEY, null);
-  return !!hash && safeEqual(sha256Hex(pathToken), hash);
+  if (!hash) return false;
+  return [bearer, pathToken].some((t) => !!t && t.length <= 200 && safeEqual(sha256Hex(t), hash));
 }
+
+
 
 export const lastTick = () => lastRun("job:tick");
 
@@ -39,30 +44,45 @@ export interface TickResult {
   ok: boolean;
   skipped?: string;
   ms: number;
-  synced?: boolean;
+  synced?: boolean | "timeout";
   alerts?: AlertRunSummary | null;
   error?: string;
 }
 
+/** The platform sync gets this long; the alert passes run regardless. */
+const SYNC_BUDGET_MS = 35_000;
+
+const add = (a: AlertRunSummary | null, b: AlertRunSummary | null): AlertRunSummary | null => {
+  if (!a || !b) return a ?? b;
+  const out = emptySummary();
+  for (const k of Object.keys(out) as (keyof AlertRunSummary)[]) out[k] = a[k] + b[k];
+  return out;
+};
+
 /**
- * One pass: fresh platform data → tasks → alerts. A ~4 minute lease keeps two
- * schedulers (or a retry) from overlapping. Each stage fails soft; alerts run
- * even when the platform fetch failed, so queued items still go out.
+ * One pass, well under 60 s: alerts first (queued items and webhook tasks
+ * go out even if the platforms are slow), then fresh platform data → tasks
+ * within a time budget, then alerts again for what the sync found. A ~4
+ * minute lease keeps two schedulers (or a retry) from overlapping. Fail-soft.
  */
 export async function runTick(): Promise<TickResult> {
   const started = Date.now();
   if (!(await claimInterval("job:tick", TICK_LEASE_SECONDS))) return { ok: true, skipped: "another run is in progress or ran under 4 minutes ago", ms: Date.now() - started };
-  let synced = false;
+  const first = await runAlertsSafe();
   let error: string | undefined;
-  try {
-    refetchExternal();
+  const sync = (async () => {
+    if (await claimRefetch()) refetchExternal();
     const c = await collect();
-    synced = await persist(c, { force: true, alerts: false });
-  } catch (err) {
+    return persist(c, { force: true, alerts: false });
+  })().catch((err) => {
     // Details go to the server log only; the response is public-facing.
     console.error(`[tick] ${errorMessage(err)}`);
     error = "sync failed (see the server logs)";
-  }
-  const alerts = await runAlertsSafe();
-  return { ok: !error, ms: Date.now() - started, synced, alerts, ...(error ? { error } : {}) };
+    return false;
+  });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const synced = await Promise.race([sync, new Promise<"timeout">((r) => (timer = setTimeout(() => r("timeout"), SYNC_BUDGET_MS)))]);
+  clearTimeout(timer);
+  const second = synced === true ? await runAlertsSafe() : null;
+  return { ok: !error, ms: Date.now() - started, synced, alerts: add(first, second), ...(error ? { error } : {}) };
 }

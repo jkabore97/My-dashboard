@@ -71,8 +71,18 @@ export async function alertEntryAction(id: string, action: "ack" | "read"): Prom
   return r.ok ? {} : { error: r.error };
 }
 
-/** Owner: a new scheduler link (the old one stops working). Shown once. */
-export async function createSchedulerLink(): Promise<{ ok?: string; error?: string; url?: string }> {
+export interface SchedulerLink {
+  ok?: string;
+  error?: string;
+  /** Call this with the header (preferred). */
+  endpoint?: string;
+  header?: string;
+  /** Token in the path, for schedulers that can't send headers. */
+  fallbackUrl?: string;
+}
+
+/** Owner: a new scheduler token (the old one stops working). Shown once. */
+export async function createSchedulerLink(): Promise<SchedulerLink> {
   const user = await requireOwner();
   const token = await createTickToken();
   const h = await headers();
@@ -80,5 +90,6 @@ export async function createSchedulerLink(): Promise<{ ok?: string; error?: stri
   const proto = h.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
   await audit(user.email, "settings.tick_token", null, null);
   revalidatePath("/settings");
-  return { ok: "New scheduler link created. Copy it now; it won't be shown again. Any previous link stops working.", url: `${proto}://${host}/api/tick/${token}` };
+  const base = `${proto}://${host}/api/tick`;
+  return { ok: "New scheduler token created. Copy it now; it won't be shown again. Any previous one stops working.", endpoint: base, header: `Bearer ${token}`, fallbackUrl: `${base}/${token}` };
 }

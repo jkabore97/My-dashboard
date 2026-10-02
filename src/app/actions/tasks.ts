@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { alertsAfter } from "@/lib/server/alerts/after";
+import { restartIncident } from "@/lib/server/alerts/run";
 import { businessDenied, requireSection, type CurrentUser } from "@/lib/server/auth";
 import { audit } from "@/lib/server/store/audit";
 import { addManualTask, completeTask, deleteManualTask, getTask, recordActivity, reopenTask, setTaskAssignee, setTaskBusiness, snoozeTask, type StoredTask } from "@/lib/server/store/tasks";
@@ -50,7 +51,11 @@ export async function reopenTaskAction(id: string) {
 export async function snoozeTaskAction(id: string, preset: SnoozePreset) {
   const hours = SNOOZE_HOURS[preset];
   if (!hours) return;
-  await act(id, "task.snooze", () => snoozeTask(id, new Date(Date.now() + hours * 3_600_000)), { preset });
+  await act(id, "task.snooze", async () => {
+    const until = new Date(Date.now() + hours * 3_600_000);
+    await snoozeTask(id, until);
+    await restartIncident(id, until).catch(() => {}); // alerts again if still open when the snooze ends
+  }, { preset });
 }
 
 export async function setTaskBusinessAction(id: string, business: string) {
