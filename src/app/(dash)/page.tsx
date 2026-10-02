@@ -9,6 +9,7 @@ import { OPEN_STAGES } from "@/lib/server/store/pipeline";
 import { formatTotals, sumByCurrency } from "@/lib/money";
 import { moneyByBusiness, moneyOverview } from "@/lib/money-summary";
 import { canSee, isFullOwner } from "@/lib/access";
+import { samplesEnabled } from "@/lib/source";
 
 export default async function Overview({ searchParams }: { searchParams: Promise<{ denied?: string }> }) {
   const { denied } = await searchParams;
@@ -51,14 +52,14 @@ export default async function Overview({ searchParams }: { searchParams: Promise
       </div>
 
       {can("money") && <Link href="/money" className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Stat label="Revenue (30d)" value={formatTotals(money.gross30d.slice(0, 1), { compact: true })} hint={s.modes.stripe === "live" ? "all Stripe accounts" : "sample data"} />
+        <Stat label="Revenue (30d)" value={formatTotals(money.gross30d.slice(0, 1), { compact: true })} hint={s.modes.stripe === "live" ? "all Stripe accounts" : samplesEnabled() ? "sample data" : "Stripe not connected"} />
         <Stat label="MRR" value={formatTotals(money.mrr.slice(0, 1), { compact: true })} />
         <Stat label="Overdue invoices" value={money.overdueCount} tone={money.overdueCount ? "high" : "ok"} hint={money.overdueCount ? formatTotals(money.overdue, { compact: true }) : "all paid on time"} />
         <Stat label="Monthly spend" value={formatTotals(money.monthlySpend.slice(0, 1), { compact: true })} hint={`${money.spend.length} subscriptions`} />
       </Link>}
 
       <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
-        {can("analytics") && <Link href="/analytics"><Stat label="Visitors (7d)" value={visitors7d.toLocaleString()} hint={s.modes.analytics === "live" ? "Google Analytics" : "sample data"} /></Link>}
+        {can("analytics") && <Link href="/analytics"><Stat label="Visitors (7d)" value={visitors7d.toLocaleString()} hint={s.modes.analytics === "live" ? "Google Analytics" : samplesEnabled() ? "sample data" : "Analytics not connected"} /></Link>}
         {can("clients") && <Link href="/clients"><Stat label="Open pipeline" value={formatTotals(pipeline.slice(0, 1), { compact: true })} hint={`${openDeals.length} deal${openDeals.length === 1 ? "" : "s"}`} /></Link>}
         {can("clients") && <Link href="/clients"><Stat label="Follow-ups due" value={followUps} tone={followUps ? "high" : "ok"} hint="today or overdue" /></Link>}
         {can("analytics") && <Link href="/analytics#reviews"><Stat label="Google rating" value={rating ? rating.toFixed(1) : "—"} hint={s.reviews.length ? `${s.reviews.reduce((n, p) => n + p.reviewCount, 0).toLocaleString()} reviews` : "not connected"} /></Link>}

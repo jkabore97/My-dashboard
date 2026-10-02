@@ -7,6 +7,27 @@ const REVALIDATE_SECONDS = 120;
 // so the UI can show that a connector is broken rather than silently stale.
 // A fetcher that loses only part of its data reports it through `fail`; the
 // result stays live but lists those parts so their tasks aren't auto-closed.
+/**
+ * Sample data for platforms that aren't connected. Off in production (an
+ * unconnected section is simply empty), on in development and tests.
+ * SAMPLE_DATA=on or off overrides either way.
+ */
+export function samplesEnabled() {
+  const v = process.env.SAMPLE_DATA?.trim().toLowerCase();
+  if (v === "on" || v === "true") return true;
+  if (v === "off" || v === "false") return false;
+  return process.env.NODE_ENV !== "production";
+}
+
+/** The same shape with nothing in it: lists empty, nested objects emptied, other values null. */
+export function emptyLike<T>(v: T): T {
+  if (Array.isArray(v)) return [] as T;
+  if (v && typeof v === "object") {
+    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, Array.isArray(x) ? [] : x && typeof x === "object" ? emptyLike(x) : null])) as T;
+  }
+  return v;
+}
+
 export async function fromSource<T>(
   source: string,
   configured: boolean,
@@ -14,13 +35,14 @@ export async function fromSource<T>(
   demo: () => T,
 ): Promise<SourceResult<T>> {
   const fetchedAt = new Date().toISOString();
-  if (!configured) return { source, mode: "demo", data: demo(), fetchedAt };
+  const fallback = () => (samplesEnabled() ? demo() : emptyLike(demo()));
+  if (!configured) return { source, mode: "demo", data: fallback(), fetchedAt };
   const partial: { key: string; error: string }[] = [];
   try {
     const data = await live((key, error) => partial.push({ key, error }));
     return { source, mode: "live", data, fetchedAt, ...(partial.length ? { partial } : {}) };
   } catch (err) {
-    return { source, mode: "error", data: demo(), error: errorMessage(err), fetchedAt };
+    return { source, mode: "error", data: fallback(), error: errorMessage(err), fetchedAt };
   }
 }
 

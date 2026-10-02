@@ -1,6 +1,7 @@
 import { requireSection } from "@/lib/server/auth";
 import Link from "next/link";
 import { getDashboard } from "@/lib/server/dashboard";
+import { samplesEnabled } from "@/lib/source";
 import { HEALTHY_DISK } from "@/lib/devices";
 import { Card, Empty, PageHeader, Stat, timeAgo } from "@/components/ui";
 import { SnapshotGrid } from "@/components/devices/SnapshotGrid";
@@ -22,7 +23,7 @@ export default async function CamerasPage() {
       <PageHeader mode={d.modes.cameras} title="Cameras" subtitle="Hikvision recorders reached through a secure tunnel: camera status, recorder disks and live snapshots. Alarms arrive in real time through the NVR's alarm server." />
       {d.modes.cameras !== "live" && (
         <Card className="mb-6">
-          <p className="text-sm">{d.modes.cameras === "error" ? <>The recorder didn&apos;t answer: <span className="text-critical">{failing?.error}</span></> : "Showing a sample recorder."} Connect a site under <Link href="/platforms#hikvision" className="text-accent hover:underline">Platforms → Hikvision cameras</Link>. The README explains the 5-minute Cloudflare Tunnel setup.</p>
+          <p className="text-sm">{d.modes.cameras === "error" ? <>The recorder didn&apos;t answer: <span className="text-critical">{failing?.error}</span></> : samplesEnabled() ? "Showing a sample recorder." : "No recorder connected yet."} Connect a site under <Link href="/platforms#hikvision" className="text-accent hover:underline">Platforms → Hikvision cameras</Link>. The README explains the 5-minute Cloudflare Tunnel setup.</p>
         </Card>
       )}
       {failing?.partial?.length ? (

@@ -2,6 +2,7 @@ import { requireSection } from "@/lib/server/auth";
 import Link from "next/link";
 import { BatteryCharging, Home, PlugZap, Sun } from "lucide-react";
 import { getDashboard } from "@/lib/server/dashboard";
+import { samplesEnabled } from "@/lib/source";
 import { businessTimeZone } from "@/lib/dates";
 import { Card, Empty, PageHeader, Stat, timeAgo } from "@/components/ui";
 import { LineChart } from "@/components/LineChart";
@@ -20,7 +21,7 @@ export default async function SolarPage() {
       {d.modes.solar !== "live" && (
         <Card className="mb-6">
           <p className="text-sm">
-            Showing a sample system. Create an ingest token in <Link href="/settings#solar" className="text-accent hover:underline">Settings → Solar</Link>, then have Home Assistant (SOFAR or Solarman integration) post readings to <code>/api/ingest/solar</code>; the README has a copy-paste config. Direct sync with the Fsolar cloud is ready to add once SOFAR grants your account API access.
+            {samplesEnabled() ? "Showing a sample system. " : "No solar readings yet. "}Create an ingest token in <Link href="/settings#solar" className="text-accent hover:underline">Settings → Solar</Link>, then have Home Assistant (SOFAR or Solarman integration) post readings to <code>/api/ingest/solar</code>; the README has a copy-paste config. Direct sync with the Fsolar cloud is ready to add once SOFAR grants your account API access.
           </p>
         </Card>
       )}

@@ -2,6 +2,7 @@ import { connection } from "next/server";
 import { Sidebar } from "@/components/Sidebar";
 import { requireUser } from "@/lib/server/auth";
 import { getDashboard } from "@/lib/server/dashboard";
+import { samplesEnabled } from "@/lib/source";
 import { isFullOwner, PATH_SECTION, ROLE_LABEL, canSee } from "@/lib/access";
 
 export default async function DashLayout({ children }: { children: React.ReactNode }) {
@@ -30,8 +31,8 @@ export default async function DashLayout({ children }: { children: React.ReactNo
         )}
         {owner && d.allDemo && (
           <div className="mb-6 rounded-lg border border-accent/30 bg-accent/10 px-4 py-3 text-sm">
-            <strong className="text-accent">Demo data.</strong>{" "}
-            <span className="text-muted">Nothing is connected yet. Connect platforms on the <a href="/platforms" className="text-accent hover:underline">Platforms</a> page and each section switches to live data on its own.</span>
+            <strong className="text-accent">{samplesEnabled() ? "Demo data." : "Nothing connected yet."}</strong>{" "}
+            <span className="text-muted">{samplesEnabled() ? "Nothing is connected yet. " : ""}Connect platforms on the <a href="/platforms" className="text-accent hover:underline">Platforms</a> page and each section fills in with your data on its own.</span>
           </div>
         )}
         {d.undecryptableConnections > 0 && (

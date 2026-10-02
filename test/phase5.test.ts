@@ -403,3 +403,25 @@ describe("Microsoft sign-in", () => {
     expect(await linkMicrosoft("jean.k@kajconsulting.com", "t:o3", still)).toBe(true);
   });
 });
+
+// ─── Sample data switch ──────────────────────────────────────────────────────
+
+import { emptyLike, fromSource, samplesEnabled } from "@/lib/source";
+
+describe("sample data", () => {
+  it("is off in production unless SAMPLE_DATA=on, and unconnected sources come back empty", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    expect(samplesEnabled()).toBe(false);
+    const r = await fromSource("X", false, async () => [1], () => [9, 9]);
+    expect(r).toMatchObject({ mode: "demo", data: [] });
+    const failing = await fromSource("X", true, async () => { throw new Error("boom"); }, () => [9]);
+    expect(failing).toMatchObject({ mode: "error", data: [], error: "boom" });
+    vi.stubEnv("SAMPLE_DATA", "on");
+    expect((await fromSource("X", false, async () => [1], () => [9, 9])).data).toEqual([9, 9]);
+  });
+
+  it("empties nested shapes", () => {
+    expect(emptyLike({ checks: [1], pending: ["a"] })).toEqual({ checks: [], pending: [] });
+    expect(emptyLike({ alerts: [1], github2fa: true, githubLogin: "kaj", nested: { list: [1], n: 2 } })).toEqual({ alerts: [], github2fa: null, githubLogin: null, nested: { list: [], n: null } });
+  });
+});

@@ -95,7 +95,7 @@ npm run typecheck
 
 Switching `SIGN_IN_METHODS` signs out every session made with a method that's now off. Each person is tied to the Microsoft account they first sign in with; if a member's Microsoft account is recreated, use *Reset Microsoft link* on the Team page. If it happens to you as the owner, run `update users set ms_subject = null where email = 'you@yourdomain.com';` in the database (Supabase → SQL editor), then sign in again. Changing your address in `ALLOWED_EMAILS` needs nothing: the old address gives up the link.
 7. **Platforms page:** connect GitHub, Vercel, Gmail (one per mailbox), Supabase and Cloudflare (one account each; connecting another replaces it), then add the webhook URLs it shows to GitHub, Vercel, Stripe and Supabase.
-8. **Settings:** list your businesses and websites.
+8. **Settings:** list your businesses and websites. [docs/CONNECT.md](docs/CONNECT.md) walks through connecting every platform step by step.
 
 ## Team and client pages
 
