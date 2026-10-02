@@ -2,13 +2,14 @@ import { decrypt, hmacHex, safeEqual } from "./crypto";
 import { getSetting } from "./store/settings";
 import { env } from "../source";
 
-export type WebhookProvider = "github" | "vercel" | "stripe" | "supabase";
+export type WebhookProvider = "github" | "vercel" | "stripe" | "supabase" | "hikvision";
 
 export const WEBHOOK_ENV: Record<WebhookProvider, string> = {
   github: "GITHUB_WEBHOOK_SECRET",
   vercel: "VERCEL_WEBHOOK_SECRET",
   stripe: "STRIPE_WEBHOOK_SECRET",
   supabase: "SUPABASE_WEBHOOK_SECRET",
+  hikvision: "HIKVISION_WEBHOOK_SECRET",
 };
 
 /** Env var wins; otherwise the (encrypted) secret saved on the Platforms page. */

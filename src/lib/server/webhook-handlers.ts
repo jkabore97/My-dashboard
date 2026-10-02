@@ -3,6 +3,7 @@ import { sha256Hex } from "./crypto";
 import { recordEvent, type NewEvent } from "./store/events";
 import { resolveEventTask, upsertEventTask } from "./store/tasks";
 import type { Severity } from "../types";
+import type { CameraEvent } from "../connectors/hikvision";
 
 // Each handler turns a verified platform payload into events (history /
 // notifications) and, for things that need action, event tasks that close
@@ -178,6 +179,49 @@ export function handleSupabase(raw: string, p: Json, site: string | null): Outco
     out.events.push({ ...base, title: `New sign-up on ${where}`, body: p.record?.email ?? undefined, severity: "low", url: site ? `https://${site}` : undefined });
   } else if (p.table && p.type) {
     out.events.push({ ...base, title: `${p.type} on ${p.schema}.${p.table}${site ? ` (${site})` : ""}`, severity: "low" });
+  }
+  return out;
+}
+
+// Hikvision event types (ISAPI eventType, lower-cased).
+const HIK_TASKS: Record<string, { severity: Severity; title: (where: string) => string; detail: string }> = {
+  videoloss: { severity: "high", title: (w) => `Video loss: ${w}`, detail: "The camera stopped sending video. Check its power (PoE) and cable." },
+  hderror: { severity: "critical", title: (w) => `Recorder disk error at ${w}`, detail: "The NVR reports a hard-disk error; recording may have stopped." },
+  diskerror: { severity: "critical", title: (w) => `Recorder disk error at ${w}`, detail: "The NVR reports a hard-disk error; recording may have stopped." },
+  hdfull: { severity: "high", title: (w) => `Recorder disk full at ${w}`, detail: "Overwrite is off and the disk is full, so new video isn't being recorded." },
+  diskfull: { severity: "high", title: (w) => `Recorder disk full at ${w}`, detail: "Overwrite is off and the disk is full, so new video isn't being recorded." },
+  nohdd: { severity: "critical", title: (w) => `No recorder disk at ${w}`, detail: "The NVR has no working hard disk." },
+  illaccess: { severity: "high", title: (w) => `Failed logins on the NVR at ${w}`, detail: "Someone tried to sign in to the recorder with a wrong password. If it wasn't you, change the password and check port forwarding." },
+  ipconflict: { severity: "medium", title: (w) => `IP address conflict at ${w}`, detail: "Two devices on the camera network share an address." },
+  netbroken: { severity: "high", title: (w) => `Network down at ${w}`, detail: "The NVR reports its network link went down." },
+  tamperdetection: { severity: "high", title: (w) => `Camera tampering: ${w}`, detail: "A camera reports it was covered or moved." },
+  shelteralarm: { severity: "high", title: (w) => `Camera tampering: ${w}`, detail: "A camera reports it was covered or moved." },
+};
+/** Detection events: kept as low-severity history, at most one per channel per 10 minutes. */
+const HIK_MOTION = new Set(["vmd", "motion", "linedetection", "fielddetection", "regionentrance", "regionexiting", "intrusion", "pir"]);
+
+export function handleHikvision(site: { id: string; label: string; business: string | null }, e: CameraEvent, channelName?: string | null): Outcome {
+  const out = empty();
+  const business = site.business ?? undefined;
+  const where = e.channel ? `${channelName ?? `camera ${e.channel}`} at ${site.label}` : site.label;
+  if (e.type === "videoloss" && e.state === "inactive" && !e.description) {
+    // Hikvision sends "videoloss / inactive" as a heartbeat; it means nothing changed.
+    return out;
+  }
+  const rule = HIK_TASKS[e.type];
+  if (rule) {
+    const key = `hikvision:${site.id}:${e.type}:${e.channel ?? 0}`;
+    if (e.state === "active") {
+      out.events.push({ dedupeKey: `${key}:${e.at}`, source: "Cameras", kind: e.type, title: rule.title(where), body: e.description ?? undefined, severity: rule.severity, url: "/cameras", business, occurredAt: e.at });
+      out.openTasks.push({ key, title: rule.title(where), detail: rule.detail, severity: rule.severity, source: "Cameras", url: "/cameras", business });
+    } else if (e.type !== "illaccess") {
+      out.resolveTasks.push(key);
+    }
+    return out;
+  }
+  if (HIK_MOTION.has(e.type) && e.state === "active") {
+    const bucket = Math.floor(Date.parse(e.at) / 600_000);
+    out.events.push({ dedupeKey: `hikvision:${site.id}:${e.type}:${e.channel ?? 0}:${bucket}`, source: "Cameras", kind: e.type, title: `${e.type === "vmd" || e.type === "motion" ? "Motion" : "Detection"}: ${where}`, severity: "low", url: "/cameras", business, occurredAt: e.at });
   }
   return out;
 }

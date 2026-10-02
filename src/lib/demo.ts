@@ -1,6 +1,8 @@
 // Sample data shown until real credentials are configured. Timestamps are
 // relative to "now" so the demo always looks current.
 import type { DomainCheck } from "./server/domains";
+import type { CameraSiteStatus } from "./connectors/hikvision";
+import type { SolarReading } from "./solar";
 import type { CalendarEvent, Database, EmailMessage, HostingProject, PlaceReviews, Repo, SecurityReport, SiteAnalytics, StripeAccountSummary, Task, Website } from "./types";
 
 const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
@@ -158,3 +160,45 @@ export const demoReviews = (): PlaceReviews[] => [
     reviews: [{ id: "r3", rating: 4, text: "Nice products, delivery could be faster.", author: "Sam K.", publishedAt: ago(60 * 24 * 12), relative: "2 weeks ago" }],
   },
 ];
+
+export const demoCameras = (): CameraSiteStatus[] => [
+  {
+    id: "demo-office",
+    label: "Office NVR",
+    business: "Kaj Consulting",
+    device: { name: "Office NVR", model: "DS-7608NI-K2/8P", serial: "DS-7608NI-K2-DEMO", firmware: "V4.74.110" },
+    channels: [
+      { id: 1, name: "Front door", online: true },
+      { id: 2, name: "Parking", online: true },
+      { id: 3, name: "Reception", online: true },
+      { id: 4, name: "Back gate", online: false },
+    ],
+    disks: [{ id: "1", name: "hdd1", status: "ok", capacityMB: 3_815_447, freeMB: 0 }],
+    checkedAt: ago(1),
+  },
+];
+
+/** A day of readings every 30 minutes for one sample system, oldest first. */
+export const demoSolarReadings = (now = new Date()): SolarReading[] => {
+  const out: SolarReading[] = [];
+  for (let m = 24 * 60; m >= 0; m -= 30) {
+    const t = new Date(now.getTime() - m * 60_000);
+    const h = t.getUTCHours() + t.getUTCMinutes() / 60;
+    const sun = Math.max(0, Math.sin(((h - 6) / 12) * Math.PI));
+    const powerW = Math.round(5200 * sun);
+    out.push({
+      station: "home",
+      at: t.toISOString(),
+      powerW,
+      todayKWh: Math.round(Math.max(0, 31 * (1 - Math.cos(Math.min(1, Math.max(0, (h - 6) / 12)) * Math.PI)) / 2) * 10) / 10,
+      totalKWh: 18_402,
+      batterySoc: Math.round(40 + 55 * sun),
+      batteryW: powerW > 1500 ? 900 : -400,
+      gridW: powerW > 1500 ? -300 : 250,
+      loadW: 1100,
+      status: "normal",
+      alarms: [],
+    });
+  }
+  return out;
+};

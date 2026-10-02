@@ -62,6 +62,7 @@ export const PROVIDER_NAMES: Record<Provider, string> = {
   gmail: "Google",
   microsoft: "Microsoft 365",
   stripe: "Stripe",
+  hikvision: "Hikvision",
 };
 
 /** Audit entries for a new connection and any account it replaced. */

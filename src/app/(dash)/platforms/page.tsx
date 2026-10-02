@@ -17,6 +17,7 @@ const WEBHOOK_HELP: Record<string, string> = {
   vercel: "Team → Settings → Webhooks. Events: deployment created / succeeded / error / canceled. Paste the secret Vercel shows you.",
   stripe: "Developers → Webhooks → Add endpoint. Events: charge.dispute.*, invoice.payment_failed, invoice.paid, payout.failed, radar.early_fraud_warning.created, charge.succeeded, charge.failed. Paste the whsec_… signing secret.",
   supabase: "Project → Database → Webhooks (e.g. on auth.users INSERT). Add an HTTP header x-webhook-secret with the secret. Append ?site=yourdomain.com to the URL.",
+  hikvision: "On the NVR: Configuration → Network → Advanced → Alarm Server (HTTP Listening). Host: your dashboard's domain, port 443, HTTPS, URL: the path above with your secret and the site id from Cameras. Then tick \"Notify surveillance center\" on the events you want (video loss, HDD error, illegal login, motion).",
 };
 
 const GOOGLE_FEATURES: [GoogleFeature, string][] = [["gmail", "Gmail"], ["calendar", "Calendar"], ["analytics", "Analytics"], ["searchConsole", "Search Console"]];
@@ -60,7 +61,7 @@ export default async function PlatformsPage({ searchParams }: { searchParams: Pr
           const problems = d.sources.filter((s) => (p.sources ?? [p.name]).includes(s.source)).flatMap((s) => (s.error ? [s.error] : (s.partial ?? []).map((x) => x.error)));
           const multi = !!p.provider && MULTI_ACCOUNT.includes(p.provider);
           return (
-            <Card key={p.id} title={p.name} action={mode ? <ModePill mode={mode} /> : null}>
+            <Card key={p.id} title={<span id={p.id} className="scroll-mt-20">{p.name}</span>} action={mode ? <ModePill mode={mode} /> : null}>
               {p.note && <p className="text-sm text-muted">{p.note}</p>}
               {problems.length > 0 && <p className="mt-2 break-words text-xs text-critical">{problems.join(" · ")}</p>}
 
@@ -93,7 +94,7 @@ export default async function PlatformsPage({ searchParams }: { searchParams: Pr
                   {mine.length > 0 && !multi && <p className="mt-2 text-xs text-muted">One {p.name} account at a time: connecting another replaces this one.</p>}
                   {p.token && (
                     <details className="mt-2">
-                      <summary className="cursor-pointer text-xs text-accent">{mine.length && !multi ? "Replace with an API token" : p.oauth ? "Use an API token instead" : mine.length ? "Add another account" : "Connect with an API key"}</summary>
+                      <summary className="cursor-pointer text-xs text-accent">{p.token.label ? (mine.length ? p.token.label.replace(/^Add an? /, "Add another ") : p.token.label) : mine.length && !multi ? "Replace with an API token" : p.oauth ? "Use an API token instead" : mine.length ? "Add another account" : "Connect with an API key"}</summary>
                       <TokenForm provider={p.provider!} fields={p.token.fields} help={p.token.help} />
                     </details>
                   )}
@@ -111,11 +112,11 @@ export default async function PlatformsPage({ searchParams }: { searchParams: Pr
           const fromEnv = !!env(WEBHOOK_ENV[p]);
           const stored = (storedSecrets as Record<string, boolean>)[p];
           return (
-            <Card key={p} title={{ github: "GitHub", vercel: "Vercel", stripe: "Stripe", supabase: "Supabase" }[p]} action={<ModePill mode={fromEnv || stored ? "live" : "demo"} />}>
-              <code className="block break-all rounded bg-bg px-2 py-1 text-xs">{origin}/api/webhooks/{p}</code>
+            <Card key={p} title={{ github: "GitHub", vercel: "Vercel", stripe: "Stripe", supabase: "Supabase", hikvision: "Hikvision NVR alarms" }[p]} action={<ModePill mode={fromEnv || stored ? "live" : "demo"} />}>
+              <code className="block break-all rounded bg-bg px-2 py-1 text-xs">{origin}/api/webhooks/{p}{p === "hikvision" ? "/<secret>/<site-id>" : ""}</code>
               <p className="mt-2 text-xs text-muted">{WEBHOOK_HELP[p]}</p>
               <p className="mt-2 text-xs">{fromEnv ? `Secret set via ${WEBHOOK_ENV[p]}.` : stored ? "Secret saved." : "No secret yet. Requests are rejected until one is set."}</p>
-              {!fromEnv && !d.dbError && <WebhookSecretForm provider={p} canGenerate={p === "github" || p === "supabase"} />}
+              {!fromEnv && !d.dbError && <WebhookSecretForm provider={p} canGenerate={p === "github" || p === "supabase" || p === "hikvision"} />}
             </Card>
           );
         })}

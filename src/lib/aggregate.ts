@@ -11,19 +11,24 @@ import { getStripe } from "./connectors/stripe";
 import { today } from "./dates";
 import { deriveRiskTasks, type RiskScope } from "./risk";
 import { deriveGrowthTasks, type GrowthScope } from "./growth";
+import { deriveDeviceTasks, type DeviceScope } from "./devices";
+import { getCameras } from "./connectors/hikvision";
+import { getSolar } from "./connectors/solar";
+import { businessTimeZone } from "./dates";
 import { getAnalytics, lastDays } from "./connectors/analytics";
 import { getCalendar } from "./connectors/calendar";
 import { getOutlook } from "./connectors/outlook";
 import { getReviews } from "./connectors/reviews";
 import { businessForDomain } from "./server/config";
 import { getPlatforms } from "./platforms";
+import { withTriage } from "./server/triage";
 import { getConfig } from "./server/config";
 import { connectionHealth } from "./server/credentials";
 import type { Database, EmailMessage, HostingProject, Notification, Repo, SourceMode, SourceResult, Task, Website } from "./types";
 
 const DAY = 86_400_000;
 
-export type Scope = "connector" | "github" | "vercel" | "workers" | "supabase" | "d1" | "gmail" | "outlook" | "websites" | RiskScope | GrowthScope;
+export type Scope = "connector" | "github" | "vercel" | "workers" | "supabase" | "d1" | "gmail" | "outlook" | "websites" | RiskScope | GrowthScope | DeviceScope;
 
 /**
  * A task generated from platform data. `scope` is the source it came from;
@@ -34,7 +39,7 @@ export type DerivedTask = Task & { live: boolean; scope: Scope; alias?: string }
 /** Fetches every source once per request. Pure reads: no database writes. */
 export const collect = cache(async () => {
   const { businessRules, sites, domains: watchedDomains } = await getConfig();
-  const [repos, ghNotes, vercel, workers, supabase, d1, gmail, stripe, records, domains, outlook, calendar, analytics, reviews] = await Promise.all([
+  const [repos, ghNotes, vercel, workers, supabase, d1, gmail, stripe, records, domains, outlook, calendar, analytics, reviews, cameras, solarAll] = await Promise.all([
     getRepos(businessRules),
     getGithubNotifications(),
     getVercelProjects(businessRules),
@@ -49,9 +54,14 @@ export const collect = cache(async () => {
     getCalendar(),
     getAnalytics(sites.map((x) => x.domain)),
     getReviews(),
+    getCameras(),
+    getSolar(),
   ]);
+  const solar = solarAll.result;
   // Gmail and Outlook share one inbox; each message keeps its mailbox id.
-  const emails = mergeSources([gmail, outlook]);
+  const merged = mergeSources([gmail, outlook]);
+  // Claude's triage (when enabled) replaces the keyword severity for messages it has read.
+  const emails = { ...merged, data: merged.mode === "live" ? await withTriage(merged.data) : merged.data };
   emails.data.sort((a, b) => b.receivedAt.localeCompare(a.receivedAt));
   const security = await getSecurity(repos.data, repos.mode === "live");
   const hosting = mergeSources([vercel, workers]).data;
@@ -70,7 +80,7 @@ export const collect = cache(async () => {
   const { readable: credentialsKnown, undecryptable } = await connectionHealth();
   const guards = undecryptableGuards(undecryptable);
 
-  const sources: SourceResult<unknown>[] = [repos, vercel, workers, supabase, d1, gmail, outlook, websites, stripe, domains, security, records, calendar, analytics, reviews];
+  const sources: SourceResult<unknown>[] = [repos, vercel, workers, supabase, d1, gmail, outlook, websites, stripe, domains, security, records, calendar, analytics, reviews, cameras, solar];
   const modes = {
     github: repos.mode,
     githubNotes: ghNotes.mode,
@@ -93,6 +103,8 @@ export const collect = cache(async () => {
     checklist: records.mode,
     domains: domains.mode,
     security: security.mode,
+    cameras: cameras.mode,
+    solar: solar.mode,
   };
 
   const risk = deriveRiskTasks({
@@ -119,7 +131,16 @@ export const collect = cache(async () => {
     partial: { reviews: (reviews.partial ?? []).map((p) => p.key) },
   });
 
-  const tasks: DerivedTask[] = [...deriveTasks({ repos: repos.data, hosting, databases, emails: emails.data, websites: websites.data, sources, modes }), ...risk.tasks, ...growth.tasks];
+  const devices = deriveDeviceTasks({
+    cameras: cameras.data,
+    solar: solar.data,
+    solarSettings: solarAll.config,
+    timeZone: businessTimeZone(),
+    modes,
+    partial: { cameras: (cameras.partial ?? []).map((p) => p.key) },
+  });
+
+  const tasks: DerivedTask[] = [...deriveTasks({ repos: repos.data, hosting, databases, emails: emails.data, websites: websites.data, sources, modes }), ...risk.tasks, ...growth.tasks, ...devices.tasks];
 
   const live = (m: SourceMode) => m === "live";
   const notifications: (Notification & { live: boolean })[] = [
@@ -154,6 +175,9 @@ export const collect = cache(async () => {
     calendar: calendar.data,
     analytics: analytics.data,
     reviews: reviews.data,
+    cameras: cameras.data,
+    solar: solar.data,
+    solarConfig: solarAll.config,
     derivedTasks: tasks,
     notifications,
     modes,
@@ -167,9 +191,11 @@ export const collect = cache(async () => {
       stripe: stripe.mode,
       microsoft: outlook.mode,
       reviews: reviews.mode,
+      hikvision: cameras.mode,
+      solar: solar.mode,
     }),
     sources: sources.map(({ source, mode, error, partial, fetchedAt }) => ({ source, mode, error, partial, fetchedAt })),
-    unobserved: [...unobservedKeys({ gmail: gmail.partial, supabase: supabase.partial, github: repos.partial }), ...guards.unobserved, ...risk.unobserved, ...growth.unobserved, ...(outlook.partial ?? []).map((p) => `outlook/${encodeURIComponent(p.key)}/`)],
+    unobserved: [...unobservedKeys({ gmail: gmail.partial, supabase: supabase.partial, github: repos.partial }), ...guards.unobserved, ...risk.unobserved, ...growth.unobserved, ...devices.unobserved, ...(outlook.partial ?? []).map((p) => `outlook/${encodeURIComponent(p.key)}/`)],
     skipScopes: guards.skipScopes,
     credentialsKnown,
     undecryptableConnections: undecryptable.length,
@@ -279,7 +305,7 @@ export function unobservedKeys(p: { gmail?: { key: string }[]; supabase?: { key:
   ];
 }
 
-const PROVIDER_SCOPES: Record<string, Scope[]> = { github: ["github"], vercel: ["vercel"], supabase: ["supabase"], cloudflare: ["workers", "d1"] };
+const PROVIDER_SCOPES: Record<string, Scope[]> = { github: ["github"], vercel: ["vercel"], supabase: ["supabase"], cloudflare: ["workers", "d1"], hikvision: ["cameras"] };
 
 /**
  * A stored connection that no longer decrypts is an account we can't see, even

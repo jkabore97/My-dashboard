@@ -226,5 +226,40 @@ alter table clients enable row level security;
 alter table deals enable row level security;
 `,
   },
+  {
+    version: 6,
+    name: "notifications_and_ai",
+    sql: `
+create table push_subscriptions (
+  endpoint text primary key,
+  owner text not null,
+  keys jsonb not null,
+  user_agent text,
+  created_at timestamptz not null default now()
+);
+
+-- One row per task per channel once it has been pushed / emailed.
+create table notified (
+  task_id uuid not null references tasks(id) on delete cascade,
+  channel text not null,
+  at timestamptz not null default now(),
+  primary key (task_id, channel)
+);
+
+-- AI triage results, keyed by message id; recomputed only when missing.
+create table email_triage (
+  message_id text primary key,
+  severity text not null check (severity in ('critical', 'high', 'medium', 'low')),
+  summary text not null,
+  needs_reply boolean not null default false,
+  task text,
+  created_at timestamptz not null default now()
+);
+
+alter table push_subscriptions enable row level security;
+alter table notified enable row level security;
+alter table email_triage enable row level security;
+`,
+  },
 ];
 

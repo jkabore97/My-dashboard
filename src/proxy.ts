@@ -8,7 +8,7 @@ import { SESSION_COOKIE, sessionSecret, verifySession } from "@/lib/session";
 // re-renders only the page segment. The database check isn't done here: the
 // proxy is bundled separately and would open its own connection pool (or a
 // second embedded PGlite on the same data directory in development).
-const PUBLIC = [/^\/login(\/|$)/, /^\/api\/auth\//, /^\/api\/webhooks\//, /^\/api\/cron\//];
+const PUBLIC = [/^\/login(\/|$)/, /^\/api\/auth\//, /^\/api\/webhooks\//, /^\/api\/cron\//, /^\/api\/ingest\//, /^\/sw\.js$/, /^\/manifest\.webmanifest$/, /^\/icons\//];
 
 export async function proxy(req: NextRequest) {
   const path = req.nextUrl.pathname;

@@ -28,7 +28,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   const db = await getDb();
-  await db.exec("truncate tasks, events, settings, connections, users, rate_limits, audit_log, snapshots, invoices, subscriptions, deadlines, deals, clients");
+  await db.exec("truncate tasks, events, settings, connections, users, rate_limits, audit_log, snapshots, invoices, subscriptions, deadlines, deals, clients, notified, push_subscriptions, email_triage");
 });
 
 describe("derived task reconciliation", () => {

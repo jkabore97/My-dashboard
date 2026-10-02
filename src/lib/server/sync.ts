@@ -3,10 +3,14 @@ import type { Website } from "../types";
 import { recordEvent } from "./store/events";
 import { pruneOldData } from "./store/maintenance";
 import { claimInterval, expireInterval, setSetting } from "./store/settings";
-import { latestSnapshot, recordSnapshot } from "./store/snapshots";
+import { latestSnapshot, recordSnapshot, replaceSnapshot } from "./store/snapshots";
 import { existingEventKeys, reconcileDerived } from "./store/tasks";
 import { getConfig } from "./config";
 import { refreshDomainChecks } from "./domains";
+import { pushNewCriticalTasks } from "./notify";
+import { sendScheduledReports } from "./reports";
+import { triagePending } from "./triage";
+import { errorMessage } from "../source";
 
 const PAGE_SYNC_SECONDS = 60;
 
@@ -46,6 +50,11 @@ export async function persist(c: Collected, { force = false } = {}) {
 
   if (c.modes.websites === "live") {
     for (const w of c.websites) await recordWebsite(w);
+  }
+  // Last known state per camera site: channel names for alarm webhooks, and
+  // the Cameras page while a tunnel is down.
+  if (c.modes.cameras === "live") {
+    for (const site of c.cameras) await replaceSnapshot("cameras", site.id, site);
   }
   return true;
 }
@@ -106,6 +115,12 @@ export async function runScheduledChecks() {
   const { domains, dkimSelectors } = await getConfig();
   const domainsChecked = await refreshDomainChecks(domains, dkimSelectors, { deadline: started + DOMAIN_BUDGET_MS });
   if (domainsChecked) await requestSync(); // let the next page view turn them into tasks
+  // New mail gets read by Claude (when enabled); the next sync uses the result.
+  const triaged = c.modes.inbox === "live" ? await triagePending(c.emails).catch(() => 0) : 0;
+  if (triaged) await requestSync();
+  // Notifications never fail the run: the sync above is what matters.
+  const pushed = await pushNewCriticalTasks().catch((err) => (console.error(`[push] ${errorMessage(err)}`), 0));
+  const reports = await sendScheduledReports(c).catch((err) => (console.error(`[reports] ${errorMessage(err)}`), [] as string[]));
   await pruneOldData();
   await setSetting("job:last_cron", { at: new Date().toISOString(), ms: Date.now() - started });
   return {
@@ -113,5 +128,8 @@ export async function runScheduledChecks() {
     sources: c.sources.map((s) => ({ source: s.source, mode: s.mode, error: s.error, partial: s.partial })),
     tasks: c.derivedTasks.filter((t) => t.live).length,
     domainsChecked,
+    triaged,
+    pushed,
+    reports,
   };
 }

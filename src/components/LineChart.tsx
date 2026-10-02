@@ -7,7 +7,8 @@ import { useRef, useState } from "react";
  * hover/touch, and a table view. Single series, so the card title names it
  * (no legend). Values are formatted by the caller.
  */
-export function LineChart({ points, format = (n) => n.toLocaleString(), height = 140, label }: { points: { date: string; value: number }[]; format?: (n: number) => string; height?: number; label: string }) {
+export function LineChart({ points, format: formatFn, unit, height = 140, label, axis = "day", timeZone }: { points: { date: string; value: number }[]; format?: (n: number) => string; /** Suffix for values, for server components that can't pass a formatter. */ unit?: string; height?: number; label: string; /** "time": dates are ISO timestamps shown as times. */ axis?: "day" | "time"; timeZone?: string }) {
+  const format = formatFn ?? ((n: number) => `${n.toLocaleString()}${unit ? ` ${unit}` : ""}`);
   const [hover, setHover] = useState<number | null>(null);
   const [table, setTable] = useState(false);
   const ref = useRef<SVGSVGElement>(null);
@@ -20,7 +21,10 @@ export function LineChart({ points, format = (n) => n.toLocaleString(), height =
   const x = (i: number) => (points.length === 1 ? W / 2 : (i / (points.length - 1)) * W);
   const y = (v: number) => pad.top + (1 - v / max) * (H - pad.top - pad.bottom);
   const d = points.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.value).toFixed(1)}`).join(" ");
-  const day = (s: string) => new Date(`${s}T00:00:00Z`).toLocaleDateString("en-US", { timeZone: "UTC", month: "short", day: "numeric" });
+  const day = (s: string) =>
+    axis === "time"
+      ? new Date(s).toLocaleTimeString("en-US", { timeZone, hour: "numeric", minute: "2-digit" })
+      : new Date(`${s}T00:00:00Z`).toLocaleDateString("en-US", { timeZone: "UTC", month: "short", day: "numeric" });
   const h = hover === null ? null : points[hover];
 
   const onMove = (clientX: number) => {

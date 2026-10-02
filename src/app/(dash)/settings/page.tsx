@@ -8,11 +8,16 @@ import { Card, PageHeader, timeAgo } from "@/components/ui";
 import { PlacesForm } from "@/components/pipeline";
 import { getSetting } from "@/lib/server/store/settings";
 import type { PlaceConfig } from "@/lib/connectors/reviews";
-import { BusinessRulesForm, RegenerateCodesForm, ResetTwoFactorForm, WebsitesForm } from "@/components/settings/forms";
+import { BusinessRulesForm, RegenerateCodesForm, ResetTwoFactorForm, SolarForm, SolarTokenForm, WebsitesForm } from "@/components/settings/forms";
+import { PushToggle } from "@/components/settings/PushToggle";
+import { solarConfig } from "@/lib/server/solar-store";
+import { emailEnabled, vapidPublicKey } from "@/lib/server/notify";
+import { briefHour } from "@/lib/server/reports";
+import { env } from "@/lib/source";
 
 export default async function SettingsPage() {
   const me = await requireUser();
-  const [{ businessRules, sites }, user, log, places] = await Promise.all([getConfig(), getUser(me.email), listAudit(50), getSetting<PlaceConfig[]>("places", [])]);
+  const [{ businessRules, sites }, user, log, places, solar, solarTokenHash] = await Promise.all([getConfig(), getUser(me.email), listAudit(50), getSetting<PlaceConfig[]>("places", []), solarConfig(), getSetting<string | null>("solar_ingest_token_hash", null)]);
   return (
     <>
       <PageHeader title="Settings" subtitle={`Signed in as ${me.email}.`} />
@@ -71,6 +76,20 @@ export default async function SettingsPage() {
         <Card title={<span id="places">Google Business listings</span>}>
           <p className="mb-3 text-sm text-muted">One per line: <code>place ID | Business</code>. Find a place ID with Google&apos;s Place ID Finder. Needs <code>GOOGLE_PLACES_API_KEY</code>{process.env.GOOGLE_PLACES_API_KEY ? " (set)" : " (not set yet)"}.</p>
           <PlacesForm initial={places.map((p) => `${p.placeId} | ${p.business}`).join("\n")} />
+        </Card>
+
+        <Card title={<span id="notifications">Notifications</span>}>
+          <p className="mb-3 text-sm text-muted">Push notifications reach this phone or computer for new critical items only, plus the morning brief. Install the dashboard (Add to Home Screen) for the best experience.</p>
+          <PushToggle publicKey={vapidPublicKey()} />
+          <p className="mt-4 text-sm text-muted">
+            Morning brief by email at {briefHour()}:00 ({env("BUSINESS_TIMEZONE") ?? "UTC"}): {emailEnabled() ? <span className="text-ok">on, to {env("BRIEF_EMAIL_TO")}</span> : <>off. Set <code>RESEND_API_KEY</code>, <code>BRIEF_EMAIL_FROM</code> and <code>BRIEF_EMAIL_TO</code>.</>} Weekly reports go out on Mondays; see <Link href="/reports" className="text-accent hover:underline">Reports</Link>.
+          </p>
+        </Card>
+
+        <Card title={<span id="solar">Solar</span>}>
+          <p className="mb-3 text-sm text-muted">Readings are pushed to <code>/api/ingest/solar</code> with <code>Authorization: Bearer &lt;token&gt;</code>. {env("SOLAR_INGEST_TOKEN") ? "A token is set via SOLAR_INGEST_TOKEN; you can add a second one here." : solarTokenHash ? "A token exists." : "Create a token to start."} One line per station below: <code>station id = Business</code>.</p>
+          <div className="mb-4"><SolarTokenForm exists={!!solarTokenHash} /></div>
+          <SolarForm initial={{ daylightFrom: solar.daylightFrom, daylightTo: solar.daylightTo, offlineAfterMin: solar.offlineAfterMin, lowBatteryPct: solar.lowBatteryPct, stations: Object.entries(solar.businesses).map(([k, v]) => `${k} = ${v}`).join("\n") }} />
         </Card>
 
         <Card title="Audit log" action={<span className="text-xs text-muted">last 50</span>}>

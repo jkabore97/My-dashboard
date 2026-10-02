@@ -2,6 +2,7 @@ import { ExternalLink } from "lucide-react";
 import type { TaskView } from "@/lib/server/dashboard";
 import { SeverityBadge, timeAgo } from "./ui";
 import { TaskActions } from "./TaskActions";
+import { FixButton } from "./FixButton";
 
 export function TaskRow({ task: t, businesses = [], compact = false }: { task: TaskView; businesses?: string[]; compact?: boolean }) {
   const meta = [
@@ -28,6 +29,7 @@ export function TaskRow({ task: t, businesses = [], compact = false }: { task: T
           {t.origin === "demo" && <span className="ml-2 rounded bg-low/20 px-1 text-[10px] uppercase tracking-wider text-muted">demo</span>}
         </div>
         <div className="truncate text-xs text-muted">{meta.join(" · ")}</div>
+        {!compact && t.actionable && t.fix && <div className="mt-1.5"><FixButton taskId={t.id} label={t.fix} title={t.title} /></div>}
       </div>
       {!compact && t.actionable && <TaskActions id={t.id} status={t.status} manual={t.origin === "manual"} business={t.business} businesses={businesses} />}
     </li>

@@ -69,15 +69,17 @@ A working Next.js app, deployable to Vercel, protected by a password.
 - **Reputation**: Google rating and recent reviews per business, through the Places API. A review of 3★ or less becomes a task to reply. *Not possible yet:* LinkedIn page activity, because LinkedIn only gives its page API to approved partners.
 - **Microsoft 365 / Outlook**: inbox and calendar next to Gmail.
 
-### Phase 4: Intelligence & action (ongoing)
-*The dashboard starts working for you.*
+### Phase 4: Intelligence, action & devices ✅ shipped
+*The dashboard starts working for you, and now covers the buildings as well as the businesses.*
 
-- **Morning brief**: a 7:00 email or push: "3 critical, revenue yesterday $X, 2 new clients signed up, domain Y expires Friday".
-- **Ask the dashboard** (Claude): "Which client hasn't paid?", "What broke this week?", "Summarize the ClientCo thread".
-- **AI email triage**: replace the keyword rules with a model that reads the email, sets severity, drafts a reply and creates the task.
-- **One-click fixes**: redeploy or roll back a Vercel project, restore a paused Supabase project, renew a domain, open a GitHub issue from any task.
-- **Weekly report per business**: PDF or email with revenue, users, uptime, issues closed. Ready to forward to a partner or accountant.
-- **Mobile app (PWA)**: installable on your phone, push notifications for critical items only.
+- **Cameras (Hikvision)**: every NVR site through a Cloudflare Tunnel, camera online/offline, live snapshots, recording-disk health, and real-time alarms (video loss, disk errors, failed logins, tampering, motion) from the NVR's alarm server.
+- **Solar (SOFAR)**: production, battery, grid and home use pushed from Home Assistant or a script; faults, alarms, silence in daylight and low battery become tasks. *Waiting on SOFAR:* direct Fsolar cloud sync, once SOFAR grants API access to your account.
+- **Morning brief**: a daily email (and push) at 7:00: critical and high items, revenue yesterday, new sign-ups, today's meetings, solar yesterday, cameras offline.
+- **Weekly report per business**: revenue vs last week, users, uptime, issues closed, deals won, solar. Printable and emailed on Mondays.
+- **Ask the dashboard** (Claude): plain-English questions answered from the live data.
+- **AI email triage**: Claude reads new mail once, sets urgency, writes a one-line summary and a suggested to-do; one-click reply drafts.
+- **One-click fixes**: redeploy a failed Vercel deploy, restore a paused Supabase project, re-run failed GitHub Actions jobs, each with a confirmation and an audit entry. *Next:* Vercel rollback, domain renewal, open a GitHub issue from any task.
+- **Installable app (PWA)** with push notifications for new critical items only.
 
 ### Phase 5: Team-ready (when you hire)
 - Multiple users with roles (owner, developer, assistant, accountant), each seeing only their businesses.
@@ -124,7 +126,9 @@ A working Next.js app, deployable to Vercel, protected by a password.
 |---|---|
 | Vercel Pro (Hobby is non-commercial only) | $20 |
 | Supabase (the free tier covers the dashboard's own data; Pro for backups) | $0–25 |
-| Claude API for triage, brief and Q&A | $5–30 depending on email volume |
+| Claude API for triage, drafts and Q&A | $5–30 depending on email volume |
+| Resend (brief and reports) | $0 (free tier) |
+| Cloudflare Tunnel + Access for cameras | $0 (free tier) |
 | **Total** | **≈ $25–75** |
 
 ---

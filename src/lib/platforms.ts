@@ -17,10 +17,10 @@ export interface PlatformDef {
   docsUrl: string;
   note?: string;
   /** Provider id for stored connections, when the platform supports them. */
-  provider?: "github" | "vercel" | "supabase" | "cloudflare" | "gmail" | "stripe" | "microsoft";
+  provider?: "github" | "vercel" | "supabase" | "cloudflare" | "gmail" | "stripe" | "microsoft" | "hikvision";
   oauth?: "github" | "gmail" | "vercel" | "microsoft";
-  token?: { fields: TokenField[]; help: string };
-  webhook?: "github" | "vercel" | "stripe" | "supabase";
+  token?: { fields: TokenField[]; help: string; /** Link text that opens the form, when "API key" is the wrong word. */ label?: string };
+  webhook?: "github" | "vercel" | "stripe" | "supabase" | "hikvision";
   /** Source names (SourceResult.source) whose errors belong on this card; defaults to [name]. */
   sources?: string[];
   envKeys: string[];
@@ -40,6 +40,8 @@ export const PLATFORM_DEFS: PlatformDef[] = [
   { id: "reviews", name: "Google reviews", category: "social", available: true, envKeys: ["GOOGLE_PLACES_API_KEY"], docsUrl: "/settings#places", note: "Rating and recent reviews per business (Places API). Add place IDs in Settings." },
   { id: "stripe", name: "Stripe", category: "payments", available: true, provider: "stripe", webhook: "stripe", envKeys: ["STRIPE_SECRET_KEYS"], docsUrl: "https://dashboard.stripe.com/apikeys", note: "Revenue, MRR, balances, disputes and overdue invoices. Add one key per business.", token: { fields: [{ name: "token", label: "Restricted key", placeholder: "rk_live_…", secret: true }, { name: "business", label: "Business" }], help: "Create a restricted key with Read access to Balance, Charges, Disputes, Invoices, Subscriptions, Customers and Accounts. Use one key per Stripe account; two keys for the same account would double-count." } },
   { id: "websites", sources: ["Websites", "Domains"], name: "Website monitor", category: "analytics", available: true, envKeys: [], docsUrl: "/settings#websites", note: "Uptime every 5 minutes + sign-ups per site" },
+  { id: "hikvision", name: "Hikvision cameras", category: "devices", available: true, provider: "hikvision", webhook: "hikvision", sources: ["Cameras"], envKeys: [], docsUrl: "/cameras", note: "NVR and camera status, live snapshots, disk health and alarms (ISAPI through a secure tunnel). Add one per site.", token: { fields: [{ name: "baseUrl", label: "Tunnel address", placeholder: "https://nvr.yourdomain.com" }, { name: "username", label: "NVR username", placeholder: "a read-only operator account" }, { name: "token", label: "NVR password", secret: true }, { name: "label", label: "Site name", placeholder: "Office", optional: true }, { name: "business", label: "Business", optional: true }, { name: "cfClientId", label: "Cloudflare Access client ID", optional: true }, { name: "cfClientSecret", label: "Cloudflare Access client secret", optional: true, secret: true }], label: "Add a recorder site", help: "Expose the NVR's web port through Cloudflare Tunnel (or Tailscale Funnel), never by port forwarding. Create a separate NVR user with only Remote: Live View and Parameters Settings view rights. If you protect the tunnel with Cloudflare Access, add a service token here. See the README for the 5-minute setup." } },
+  { id: "solar", name: "Solar (SOFAR / Fsolar)", category: "devices", available: true, sources: ["Solar"], envKeys: ["SOLAR_INGEST_TOKEN"], docsUrl: "/settings#solar", note: "Production, battery, grid and alarms from your SOFAR inverter, pushed by Home Assistant or a small script. Direct Fsolar cloud sync waits on SOFAR granting API access." },
   { id: "gdrive", name: "Google Drive", category: "productivity", available: false, envKeys: [], docsUrl: "https://drive.google.com" },
   { id: "linkedin", name: "LinkedIn Page", category: "social", available: false, envKeys: [], docsUrl: "https://www.linkedin.com/developers" },
   { id: "slack", name: "Slack", category: "productivity", available: false, envKeys: [], docsUrl: "https://api.slack.com/apps" },

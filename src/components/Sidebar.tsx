@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { BarChart3, Bell, Briefcase, CalendarClock, CalendarDays, CheckSquare, Database, DollarSign, Globe, Globe2, LayoutDashboard, LogOut, Mail, Menu, Plug, Server, Settings, ShieldCheck, GitBranch, X } from "lucide-react";
+import { BarChart3, Bell, Briefcase, CalendarClock, CalendarDays, Cctv, CheckSquare, Database, DollarSign, FileText, Globe, Globe2, LayoutDashboard, LogOut, Mail, Menu, Plug, Server, Settings, ShieldCheck, Sparkles, Sun, GitBranch, X } from "lucide-react";
 import { signOut } from "@/app/actions/auth";
 
 const NAV = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
   { href: "/tasks", label: "To-do", icon: CheckSquare },
+  { href: "/ask", label: "Ask", icon: Sparkles },
   { href: "/inbox", label: "Inbox", icon: Mail },
   { href: "/notifications", label: "Notifications", icon: Bell },
   { href: "/agenda", label: "Agenda", icon: CalendarDays },
@@ -22,6 +23,9 @@ const NAV = [
   { href: "/repos", label: "Repositories", icon: GitBranch },
   { href: "/hosting", label: "Hosting", icon: Server },
   { href: "/databases", label: "Databases", icon: Database },
+  { href: "/cameras", label: "Cameras", icon: Cctv },
+  { href: "/solar", label: "Solar", icon: Sun },
+  { href: "/reports", label: "Reports", icon: FileText },
   { href: "/platforms", label: "Platforms", icon: Plug },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
@@ -69,7 +73,7 @@ export function Sidebar({ counts, email }: { counts: Record<string, number>; ema
 
   return (
     <>
-      <div className="sticky top-0 z-30 flex items-center justify-between border-b border-line bg-bg/90 px-4 py-3 backdrop-blur lg:hidden">
+      <div className="sticky top-0 z-30 flex items-center justify-between border-b border-line bg-bg/90 px-4 py-3 backdrop-blur print:hidden lg:hidden">
         <span className="font-semibold">Command Center</span>
         <button aria-label="Open menu" onClick={() => setOpen(true)} className="rounded-md p-1.5 hover:bg-panel-2"><Menu size={20} /></button>
       </div>
@@ -83,7 +87,7 @@ export function Sidebar({ counts, email }: { counts: Record<string, number>; ema
           </aside>
         </div>
       )}
-      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col overflow-y-auto border-r border-line bg-panel p-4 lg:flex">
+      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col overflow-y-auto border-r border-line bg-panel p-4 print:!hidden lg:flex">
         {brand}
         {nav}
         <div className="mt-auto">{footer}</div>

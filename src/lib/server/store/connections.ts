@@ -1,10 +1,10 @@
 import { getDb } from "../db";
 import { decryptJson, encryptJson } from "../crypto";
 
-export type Provider = "github" | "vercel" | "supabase" | "cloudflare" | "gmail" | "stripe" | "microsoft";
+export type Provider = "github" | "vercel" | "supabase" | "cloudflare" | "gmail" | "stripe" | "microsoft" | "hikvision";
 
 /** Providers that keep several accounts side by side (one per mailbox / business). */
-export const MULTI_ACCOUNT: Provider[] = ["gmail", "stripe", "microsoft"];
+export const MULTI_ACCOUNT: Provider[] = ["gmail", "stripe", "microsoft", "hikvision"];
 
 export interface Connection<S = Record<string, string>> {
   id: string;

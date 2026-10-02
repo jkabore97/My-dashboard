@@ -5,6 +5,8 @@ import { clientIp, requireUser } from "@/lib/server/auth";
 import { auditConnection } from "@/lib/server/connect";
 import { sha256Hex } from "@/lib/server/crypto";
 import { getAuthed } from "@/lib/server/oauth";
+import { fetchSite } from "@/lib/connectors/hikvision";
+import { validateSiteUrl } from "@/lib/server/site-credentials";
 import { audit } from "@/lib/server/store/audit";
 import { deleteConnection, listConnectionSummaries, saveConnection, updateConnectionLabel, type Provider } from "@/lib/server/store/connections";
 
@@ -48,6 +50,24 @@ export async function saveTokenConnection(_prev: ConnectState, form: FormData): 
       await auditConnection(user.email, provider, account, "token", replaced);
       revalidatePath("/", "layout");
       return { ok: `Connected Cloudflare (${res.result.name})${replacedNote(replaced)}.` };
+    } else if (provider === "hikvision") {
+      const url = validateSiteUrl(field(form, "baseUrl"));
+      if (!url.ok) return { error: url.error };
+      const username = field(form, "username").slice(0, 64);
+      if (!username) return { error: "Enter the NVR username." };
+      const cfClientId = field(form, "cfClientId").slice(0, 200);
+      const cfClientSecret = field(form, "cfClientSecret").slice(0, 200);
+      if (!!cfClientId !== !!cfClientSecret) return { error: "Cloudflare Access needs both the client ID and the client secret." };
+      const site = { baseUrl: url.url, username, password: token, ...(cfClientId ? { cfClientId, cfClientSecret } : {}) };
+      account = new URL(url.url).host;
+      const label = field(form, "label").slice(0, 80) || account;
+      const business = field(form, "business").slice(0, 80) || null;
+      // Proves the address, tunnel token and login all work before saving.
+      const status = await fetchSite({ id: account, label, business, ...site });
+      await saveConnection({ provider, account, label, business, secret: site, meta: { via: "token", model: status.device.model } });
+      await auditConnection(user.email, provider, account, "token", []);
+      revalidatePath("/", "layout");
+      return { ok: `Connected ${label}: ${status.device.model ?? "Hikvision device"} with ${status.channels.length} camera${status.channels.length === 1 ? "" : "s"}.` };
     } else if (provider === "stripe") {
       if (!/^(rk|sk)_(live|test)_[A-Za-z0-9]+$/.test(token)) return { error: "Use a secret or restricted key (rk_live_… is best). Publishable keys (pk_…) can't read data." };
       const business = field(form, "business").slice(0, 80);

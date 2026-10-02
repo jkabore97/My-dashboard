@@ -5,6 +5,7 @@ import { requireUser } from "./auth";
 import { listEvents } from "./store/events";
 import { listTasks, sortTasks, type StoredTask, type TaskStatus } from "./store/tasks";
 import { persist } from "./sync";
+import { fixForTask } from "../fix-match";
 
 export interface TaskView extends Task {
   status: TaskStatus;
@@ -12,10 +13,12 @@ export interface TaskView extends Task {
   /** False for demo tasks (nothing to persist) and when the database is down. */
   actionable: boolean;
   snoozedUntil: string | null;
+  /** Label of the one-click fix for this task, if there is one. */
+  fix: string | null;
 }
 
-const fromDerived = (t: DerivedTask): TaskView => ({ ...t, status: "open", origin: "demo", actionable: false, snoozedUntil: null });
-const fromStored = (t: StoredTask): TaskView => ({ ...t, actionable: true });
+const fromDerived = (t: DerivedTask): TaskView => ({ ...t, status: "open", origin: "demo", actionable: false, snoozedUntil: null, fix: null });
+const fromStored = (t: StoredTask): TaskView => ({ ...t, actionable: true, fix: t.status === "open" ? (fixForTask(t.sourceKey, t.url)?.label ?? null) : null });
 
 /**
  * Everything a page needs: live platform data plus persisted tasks and event

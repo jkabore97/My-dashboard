@@ -71,6 +71,15 @@ export interface EmailMessage {
   labels: string[];
   severity: Severity;
   url?: string;
+  /** Claude's reading of the message, when AI triage is on and it has run. */
+  triage?: EmailTriage;
+}
+
+export interface EmailTriage {
+  severity: Severity;
+  summary: string;
+  needsReply: boolean;
+  task: string | null;
 }
 
 export interface Task {
@@ -109,7 +118,7 @@ export interface Website {
 export interface Platform {
   id: string;
   name: string;
-  category: "code" | "hosting" | "database" | "email" | "analytics" | "payments" | "social" | "productivity";
+  category: "code" | "hosting" | "database" | "email" | "analytics" | "payments" | "social" | "productivity" | "devices";
   connected: boolean;
   mode: SourceMode;
   envKeys: string[];
