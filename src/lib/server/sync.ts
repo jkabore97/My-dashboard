@@ -92,14 +92,20 @@ async function recordWebsite(w: Website) {
   }
 }
 
-/** Cron entry point: fresh collection, forced persist, housekeeping. */
+/** Seconds after cron starts when no new domain check is started (the function may run 60 s). */
+const DOMAIN_BUDGET_MS = 35_000;
+
+/** Cron entry point: fresh collection, forced persist, domain checks, housekeeping. */
 export async function runScheduledChecks() {
   const started = Date.now();
-  // Domain checks hit RDAP/DNS/TLS, so they run here (twice a day per domain), not on page loads.
-  const { domains, dkimSelectors } = await getConfig();
-  const domainsChecked = await refreshDomainChecks(domains, dkimSelectors);
   const c = await collect();
   await persist(c, { force: true });
+  // Domain checks hit RDAP/DNS/TLS (up to ~10 s each), so they run here, after
+  // the sync that must not be starved, within a time budget; whatever is left
+  // waits for the next run.
+  const { domains, dkimSelectors } = await getConfig();
+  const domainsChecked = await refreshDomainChecks(domains, dkimSelectors, { deadline: started + DOMAIN_BUDGET_MS });
+  if (domainsChecked) await requestSync(); // let the next page view turn them into tasks
   await pruneOldData();
   await setSetting("job:last_cron", { at: new Date().toISOString(), ms: Date.now() - started });
   return {

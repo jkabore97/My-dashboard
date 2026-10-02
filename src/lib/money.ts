@@ -1,8 +1,13 @@
 // Amounts are stored in the currency's minor unit (cents), like Stripe.
-// Zero-decimal currencies (JPY, XOF, …) have no minor unit.
+// Zero-decimal currencies (JPY, XOF, …) have no minor unit; a few (BHD, KWD, …)
+// have three decimals.
 const ZERO_DECIMAL = new Set(["bif", "clp", "djf", "gnf", "jpy", "kmf", "krw", "mga", "pyg", "rwf", "ugx", "vnd", "vuv", "xaf", "xof", "xpf"]);
+const THREE_DECIMAL = new Set(["bhd", "jod", "kwd", "omr", "tnd"]);
 
-export const minorUnits = (currency: string) => (ZERO_DECIMAL.has(currency.toLowerCase()) ? 1 : 100);
+/** Digits after the decimal point. */
+export const decimals = (currency: string) => (ZERO_DECIMAL.has(currency.toLowerCase()) ? 0 : THREE_DECIMAL.has(currency.toLowerCase()) ? 3 : 2);
+
+export const minorUnits = (currency: string) => 10 ** decimals(currency);
 
 export function formatMoney(minor: number, currency: string, opts: { compact?: boolean } = {}) {
   const value = minor / minorUnits(currency);
@@ -11,18 +16,20 @@ export function formatMoney(minor: number, currency: string, opts: { compact?: b
       style: "currency",
       currency: currency.toUpperCase(),
       // Only shorten big numbers: "$15.6K" reads well, "$21.3" for $21.25 doesn't.
-      ...(opts.compact && Math.abs(value) >= 10_000 ? { notation: "compact", maximumFractionDigits: 1 } : {}),
-      ...(minorUnits(currency) === 1 ? { maximumFractionDigits: 0 } : {}),
+      ...(opts.compact && Math.abs(value) >= 10_000
+        ? { notation: "compact", maximumFractionDigits: 1 }
+        : { minimumFractionDigits: decimals(currency), maximumFractionDigits: decimals(currency) }),
     }).format(value);
   } catch {
-    return `${value.toFixed(minorUnits(currency) === 1 ? 0 : 2)} ${currency.toUpperCase()}`;
+    return `${value.toFixed(decimals(currency))} ${currency.toUpperCase()}`;
   }
 }
 
-/** Parses "1,234.56" typed by a person into minor units. Null when invalid. */
+/** Parses "1,234.56" typed by a person into minor units. Null when invalid (including more decimals than the currency has). */
 export function parseAmount(input: string, currency: string): number | null {
   const clean = input.replace(/[\s,]/g, "");
-  if (!/^\d+(\.\d{1,2})?$/.test(clean)) return null;
+  const n = decimals(currency);
+  if (!new RegExp(n ? `^\\d+(\\.\\d{1,${n}})?$` : "^\\d+$").test(clean)) return null;
   const value = Math.round(Number(clean) * minorUnits(currency));
   return Number.isSafeInteger(value) ? value : null;
 }
@@ -52,4 +59,4 @@ export const formatTotals = (totals: CurrencyAmount[], opts?: { compact?: boolea
   totals.length ? totals.map((t) => formatMoney(t.amount, t.currency, opts)).join(" + ") : "—";
 
 /** Minor units → the plain number a form field shows ("1250.00"). */
-export const toInputAmount = (minor: number, currency: string) => (minor / minorUnits(currency)).toFixed(minorUnits(currency) === 1 ? 0 : 2);
+export const toInputAmount = (minor: number, currency: string) => (minor / minorUnits(currency)).toFixed(decimals(currency));

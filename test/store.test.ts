@@ -1,4 +1,5 @@
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { latestDomainCheck, refreshDomainChecks, type Lookups } from "@/lib/server/domains";
 import { getDb, migrate, pgliteDb, postgresDb, useDb } from "@/lib/server/db";
 import { addManualTask, completeTask, listTasks, reconcileDerived, resolveEventTask, setTaskBusiness, snoozeTask, upsertEventTask } from "@/lib/server/store/tasks";
 import { listEvents, recordEvent } from "@/lib/server/store/events";
@@ -9,7 +10,7 @@ import { claimInterval } from "@/lib/server/store/settings";
 import { deleteConnection, listConnections, readConnections, saveConnection } from "@/lib/server/store/connections";
 import { consumeRecoveryCode, ensureUser, markTotpStep, setRecoveryCodes } from "@/lib/server/store/users";
 import type { Task } from "@/lib/types";
-import { addInvoice, completeDeadline, listDeadlines, listInvoices, listSubscriptions, saveDeadline, saveSubscription, setInvoiceStatus } from "@/lib/server/store/ledger";
+import { addInvoice, completeDeadline, reopenDeadline, listDeadlines, listInvoices, listSubscriptions, saveDeadline, saveSubscription, setInvoiceStatus } from "@/lib/server/store/ledger";
 import { persist } from "@/lib/server/sync";
 import { undecryptableGuards, type Collected } from "@/lib/aggregate";
 
@@ -303,6 +304,84 @@ describe("money and deadlines records", () => {
   });
 });
 
+describe("deadline anchors and undo", () => {
+  const dl = (dueOn: string, recurrence: "monthly" | "quarterly") => saveDeadline({ business: null, title: `${recurrence} ${dueOn}`, category: "tax", dueOn, recurrence, remindDays: 14, notes: null, url: null });
+  const stepAll = async (id: string, n: number) => {
+    const seen: string[] = [];
+    for (let i = 0; i < n; i++) {
+      const cur = (await listDeadlines()).find((x) => x.id === id)!;
+      seen.push((await completeDeadline(id, "2026-01-01", cur.dueOn))!.next!);
+    }
+    return seen;
+  };
+  it("keeps the original month-end day when repeating", async () => {
+    const q = await dl("2026-03-31", "quarterly");
+    expect(await stepAll(q!.id, 4)).toEqual(["2026-06-30", "2026-09-30", "2026-12-31", "2027-03-31"]);
+    const m = await dl("2026-01-31", "monthly");
+    expect(await stepAll(m!.id, 3)).toEqual(["2026-02-28", "2026-03-31", "2026-04-30"]);
+  });
+  it("keeps the anchor through an edit that doesn't move the date", async () => {
+    const q = await dl("2026-03-31", "quarterly");
+    await stepAll(q!.id, 1); // now Jun 30
+    await saveDeadline({ id: q!.id, business: "Kaj", title: "renamed", category: "tax", dueOn: "2026-06-30", recurrence: "quarterly", remindDays: 7, notes: null, url: null });
+    expect(await stepAll(q!.id, 2)).toEqual(["2026-09-30", "2026-12-31"]);
+  });
+  it("falls back to the current day for rows without an anchor", async () => {
+    const q = await dl("2026-03-31", "quarterly");
+    const db = await getDb();
+    await db.query("update deadlines set anchor_day = null");
+    expect(await stepAll(q!.id, 1)).toEqual(["2026-06-30"]);
+  });
+  it("undoes a completed one-off deadline and lets its task come back", async () => {
+    const once = await saveDeadline({ business: null, title: "Annual report", category: "filing", dueOn: "2026-10-20", recurrence: "none", remindDays: 14, notes: null, url: null });
+    const key = `deadlines/${once!.id}:2026-10-20`;
+    await reconcileDerived([t(key)], ["deadlines"]);
+    const [task] = await listTasks("open");
+    await completeTask(task.id);
+    await completeDeadline(once!.id, "2026-10-02");
+    expect(await reopenDeadline(once!.id)).toEqual({ title: "Annual report" });
+    expect(await reopenDeadline(once!.id)).toBeNull();
+    expect((await listDeadlines()).map((x) => x.title)).toEqual(["Annual report"]);
+    await reconcileDerived([t(key)], ["deadlines"]); // still due soon: the task reopens
+    expect((await listTasks("open")).map((x) => x.title)).toEqual([key]);
+  });
+});
+
+describe("domain check scheduling", () => {
+  const lookups = (opts: { delayMs?: number; failFor?: string; active?: { now: number; max: number } } = {}): Lookups => ({
+    fetchJson: async () => ({ Status: 3 }),
+    certificate: (host) => {
+      if (host === opts.failFor) throw new Error("boom"); // thrown synchronously: the whole check fails
+      return (async () => {
+        if (opts.active) opts.active.max = Math.max(opts.active.max, ++opts.active.now);
+        await new Promise((r) => setTimeout(r, opts.delayMs ?? 0));
+        if (opts.active) opts.active.now--;
+        return { expiresOn: "2027-01-01", issuer: null, valid: true, problem: null };
+      })();
+    },
+  });
+  const domains = Array.from({ length: 10 }, (_, i) => `d${i}.example.com`);
+
+  it("checks a few at a time and stops starting new checks after the deadline", async () => {
+    const active = { now: 0, max: 0 };
+    const n = await refreshDomainChecks(domains, [], { lookups: lookups({ delayMs: 200, active }), deadline: Date.now() + 250, concurrency: 4 });
+    expect(active.max).toBe(4);
+    expect(n).toBeGreaterThanOrEqual(4);
+    expect(n).toBeLessThan(10);
+    // The rest weren't claimed, so the next run picks them up.
+    expect(await refreshDomainChecks(domains, [], { lookups: lookups() })).toBe(10 - n);
+  });
+
+  it("releases the claim when a check couldn't be stored", async () => {
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(await refreshDomainChecks(["a.example.com", "b.example.com"], [], { lookups: lookups({ failFor: "b.example.com" }) })).toBe(1);
+    quiet.mockRestore();
+    expect(await latestDomainCheck("b.example.com")).toBeNull();
+    expect(await refreshDomainChecks(["a.example.com", "b.example.com"], [], { lookups: lookups() })).toBe(1); // only b is due again
+    expect(await latestDomainCheck("b.example.com")).not.toBeNull();
+  });
+});
+
 describe("webhook and polling duplicates", () => {
   it("drops a polled task when the webhook already reported the same problem", async () => {
     await upsertEventTask("stripe-dispute:dp_1", { title: "webhook dispute", severity: "critical", source: "Stripe", createdAt: new Date().toISOString() });
@@ -310,5 +389,14 @@ describe("webhook and polling duplicates", () => {
     const c = { modes: { stripe: "live" }, derivedTasks: [polled("stripe/acct/dispute:dp_1", "stripe-dispute:dp_1"), polled("stripe/acct/dispute:dp_2", "stripe-dispute:dp_2")], notifications: [], websites: [], unobserved: [], skipScopes: [], credentialsKnown: true } as unknown as Collected;
     await persist(c, { force: true });
     expect((await listTasks("open")).map((x) => x.title).sort()).toEqual(["stripe/acct/dispute:dp_2", "webhook dispute"]);
+  });
+
+  it("brings the polled task back once the webhook task is closed but the problem remains", async () => {
+    await upsertEventTask("stripe-invoice:in_1", { title: "payment failed", severity: "high", source: "Stripe", createdAt: new Date().toISOString() });
+    const [hook] = await listTasks("open");
+    await completeTask(hook.id);
+    const c = { modes: { stripe: "live" }, derivedTasks: [{ ...t("stripe/acct/invoice:in_1"), live: true, scope: "stripe", alias: "stripe-invoice:in_1" }], notifications: [], websites: [], unobserved: [], skipScopes: [], credentialsKnown: true } as unknown as Collected;
+    await persist(c, { force: true });
+    expect((await listTasks("open")).map((x) => x.title)).toEqual(["stripe/acct/invoice:in_1"]);
   });
 });

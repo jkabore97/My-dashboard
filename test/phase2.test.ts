@@ -1,11 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createServer, type Server } from "node:tls";
 import { addMonths, daysBetween, isDate, nextOccurrence, rollForward, today } from "@/lib/dates";
-import { formatMoney, parseAmount, sumByCurrency, toMonthly } from "@/lib/money";
+import { formatMoney, parseAmount, sumByCurrency, toInputAmount, toMonthly } from "@/lib/money";
 import { deriveRiskTasks, registrationSeverity, certificateSeverity, deadlineSeverity, type RiskInput } from "@/lib/risk";
-import { summarize } from "@/lib/connectors/stripe";
+import { sinceHour, summarize } from "@/lib/connectors/stripe";
 import { classifyAlertError } from "@/lib/connectors/security";
-import { checkDomain, parseEmailAuth, parseRdap, registrableDomain, txtValues, type Lookups } from "@/lib/server/domains";
-import { dailyRevenue, moneyOverview } from "@/lib/money-summary";
+import { checkDomain, parseEmailAuth, parseRdap, registrableDomain, tlsCertificate, txtValues, type Lookups } from "@/lib/server/domains";
+import { dailyRevenue, moneyByBusiness, moneyOverview } from "@/lib/money-summary";
 import { demoStripe } from "@/lib/demo";
 
 describe("dates", () => {
@@ -16,6 +21,17 @@ describe("dates", () => {
     expect(addMonths("2026-01-31", 1)).toBe("2026-02-28");
     expect(nextOccurrence("2026-03-31", "quarterly")).toBe("2026-06-30");
     expect(nextOccurrence("2026-03-31", "none")).toBeNull();
+  });
+  it("repeats from the anchor day so month ends don't drift", () => {
+    const steps = (start: string, r: "monthly" | "quarterly", n: number) => {
+      const out: string[] = [];
+      let cur = start;
+      for (let i = 0; i < n; i++) out.push((cur = nextOccurrence(cur, r, Number(start.slice(8)))!));
+      return out;
+    };
+    expect(steps("2026-03-31", "quarterly", 4)).toEqual(["2026-06-30", "2026-09-30", "2026-12-31", "2027-03-31"]);
+    expect(steps("2026-01-31", "monthly", 4)).toEqual(["2026-02-28", "2026-03-31", "2026-04-30", "2026-05-31"]);
+    expect(nextOccurrence("2026-06-30", "quarterly")).toBe("2026-09-30"); // no anchor: the date's own day
   });
   it("rolls renewals forward without month-end drift", () => {
     expect(rollForward("2026-01-31", "month", "2026-03-15")).toBe("2026-03-31");
@@ -36,6 +52,15 @@ describe("money", () => {
     expect(formatMoney(5000, "jpy")).toMatch(/5,000/);
     expect(formatMoney(2125, "usd", { compact: true })).toBe("$21.25");
     expect(formatMoney(1_560_000, "usd", { compact: true })).toBe("$15.6K");
+  });
+  it("respects each currency's decimals", () => {
+    expect(parseAmount("1234.5", "jpy")).toBeNull();
+    expect(parseAmount("1234", "xof")).toBe(1234);
+    expect(parseAmount("12.345", "bhd")).toBe(12345);
+    expect(parseAmount("12.3456", "bhd")).toBeNull();
+    expect(formatMoney(12345, "bhd")).toMatch(/12\.345/);
+    expect(formatMoney(12345, "kwd")).not.toMatch(/123\.45/);
+    expect(toInputAmount(12345, "bhd")).toBe("12.345");
   });
   it("parses typed amounts", () => {
     expect(parseAmount("1,250.5", "usd")).toBe(125050);
@@ -74,6 +99,19 @@ describe("Stripe summary", () => {
     [{ id: "in_1", number: "A-1", amount_remaining: 3000, currency: "usd", due_date: day, customer_name: null, customer_email: "a@b.c", hosted_invoice_url: null }],
     false,
   );
+  it("buckets daily revenue by the business's calendar day", () => {
+    const evening = Date.parse("2026-10-02T02:00:00Z") / 1000; // Oct 1, 7 pm in Los Angeles
+    const txn = [{ id: "t", amount: 100, fee: 0, net: 100, currency: "usd", type: "charge", created: evening }];
+    const la = summarize({ id: "a", business: "K" }, true, { available: [], pending: [] }, txn, [], [], [], false, "America/Los_Angeles");
+    const utc = summarize({ id: "a", business: "K" }, true, { available: [], pending: [] }, txn, [], [], [], false, "UTC");
+    expect(la.daily[0].date).toBe("2026-10-01");
+    expect(utc.daily[0].date).toBe("2026-10-02");
+  });
+  it("keeps Stripe list URLs stable within the hour so the fetch cache hits", () => {
+    const t = Date.parse("2026-10-02T10:05:00Z");
+    expect(sinceHour(30, t)).toBe(sinceHour(30, t + 50 * 60_000));
+    expect(Number(sinceHour(30, t)) % 3600).toBe(0);
+  });
   it("counts income, refunds and fees but not payouts", () => {
     expect(s.revenue.find((r) => r.currency === "usd")).toEqual({ currency: "usd", gross: 10000, refunds: 2000, fees: 320, net: 7680 });
     expect(s.daily.map((d) => d.currency)).toEqual(["usd", "eur"]);
@@ -123,6 +161,32 @@ describe("domain checks", () => {
     expect(c.registration).toEqual({ ok: false, error: "403 from rdap.org" });
     expect(c.certificate).toEqual({ ok: true, expiresOn: "2026-12-01", issuer: "Let's Encrypt" });
     expect(c.email).toMatchObject({ ok: true, mx: ["aspmx.l.google.com"], dmarc: null, dkim: ["google"] });
+  });
+});
+
+describe("TLS certificate check", () => {
+  let server: Server;
+  let port = 0;
+  let cert = "";
+  beforeAll(async () => {
+    const dir = mkdtempSync(join(tmpdir(), "kcc-tls-"));
+    execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", join(dir, "k.pem"), "-out", join(dir, "c.pem"), "-days", "30", "-subj", "/CN=localhost", "-addext", "subjectAltName=DNS:localhost"], { stdio: "ignore" });
+    cert = readFileSync(join(dir, "c.pem"), "utf8");
+    server = createServer({ key: readFileSync(join(dir, "k.pem")), cert }, (s) => s.end());
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    port = (server.address() as { port: number }).port;
+  });
+  afterAll(() => server?.close());
+
+  it("reads an untrusted certificate instead of failing, and says why", async () => {
+    const c = await tlsCertificate("localhost", port);
+    expect(c).toMatchObject({ valid: false, problem: "self-signed", issuer: "localhost" });
+    expect(c.expiresOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+  it("trusts it once its CA is trusted, and flags a host-name mismatch", async () => {
+    expect(await tlsCertificate("localhost", port, cert)).toMatchObject({ valid: true, problem: null });
+    // Same server reached by IP: the certificate only names localhost.
+    expect(await tlsCertificate("127.0.0.1", port, cert)).toMatchObject({ valid: false, problem: "issued for a different host name" });
   });
 });
 
@@ -247,6 +311,57 @@ describe("risk tasks", () => {
     expect(unobserved).toContain("security/kaj/b/"); // not checked this round
   });
 
+  it("raises a critical task for an invalid or expired certificate", () => {
+    const r = base();
+    const check = (domain: string, certificate: object) => ({ domain, checkedAt: "", registration: { ok: false as const, error: "x" }, certificate, email: { ok: false as const, error: "x" } });
+    r.domains = {
+      checks: [
+        check("bad.kaj.com", { ok: true, expiresOn: "2027-01-01", issuer: "Me", valid: false, problem: "self-signed" }),
+        check("old.kaj.com", { ok: true, expiresOn: "2026-09-01", issuer: "LE", valid: false, problem: "expired" }),
+        check("fine.kaj.com", { ok: true, expiresOn: "2027-01-01", issuer: "LE", valid: true, problem: null }),
+        check("legacy.kaj.com", { ok: true, expiresOn: "2026-10-03", issuer: "LE" }), // stored before validity was recorded
+      ] as RiskInput["domains"]["checks"],
+      pending: [],
+    };
+    const tasks = deriveRiskTasks(r).tasks.filter((t) => t.id.startsWith("domains/certificate:"));
+    expect(tasks.map((t) => [t.id, t.severity, t.title])).toEqual([
+      ["domains/certificate:bad.kaj.com", "critical", "SSL certificate for bad.kaj.com is invalid: self-signed"],
+      ["domains/certificate:old.kaj.com", "critical", "SSL certificate for old.kaj.com expired"],
+      ["domains/certificate:legacy.kaj.com", "critical", "SSL certificate for legacy.kaj.com expires tomorrow"],
+    ]);
+  });
+
+  it("keeps checklist items while their platform is failing or unknown", () => {
+    const r = base();
+    r.modes.vercel = "error";
+    let out = deriveRiskTasks(r);
+    expect(out.tasks.some((t) => t.id === "checklist/vercel")).toBe(false);
+    expect(out.unobserved).toContain("checklist/vercel");
+    r.modes.vercel = "demo";
+    r.credentialsKnown = false;
+    expect(deriveRiskTasks(r).unobserved).toContain("checklist/vercel");
+    r.credentialsKnown = true; // really not connected: the item may close
+    out = deriveRiskTasks(r);
+    expect(out.unobserved).not.toContain("checklist/vercel");
+    expect(out.tasks.some((t) => t.id === "checklist/vercel")).toBe(false);
+  });
+
+  it("links a polled overdue Stripe invoice to the payment-failed webhook task", () => {
+    const r = base();
+    r.stripe = demoStripe();
+    const inv = deriveRiskTasks(r).tasks.find((t) => t.id.includes("/invoice:"));
+    expect(inv?.alias).toBe(`stripe-invoice:${inv!.id.split("/invoice:")[1]}`);
+  });
+
+  it("ignores test-mode Stripe accounts", () => {
+    const r = base();
+    const [live, other] = demoStripe();
+    r.stripe = [live, { ...other, id: "acct_test", livemode: false }];
+    const stripeTasks = deriveRiskTasks(r).tasks.filter((t) => t.scope === "stripe");
+    expect(stripeTasks.length).toBeGreaterThan(0);
+    expect(stripeTasks.every((t) => t.id.startsWith(`stripe/${encodeURIComponent(live.id)}/`))).toBe(true);
+  });
+
   it("protects a Stripe account that failed this round", () => {
     const r = base();
     r.partial.stripe = ["acct_9"];
@@ -255,6 +370,20 @@ describe("risk tasks", () => {
 });
 
 describe("money overview", () => {
+  it("leaves test-mode Stripe accounts out of every roll-up", () => {
+    const records = { invoices: [], subscriptions: [], deadlines: [], checklist: {} };
+    const [live, other] = demoStripe();
+    const test = { ...other, id: "acct_test", business: "Sandbox", livemode: false };
+    const both = moneyOverview([live, test], records, today());
+    const liveOnly = moneyOverview([live], records, today());
+    expect(both.gross30d).toEqual(liveOnly.gross30d);
+    expect(both.mrr).toEqual(liveOnly.mrr);
+    expect(both.available).toEqual(liveOnly.available);
+    expect(both.receivables).toEqual(liveOnly.receivables);
+    expect(dailyRevenue([live, test], today())).toEqual(dailyRevenue([live], today()));
+    expect(moneyByBusiness([live, test], records, today()).has("Sandbox")).toBe(false);
+  });
+
   it("combines Stripe and manual receivables and fills 30 days", () => {
     const records = { invoices: [{ id: "m1", business: "Kaj", client: "Manual", number: null, amountMinor: 500, currency: "usd", issuedOn: null, dueOn: "2026-01-01", status: "open" as const, paidOn: null, notes: null }], subscriptions: [], deadlines: [], checklist: {} };
     const m = moneyOverview(demoStripe(), records, today());

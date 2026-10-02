@@ -11,6 +11,7 @@ import {
   deleteInvoiceAction,
   deleteSubscriptionAction,
   markInvoiceAction,
+  reopenDeadlineAction,
   saveDeadlineAction,
   saveDomainSettingsAction,
   saveSubscriptionAction,
@@ -94,6 +95,11 @@ export function InvoiceActions({ id, client }: { id: string; client: string }) {
 export function ReopenInvoice({ id }: { id: string }) {
   const [pending, start] = useTransition();
   return <button className={small} disabled={pending} onClick={() => start(() => markInvoiceAction(id, "open"))}><RotateCcw size={12} />Reopen</button>;
+}
+
+export function ReopenDeadline({ id }: { id: string }) {
+  const [pending, start] = useTransition();
+  return <button className={small} disabled={pending} onClick={() => start(() => reopenDeadlineAction(id))}><RotateCcw size={12} />Undo</button>;
 }
 
 // ─── Subscriptions ───────────────────────────────────────────────────────────

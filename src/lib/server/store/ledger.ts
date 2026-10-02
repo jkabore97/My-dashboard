@@ -48,6 +48,8 @@ export interface Deadline {
   notes: string | null;
   url: string | null;
   completedOn: string | null;
+  /** Day of month the series is anchored to (null on rows from before it existed). */
+  anchorDay?: number | null;
 }
 
 const d = (col: string) => `to_char(${col}, 'YYYY-MM-DD') as ${col}`;
@@ -136,10 +138,10 @@ export async function deleteSubscription(id: string) {
 
 // ─── Deadlines ───────────────────────────────────────────────────────────────
 
-const DL_COLS = `id, business, title, category, ${d("due_on")}, recurrence, remind_days, notes, url, ${d("completed_on")}`;
+const DL_COLS = `id, business, title, category, ${d("due_on")}, recurrence, remind_days, notes, url, ${d("completed_on")}, anchor_day`;
 
-type DlRow = { id: string; business: string | null; title: string; category: DeadlineCategory; due_on: string; recurrence: Recurrence; remind_days: number; notes: string | null; url: string | null; completed_on: string | null };
-const toDl = (r: DlRow): Deadline => ({ id: r.id, business: r.business, title: r.title, category: r.category, dueOn: r.due_on, recurrence: r.recurrence, remindDays: Number(r.remind_days), notes: r.notes, url: r.url, completedOn: r.completed_on });
+type DlRow = { id: string; business: string | null; title: string; category: DeadlineCategory; due_on: string; recurrence: Recurrence; remind_days: number; notes: string | null; url: string | null; completed_on: string | null; anchor_day: number | null };
+const toDl = (r: DlRow): Deadline => ({ id: r.id, business: r.business, title: r.title, category: r.category, dueOn: r.due_on, recurrence: r.recurrence, remindDays: Number(r.remind_days), notes: r.notes, url: r.url, completedOn: r.completed_on, anchorDay: r.anchor_day == null ? null : Number(r.anchor_day) });
 
 export async function listDeadlines(includeCompleted = false) {
   const db = await getDb();
@@ -153,18 +155,21 @@ export async function getDeadline(id: string) {
   return row ? toDl(row) : null;
 }
 
-export async function saveDeadline(x: Omit<Deadline, "id" | "completedOn"> & { id?: string }) {
+export async function saveDeadline(x: Omit<Deadline, "id" | "completedOn" | "anchorDay"> & { id?: string }) {
   const db = await getDb();
-  const params = [x.business, x.title, x.category, x.dueOn, x.recurrence, x.remindDays, x.notes, x.url];
+  // The date the user picks sets the series' day of month (an edit that keeps
+  // the date, e.g. Jun 30 of a Mar 31 series, keeps the anchor).
+  const params = [x.business, x.title, x.category, x.dueOn, x.recurrence, x.remindDays, x.notes, x.url, Number(x.dueOn.slice(8, 10))];
   const [row] = x.id
     ? await db.query<DlRow>(
         `update deadlines set business = $1, title = $2, category = $3, due_on = $4::date, recurrence = $5, remind_days = $6,
-           notes = $7, url = $8, updated_at = now() where id = $9 returning ${DL_COLS}`,
+           notes = $7, url = $8, anchor_day = coalesce(case when due_on = $4::date then anchor_day end, $9), updated_at = now()
+         where id = $10 returning ${DL_COLS}`,
         [...params, x.id],
       )
     : await db.query<DlRow>(
-        `insert into deadlines (business, title, category, due_on, recurrence, remind_days, notes, url)
-         values ($1, $2, $3, $4::date, $5, $6, $7, $8) returning ${DL_COLS}`,
+        `insert into deadlines (business, title, category, due_on, recurrence, remind_days, notes, url, anchor_day)
+         values ($1, $2, $3, $4::date, $5, $6, $7, $8, $9) returning ${DL_COLS}`,
         params,
       );
   return row ? toDl(row) : null;
@@ -180,11 +185,28 @@ export async function completeDeadline(id: string, completedOn: string, expected
   const cur = await getDeadline(id);
   if (!cur || cur.completedOn) return null;
   if (expectedDue && cur.dueOn !== expectedDue) return null;
-  const next = nextOccurrence(cur.dueOn, cur.recurrence);
+  const next = nextOccurrence(cur.dueOn, cur.recurrence, cur.anchorDay);
   const rows = next
     ? await db.query<{ id: string }>("update deadlines set due_on = $2::date, updated_at = now() where id = $1 and due_on = $3::date returning id", [id, next, cur.dueOn])
     : await db.query<{ id: string }>("update deadlines set completed_on = $2::date, updated_at = now() where id = $1 and completed_on is null returning id", [id, completedOn]);
   return rows.length ? { ...cur, next } : null;
+}
+
+/**
+ * Undoes completing a one-off deadline. Its task, if the user closed it,
+ * becomes auto-resolved so the next sync reopens it (when it's still due soon).
+ */
+export async function reopenDeadline(id: string) {
+  const db = await getDb();
+  return db.tx(async (tx) => {
+    const [row] = await tx.query<{ title: string; due_on: string }>(
+      `update deadlines set completed_on = null, updated_at = now() where id = $1 and completed_on is not null returning title, ${d("due_on")}`,
+      [id],
+    );
+    if (!row) return null;
+    await tx.query("update tasks set resolved_by = 'auto', updated_at = now() where source_key = $1 and status = 'done'", [`deadlines/${id}:${row.due_on}`]);
+    return { title: row.title };
+  });
 }
 
 export async function deleteDeadline(id: string) {

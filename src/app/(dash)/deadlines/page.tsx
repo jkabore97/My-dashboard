@@ -2,7 +2,7 @@ import { getDashboard } from "@/lib/server/dashboard";
 import { daysBetween, formatDate, relativeDays, today } from "@/lib/dates";
 import { deadlineSeverity } from "@/lib/risk";
 import { Card, Empty, PageHeader, SeverityBadge } from "@/components/ui";
-import { DeadlineForm, DeadlineRowActions } from "@/components/records";
+import { DeadlineForm, DeadlineRowActions, ReopenDeadline } from "@/components/records";
 
 const CATEGORY: Record<string, string> = { tax: "Tax", filing: "Filing", license: "License", insurance: "Insurance", contract: "Contract", other: "Other" };
 const REPEAT: Record<string, string> = { none: "", monthly: "monthly", quarterly: "quarterly", yearly: "yearly" };
@@ -44,7 +44,7 @@ export default async function DeadlinesPage() {
         {done.length > 0 && (
           <details className="mt-4 border-t border-line pt-3">
             <summary className="cursor-pointer text-xs text-accent">Completed ({done.length})</summary>
-            <ul className="mt-2 space-y-1 text-sm text-muted">{done.map((x) => <li key={x.id}>{x.title} · done {formatDate(x.completedOn!)}</li>)}</ul>
+            <ul className="mt-2 space-y-1 text-sm text-muted">{done.map((x) => <li key={x.id} className="flex flex-wrap items-center justify-between gap-2"><span>{x.title} · done {formatDate(x.completedOn!)}</span><ReopenDeadline id={x.id} /></li>)}</ul>
           </details>
         )}
       </Card>

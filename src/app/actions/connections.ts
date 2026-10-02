@@ -6,7 +6,7 @@ import { auditConnection } from "@/lib/server/connect";
 import { sha256Hex } from "@/lib/server/crypto";
 import { getAuthed } from "@/lib/server/oauth";
 import { audit } from "@/lib/server/store/audit";
-import { deleteConnection, saveConnection, updateConnectionLabel, type Provider } from "@/lib/server/store/connections";
+import { deleteConnection, listConnectionSummaries, saveConnection, updateConnectionLabel, type Provider } from "@/lib/server/store/connections";
 
 export interface ConnectState {
   error?: string;
@@ -56,6 +56,11 @@ export async function saveTokenConnection(_prev: ConnectState, form: FormData): 
       // Restricted keys may not read the account object; fall back to a stable key fingerprint.
       const acct = await getAuthed<{ id: string }>("https://api.stripe.com/v1/account", token).then((a) => a.id).catch(() => `key-${sha256Hex(token).slice(0, 10)}`);
       account = token.includes("_test_") ? `${acct} (test)` : acct;
+      // A second key for the same account would count its revenue twice. A key
+      // that can't read the account is identified by its fingerprint, so only
+      // the very same key is caught then; the help text warns about the rest.
+      const existing = (await listConnectionSummaries()).find((c) => c.provider === "stripe" && c.account === account);
+      if (existing) return { error: `This Stripe account is already connected (${existing.business ?? existing.label ?? account}). Disconnect it first to replace its key.` };
       await saveConnection({ provider, account, label: business, business, secret, meta: { via: "token" } });
       await auditConnection(user.email, provider, account, "token", []);
       revalidatePath("/", "layout");

@@ -6,10 +6,10 @@ import { getConfig, parseDomainList } from "@/lib/server/config";
 import { refreshDomainChecks } from "@/lib/server/domains";
 import { audit } from "@/lib/server/store/audit";
 import { requestSync } from "@/lib/server/sync";
-import { addInvoice, completeDeadline, deleteDeadline, deleteInvoice, deleteSubscription, saveDeadline, saveSubscription, setInvoiceStatus, setSubscriptionActive, type DeadlineCategory } from "@/lib/server/store/ledger";
+import { addInvoice, completeDeadline, deleteDeadline, reopenDeadline, deleteInvoice, deleteSubscription, saveDeadline, saveSubscription, setInvoiceStatus, setSubscriptionActive, type DeadlineCategory } from "@/lib/server/store/ledger";
 import { getSetting, setSetting } from "@/lib/server/store/settings";
 import { isDate, today, type Recurrence } from "@/lib/dates";
-import { parseAmount } from "@/lib/money";
+import { decimals, parseAmount } from "@/lib/money";
 import { ACCOUNT_CHECKLIST } from "@/lib/security-checklist";
 
 export interface RecordState {
@@ -26,6 +26,8 @@ async function refresh() {
   await requestSync();
   revalidatePath("/", "layout");
 }
+
+const decimalsNote = (currency: string) => ` (${currency.toUpperCase()} uses ${decimals(currency) || "no"} decimals)`;
 
 function currencyOf(f: FormData) {
   const c = text(f, "currency", 3).toLowerCase() || "usd";
@@ -49,7 +51,7 @@ export async function addInvoiceAction(_prev: RecordState, f: FormData): Promise
   if (!client) return { error: "Who is the invoice for?" };
   if (!currency) return { error: "Currency must be a 3-letter code like USD." };
   const amount = parseAmount(text(f, "amount", 20), currency);
-  if (amount === null || amount <= 0) return { error: "Enter the amount, e.g. 1250.00" };
+  if (amount === null || amount <= 0) return { error: `Enter the amount, e.g. 1250.00${decimalsNote(currency)}` };
   if (!isDate(dueOn)) return { error: "Pick a due date." };
   if (issuedOn && !isDate(issuedOn)) return { error: "The issue date isn't valid." };
   const inv = await addInvoice({ client, currency, amountMinor: amount, dueOn, issuedOn, business: optional(f, "business", 80), number: optional(f, "number", 40), notes: optional(f, "notes", 500) });
@@ -86,7 +88,7 @@ export async function saveSubscriptionAction(_prev: RecordState, f: FormData): P
   if (!vendor) return { error: "Name the service, e.g. Vercel." };
   if (!currency) return { error: "Currency must be a 3-letter code like USD." };
   const amount = parseAmount(text(f, "amount", 20), currency);
-  if (amount === null) return { error: "Enter what it costs per billing period, e.g. 20.00" };
+  if (amount === null) return { error: `Enter what it costs per billing period, e.g. 20.00${decimalsNote(currency)}` };
   if (interval !== "month" && interval !== "year") return { error: "Pick monthly or yearly billing." };
   if (nextRenewal && !isDate(nextRenewal)) return { error: "The renewal date isn't valid." };
   if (url === false) return { error: "Links must start with http:// or https://" };
@@ -145,6 +147,13 @@ export async function completeDeadlineAction(id: string, dueOn: string) {
   await refresh();
 }
 
+export async function reopenDeadlineAction(id: string) {
+  const user = await requireUser();
+  const row = await reopenDeadline(id);
+  if (row) await audit(user.email, "deadline.reopen", row.title, { id });
+  await refresh();
+}
+
 export async function deleteDeadlineAction(id: string) {
   const user = await requireUser();
   const row = await deleteDeadline(id);
@@ -177,7 +186,7 @@ export async function checkDomainsNowAction(): Promise<RecordState> {
   const user = await requireUser();
   const { domains, dkimSelectors } = await getConfig();
   // Forced checks still wait a minute per domain, so repeated clicks can't hammer registries.
-  const n = await refreshDomainChecks(domains, dkimSelectors, { force: true });
+  const n = await refreshDomainChecks(domains, dkimSelectors, { force: true, deadline: Date.now() + 30_000 });
   await audit(user.email, "domains.check", null, { checked: n });
   await refresh();
   return n ? { ok: `Checked ${n} domain${n === 1 ? "" : "s"}.`, at: Date.now() } : { ok: "Everything was checked in the last minute.", at: Date.now() };

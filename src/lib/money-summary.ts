@@ -4,7 +4,10 @@ import type { Records } from "./connectors/records";
 import type { ReceivableInvoice, StripeAccountSummary } from "./types";
 
 // Pure roll-ups for the Money page and Overview. Different currencies are
-// never converted; every total is a list of per-currency amounts.
+// never converted; every total is a list of per-currency amounts. Stripe
+// accounts in test mode are left out of every roll-up: their money isn't real.
+
+export const liveAccounts = (stripe: StripeAccountSummary[]) => stripe.filter((a) => a.livemode);
 
 export interface Receivable extends ReceivableInvoice {
   daysLate: number | null;
@@ -45,7 +48,8 @@ export function spend(records: Records, today: string): SpendLine[] {
     }));
 }
 
-export function moneyOverview(stripe: StripeAccountSummary[], records: Records, today: string) {
+export function moneyOverview(all: StripeAccountSummary[], records: Records, today: string) {
+  const stripe = liveAccounts(all);
   const owed = receivables(stripe, records, today);
   const lines = spend(records, today);
   return {
@@ -63,7 +67,8 @@ export function moneyOverview(stripe: StripeAccountSummary[], records: Records, 
 }
 
 /** Per-business money for the Overview cards. */
-export function moneyByBusiness(stripe: StripeAccountSummary[], records: Records, today: string) {
+export function moneyByBusiness(all: StripeAccountSummary[], records: Records, today: string) {
+  const stripe = liveAccounts(all);
   const out = new Map<string, { revenue: CurrencyAmount[]; spend: CurrencyAmount[] }>();
   const get = (b: string) => out.get(b) ?? out.set(b, { revenue: [], spend: [] }).get(b)!;
   for (const a of stripe) get(a.business).revenue.push(...a.revenue.map((r) => ({ currency: r.currency, amount: r.gross })));
@@ -72,7 +77,8 @@ export function moneyByBusiness(stripe: StripeAccountSummary[], records: Records
 }
 
 /** Daily gross for the busiest currency, filled to 30 days ending today. */
-export function dailyRevenue(stripe: StripeAccountSummary[], today: string) {
+export function dailyRevenue(all: StripeAccountSummary[], today: string) {
+  const stripe = liveAccounts(all);
   const totals = sumByCurrency(stripe.flatMap((a) => a.daily.map((d) => ({ currency: d.currency, amount: d.gross }))));
   const currency = totals[0]?.currency ?? "usd";
   const byDay = new Map<string, number>();

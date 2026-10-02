@@ -12,7 +12,7 @@ One private dashboard for every business Kaj Consulting runs: repositories, host
 | **To-do** | One list ranked **critical → high → medium → low**. Mark done, snooze (4h to 1 week), reassign to a business, add your own tasks. Open / Snoozed / Done views. |
 | **Inbox** | Every connected Gmail mailbox in one list, auto-triaged by urgency |
 | **Notifications** | Email, GitHub, Vercel, Stripe, Supabase and uptime events, kept 90 days |
-| **Money** | Stripe revenue (30-day chart), net, MRR, balances per business; money owed to you (Stripe + invoices you add); subscriptions with monthly cost per business and renewal dates |
+| **Money** | Stripe revenue (30-day chart), net, MRR, balances per business; money owed to you (Stripe + invoices you add); subscriptions with monthly cost per business and renewal dates. Stripe test-mode keys are accepted but kept out of totals and tasks |
 | **Deadlines** | Taxes, filings, licenses, insurance, contracts. Repeating ones (monthly / quarterly / yearly) roll forward when done |
 | **Domains** | Registration and SSL expiry for every domain, plus SPF / DKIM / DMARC email health, checked twice a day |
 | **Security** | Dependabot and leaked-secret alerts, Supabase advisor findings, GitHub 2FA, a 2FA checklist for your other accounts, and this dashboard's own hardening |
@@ -26,7 +26,7 @@ One private dashboard for every business Kaj Consulting runs: repositories, host
 | Origin | Examples | Closes itself when |
 |---|---|---|
 | **Signals** (checked every 5 min) | Site down, production deploy failed, Supabase RLS disabled, urgent unread email, open PRs | The condition clears. It reopens if the condition comes back. |
-| **Money & risk** (Phase 2) | Stripe dispute to answer, invoice overdue (critical after 30 days), subscription renewing in 7 days or expiring with auto-renew off, deadline inside its reminder window, domain or certificate about to expire, missing SPF/DMARC, high/critical Dependabot alert | The condition clears (invoice paid, deadline done, domain renewed…) |
+| **Money & risk** (Phase 2) | Stripe dispute to answer, invoice overdue (critical after 30 days), subscription renewing in 7 days or expiring with auto-renew off, deadline inside its reminder window, domain or certificate about to expire (or a certificate that is expired or invalid), missing SPF/DMARC, high/critical Dependabot alert | The condition clears (invoice paid, deadline done, domain renewed…) |
 | **Webhooks** (real time) | Stripe dispute or failed payout, CI failing on `main`, Dependabot or leaked-secret alert | The platform reports it fixed (dispute closed, CI green, alert fixed) |
 | **You** | Anything you add on the To-do page | You mark it done |
 

@@ -31,6 +31,8 @@ export interface RiskInput {
   modes: Record<RiskScope | "gmail" | "vercel" | "workers" | "supabase", SourceMode>;
   /** Partial failures: Stripe account ids, security keys ("dependabot:<repo>", "secret:<repo>"). */
   partial: { stripe: string[]; security: string[] };
+  /** False when stored connections couldn't all be read, so "demo" may not mean "not connected". */
+  credentialsKnown?: boolean;
 }
 
 const enc = encodeURIComponent;
@@ -88,8 +90,9 @@ export function deriveRiskTasks(r: RiskInput): { tasks: RiskTask[]; unobserved: 
     tasks.push({ ...t, id, scope, live: r.modes[scope] === "live", ...(alias ? { alias } : {}) });
   };
 
-  // ─── Stripe ───
+  // ─── Stripe ─── (test-mode accounts are connected for trying things out; their problems aren't real)
   for (const a of r.stripe) {
+    if (!a.livemode) continue;
     const p = `${enc(a.id)}/`;
     for (const d of a.disputes) {
       if (d.status !== "needs_response" && d.status !== "warning_needs_response") continue;
@@ -105,7 +108,7 @@ export function deriveRiskTasks(r: RiskInput): { tasks: RiskTask[]; unobserved: 
     }
     for (const inv of a.openInvoices) {
       const t = receivableTask(inv, r.today);
-      if (t) add("stripe", `${p}invoice:${inv.id}`, t);
+      if (t) add("stripe", `${p}invoice:${inv.id}`, t, `stripe-invoice:${inv.id}`); // same key as the payment-failed webhook task
     }
     if (a.pastDueSubscriptions > 0) {
       add("stripe", `${p}past-due`, {
@@ -151,8 +154,16 @@ export function deriveRiskTasks(r: RiskInput): { tasks: RiskTask[]; unobserved: 
   }
 
   // ─── Account 2FA checklist ───
+  // Whether a platform is in use is only known when it answered (live) or is
+  // definitely not connected (demo with readable credentials). An erroring
+  // platform, or credentials we couldn't read, leave the item as it was.
   for (const item of ACCOUNT_CHECKLIST) {
-    if (r.modes[item.usedWhen as RiskScope] !== "live") continue;
+    const mode = r.modes[item.usedWhen as RiskScope];
+    if (mode === "error" || (mode === "demo" && r.credentialsKnown === false)) {
+      unobserved.push(`checklist/${item.id}`);
+      continue;
+    }
+    if (mode !== "live") continue;
     const confirmed = r.records.checklist[item.id];
     if (confirmed && daysBetween(confirmed.slice(0, 10), r.today) < CONFIRMATION_VALID_DAYS) continue;
     add("checklist", item.id, { title: `Confirm two-factor sign-in is on for ${item.name}`, detail: confirmed ? "Last confirmed over a year ago." : "Then tick it off on the Security page.", severity: "low", source: "Security checklist", url: "/security#checklist", createdAt: now });
@@ -168,7 +179,10 @@ export function deriveRiskTasks(r: RiskInput): { tasks: RiskTask[]; unobserved: 
       if (sev) add("domains", `registration:${apex}`, { title: days < 0 ? `${apex} registration expired` : `${apex} registration expires ${relativeDays(days)}`, detail: `${c.registration.registrar ?? "Registrar unknown"} · ${formatDate(c.registration.expiresOn)}. Turn on auto-renew or renew now.`, severity: sev, source: "Domains", url: "/domains", createdAt: now, business });
     } else if (!c.registration.ok) unobserved.push(`domains/registration:${apex}`);
 
-    if (c.certificate.ok) {
+    if (c.certificate.ok && c.certificate.valid === false) {
+      const expired = daysBetween(r.today, c.certificate.expiresOn) < 0;
+      add("domains", `certificate:${c.domain}`, { title: expired ? `SSL certificate for ${c.domain} expired` : `SSL certificate for ${c.domain} is invalid: ${c.certificate.problem ?? "not trusted"}`, detail: `${c.certificate.issuer ?? "Unknown issuer"} · expires ${formatDate(c.certificate.expiresOn)}. Visitors see a security warning; fix it in your host's domain settings.`, severity: "critical", source: "Domains", url: `https://${c.domain}`, createdAt: now, business });
+    } else if (c.certificate.ok) {
       const days = daysBetween(r.today, c.certificate.expiresOn);
       const sev = certificateSeverity(days);
       if (sev) add("domains", `certificate:${c.domain}`, { title: days < 0 ? `SSL certificate for ${c.domain} expired` : `SSL certificate for ${c.domain} expires ${relativeDays(days)}`, detail: `${c.certificate.issuer ?? "Unknown issuer"}. Automatic renewal may be failing; check your host's domain settings.`, severity: sev, source: "Domains", url: `https://${c.domain}`, createdAt: now, business });

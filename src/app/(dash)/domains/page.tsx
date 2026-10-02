@@ -64,7 +64,9 @@ export default async function DomainsPage() {
                 ) : <span className="text-xs text-muted" title={c.registration.error}>lookup failed</span>}
               </td>
               <td className={td}>
-                {c.certificate.ok ? (
+                {c.certificate.ok && c.certificate.valid === false ? (
+                  <span className="text-xs text-critical">invalid: {c.certificate.problem ?? "not trusted"}<span className="block text-muted">expires {formatDate(c.certificate.expiresOn)}</span></span>
+                ) : c.certificate.ok ? (
                   <><Expiry date={c.certificate.expiresOn} severity={certificateSeverity} now={now} />{c.certificate.issuer && <span className="text-xs text-muted">{c.certificate.issuer}</span>}</>
                 ) : <span className="text-xs text-critical" title={c.certificate.error}>no valid certificate</span>}
               </td>

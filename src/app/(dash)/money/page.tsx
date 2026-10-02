@@ -1,7 +1,7 @@
 import { getDashboard } from "@/lib/server/dashboard";
 import { formatDate, relativeDays, today } from "@/lib/dates";
 import { formatMoney, formatTotals, toInputAmount } from "@/lib/money";
-import { dailyRevenue, moneyOverview } from "@/lib/money-summary";
+import { dailyRevenue, liveAccounts, moneyOverview } from "@/lib/money-summary";
 import { Card, Empty, PageHeader, Stat, Table, td } from "@/components/ui";
 import { RevenueBars } from "@/components/RevenueBars";
 import { InvoiceActions, InvoiceForm, ReopenInvoice, SubscriptionForm, SubscriptionRowActions } from "@/components/records";
@@ -11,6 +11,7 @@ export default async function MoneyPage() {
   const now = today();
   const m = moneyOverview(d.stripe, d.records, now);
   const chart = dailyRevenue(d.stripe, now);
+  const testAccounts = d.stripe.length - liveAccounts(d.stripe).length;
   const businesses = [...new Set([...d.stripe.map((a) => a.business), ...d.records.subscriptions.map((s) => s.business), ...d.records.invoices.map((i) => i.business), ...d.openTasks.map((t) => t.business)].filter(Boolean))].sort() as string[];
   const recentlyPaid = d.records.invoices.filter((i) => i.status !== "open");
   const subs = d.records.subscriptions;
@@ -30,10 +31,11 @@ export default async function MoneyPage() {
 
       <div className="mt-6 grid gap-6 xl:grid-cols-5">
         <Card className="xl:col-span-3" title={`Daily revenue, last 30 days (${chart.currency.toUpperCase()})`}>
-          {d.stripe.length ? <RevenueBars days={chart.days} currency={chart.currency} /> : <Empty>Connect Stripe on the Platforms page to see revenue.</Empty>}
+          {liveAccounts(d.stripe).length ? <RevenueBars days={chart.days} currency={chart.currency} /> : <Empty>{d.stripe.length ? "Only test-mode Stripe accounts are connected; their revenue isn't charted." : "Connect Stripe on the Platforms page to see revenue."}</Empty>}
           {chart.otherCurrencies.length > 0 && <p className="mt-2 text-xs text-muted">Also earning in {chart.otherCurrencies.map((c) => c.toUpperCase()).join(", ")}; see the table.</p>}
         </Card>
         <Card className="xl:col-span-2" title="By Stripe account">
+          {testAccounts > 0 && <p className="mb-2 text-xs text-muted">Accounts marked test are excluded from totals, the chart and tasks.</p>}
           {d.stripe.length === 0 ? <Empty>No Stripe accounts connected.</Empty> : (
             <ul className="-my-2 divide-y divide-line text-sm">
               {d.stripe.map((a) => (

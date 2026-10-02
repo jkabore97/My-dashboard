@@ -1,4 +1,5 @@
 import { demoStripe } from "../demo";
+import { today } from "../dates";
 import { toMonthly, type Interval } from "../money";
 import { stripeAccounts, type StripeAccount } from "../server/credentials";
 import { errorMessage, fromSource, getJson } from "../source";
@@ -63,7 +64,6 @@ interface Invoice {
   hosted_invoice_url: string | null;
 }
 
-const isoDay = (unix: number) => new Date(unix * 1000).toISOString().slice(0, 10);
 
 /** Pure: turns raw Stripe lists into the account summary (tested directly). */
 export function summarize(
@@ -75,6 +75,7 @@ export function summarize(
   disputes: Dispute[],
   invoices: Invoice[],
   truncated: boolean,
+  timeZone?: string,
 ): StripeAccountSummary {
   const bal = new Map<string, { currency: string; available: number; pending: number }>();
   for (const b of balance.available) bal.set(b.currency, { currency: b.currency, available: b.amount, pending: 0 });
@@ -95,8 +96,10 @@ export function summarize(
     r.net += t.net;
     revenue.set(t.currency, r);
     if (income) {
-      const k = `${isoDay(t.created)}|${t.currency}`;
-      const d = daily.get(k) ?? { date: isoDay(t.created), currency: t.currency, gross: 0 };
+      // Bucketed by the business's calendar day, like the chart's axis (today()).
+      const date = today(timeZone, new Date(t.created * 1000));
+      const k = `${date}|${t.currency}`;
+      const d = daily.get(k) ?? { date, currency: t.currency, gross: 0 };
       d.gross += t.amount;
       daily.set(k, d);
     }
@@ -132,13 +135,17 @@ export function summarize(
       .map((d) => ({ id: d.id, amount: d.amount, currency: d.currency, reason: d.reason, status: d.status, dueBy: d.evidence_details?.due_by ? new Date(d.evidence_details.due_by * 1000).toISOString() : null, created: new Date(d.created * 1000).toISOString() })),
     openInvoices: invoices
       .filter((i) => i.amount_remaining > 0)
-      .map((i) => ({ id: i.id, source: "stripe" as const, business: account.business, client: i.customer_name ?? i.customer_email ?? "Unknown customer", number: i.number, amount: i.amount_remaining, currency: i.currency, dueOn: i.due_date ? isoDay(i.due_date) : null, url: i.hosted_invoice_url ?? undefined })),
+      .map((i) => ({ id: i.id, source: "stripe" as const, business: account.business, client: i.customer_name ?? i.customer_email ?? "Unknown customer", number: i.number, amount: i.amount_remaining, currency: i.currency, dueOn: i.due_date ? today(timeZone, new Date(i.due_date * 1000)) : null, url: i.hosted_invoice_url ?? undefined })),
     truncated,
   };
 }
 
+// Rounded down to the hour so the URL (the fetch cache key) stays the same
+// between page views and the cached response is reused.
+export const sinceHour = (daysAgo: number, now = Date.now()) => String(Math.floor((now - daysAgo * DAY) / 3_600_000) * 3600);
+
 async function fetchAccount(a: StripeAccount): Promise<StripeAccountSummary> {
-  const since = String(Math.floor((Date.now() - 30 * DAY) / 1000));
+  const since = sinceHour(30);
   const auth = { headers: { Authorization: `Bearer ${a.key}` } };
   const [balance, txns, active, pastDue, disputes, invoices] = await Promise.all([
     getJson<{ livemode: boolean; available: { amount: number; currency: string }[]; pending: { amount: number; currency: string }[] }>(`${API}/balance`, auth),
@@ -146,7 +153,7 @@ async function fetchAccount(a: StripeAccount): Promise<StripeAccountSummary> {
     listAll<StripeSub>(a.key, "/subscriptions", { status: "active" }),
     listAll<StripeSub>(a.key, "/subscriptions", { status: "past_due" }),
     // Disputes are listed newest first; anything still open is recent enough.
-    listAll<Dispute>(a.key, "/disputes", { "created[gte]": String(Math.floor((Date.now() - 180 * DAY) / 1000)) }),
+    listAll<Dispute>(a.key, "/disputes", { "created[gte]": sinceHour(180) }),
     listAll<Invoice>(a.key, "/invoices", { status: "open" }),
   ]);
   const truncated = [txns, active, pastDue, disputes, invoices].some((l) => l.truncated);

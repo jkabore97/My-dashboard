@@ -78,6 +78,7 @@ export const collect = cache(async () => {
     repos: repos.data.map((r) => r.fullName),
     modes,
     partial: { stripe: (stripe.partial ?? []).map((p) => p.key), security: (security.partial ?? []).map((p) => p.key) },
+    credentialsKnown,
   });
 
   const tasks = [...deriveTasks({ repos: repos.data, hosting, databases, emails: emails.data, websites: websites.data, sources, modes }), ...risk.tasks];

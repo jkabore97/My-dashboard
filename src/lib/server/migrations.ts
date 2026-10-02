@@ -177,4 +177,13 @@ alter table subscriptions enable row level security;
 alter table deadlines enable row level security;
 `,
   },
+  {
+    version: 4,
+    name: "deadline_anchor_day",
+    // Repeating deadlines step from this day so month ends don't drift.
+    sql: `
+alter table deadlines add column anchor_day smallint check (anchor_day between 1 and 31);
+update deadlines set anchor_day = extract(day from due_on);
+`,
+  },
 ];
