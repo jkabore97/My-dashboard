@@ -10,7 +10,7 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
 
   return (
     <>
-      <PageHeader mode={s.modes.gmail} title="Inbox" subtitle="Every business mailbox in one list, triaged by urgency. Read-only; replies open in Gmail." />
+      <PageHeader mode={s.modes.inbox} title="Inbox" subtitle="Every business mailbox in one list, triaged by urgency. Read-only; replies open in Gmail or Outlook." />
       <div className="mb-6 flex flex-wrap gap-2">
         {[undefined, ...accounts].map((a) => (
           <Link key={a ?? "all"} href={a ? `/inbox?account=${encodeURIComponent(a)}` : "/inbox"} className={`rounded-full border px-3 py-1 text-xs ${account === a ? "border-accent bg-accent/15 text-accent" : "border-line text-muted hover:text-ink"}`}>{a ?? "All accounts"}</Link>

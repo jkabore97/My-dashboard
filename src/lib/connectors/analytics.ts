@@ -1,8 +1,10 @@
 import { demoAnalytics } from "../demo";
 import { registrableDomain } from "../server/domains";
 import { googleAccounts, type GoogleAccount } from "../server/credentials";
-import { GoogleApiError, googleAccessToken, googleApi, hasGoogleScope } from "../server/google";
+import { googleAccessToken, googleApi, hasGoogleScope, notGrantedAsEmpty } from "../server/google";
 import { errorMessage, fromSource } from "../source";
+import { claimInterval, expireInterval } from "../server/store/settings";
+import { latestSnapshots, replaceSnapshot } from "../server/store/snapshots";
 import type { DailyPoint, SiteAnalytics } from "../types";
 
 // Google Analytics 4 (traffic) and Search Console (search clicks) for each
@@ -63,8 +65,6 @@ export function toTraffic(daily: GaReport, totals: GaReport, pages: GaReport): N
 const METRICS = ["sessions", "totalUsers", "newUsers", "keyEvents"].map((name) => ({ name }));
 const RANGE = [{ startDate: "28daysAgo", endDate: "today" }];
 
-/** For accounts whose granted scopes are unknown, a 403 means "not granted", not a failure. */
-const notGrantedAsEmpty = (a: GoogleAccount) => (e: unknown) => (!a.scopes && e instanceof GoogleApiError && e.status === 403 ? [] : Promise.reject(e));
 
 async function gaProperties(a: GoogleAccount, token: string): Promise<{ property: string; hosts: string[] }[]> {
   return cached(`ga-props:${a.id}`, async () => {
@@ -136,45 +136,80 @@ async function scSearch(token: string, siteUrl: string) {
   });
 }
 
+/** Runs `fn` over `items`, at most `limit` at a time. */
+async function mapLimit<T>(items: T[], limit: number, fn: (item: T) => Promise<void>) {
+  const queue = [...items];
+  await Promise.all(Array.from({ length: Math.min(limit, queue.length) }, async () => {
+    while (queue.length) await fn(queue.shift()!);
+  }));
+}
+
+/** Live GA4 + Search Console for every site. `complete` is false when an account failed. */
+async function fetchAnalytics(accounts: GoogleAccount[], domains: string[], fail: (key: string, error: string) => void) {
+  const out = new Map<string, SiteAnalytics>(domains.map((d) => [d, { domain: d, property: null, traffic: null, search: null }]));
+  let anyOk = false;
+  let firstError: unknown = null;
+  for (const a of accounts) {
+    try {
+      const token = await googleAccessToken(a.refreshToken);
+      const props = hasGoogleScope(a.scopes, "analytics") !== false ? await gaProperties(a, token).catch(notGrantedAsEmpty(a)) : [];
+      const scProps = hasGoogleScope(a.scopes, "searchConsole") !== false ? await scSites(a, token).catch(notGrantedAsEmpty(a)) : [];
+      // Sites are independent: a few at a time keeps a cold load short without bursting the quota.
+      await mapLimit(domains, 4, async (d) => {
+        const site = out.get(d)!;
+        const match = site.traffic ? null : props.find((p) => p.hosts.includes(bare(d)));
+        const siteUrl = site.search ? null : matchSearchConsole(d, scProps);
+        const [traffic, search] = await Promise.all([match ? gaTraffic(token, match.property) : null, siteUrl ? scSearch(token, siteUrl) : null]);
+        if (match && traffic) Object.assign(site, { property: match.property, traffic });
+        if (search) site.search = search;
+      });
+      anyOk = true;
+    } catch (err) {
+      firstError ??= err;
+      fail(a.id, `${a.label}: ${errorMessage(err)}`);
+    }
+  }
+  if (!anyOk) throw firstError;
+  return { sites: [...out.values()], complete: firstError === null };
+}
+
+export const ANALYTICS_KIND = "analytics";
+const REFRESH_SECONDS = TTL_MS / 1000;
+
+/**
+ * Serves analytics from the last good result stored in the database, so a
+ * cold serverless instance doesn't wait on Google. Refreshes when that is
+ * older than 15 minutes, by one request at a time (claimInterval); others keep
+ * serving the stored result meanwhile. Sites without a stored result (new, or
+ * missed by a partial failure) always fetch live. Exported for tests.
+ */
+export async function analyticsWithStore(
+  domains: string[],
+  refresh: () => Promise<{ sites: SiteAnalytics[]; complete: boolean }>,
+): Promise<SiteAnalytics[]> {
+  const stored = await latestSnapshots<SiteAnalytics>(ANALYTICS_KIND, domains).catch(() => null);
+  const all = !!stored && domains.every((d) => stored.has(d));
+  const fromStore = () => domains.map((d) => stored!.get(d)!.data);
+  if (all && domains.every((d) => Date.now() - Date.parse(stored!.get(d)!.takenAt) < TTL_MS)) return fromStore();
+  const claimed = await claimInterval("job:analytics", REFRESH_SECONDS).catch(() => false);
+  if (!claimed && all) return fromStore(); // another request is refreshing
+  try {
+    const { sites, complete } = await refresh();
+    // After a partial failure only sites that got data are kept; the rest stay as they were.
+    for (const s of sites) if (complete || s.traffic || s.search) await replaceSnapshot(ANALYTICS_KIND, s.domain, s).catch(() => {});
+    return sites;
+  } catch (err) {
+    if (claimed) await expireInterval("job:analytics").catch(() => {}); // let the next request retry
+    throw err;
+  }
+}
+
 export async function getAnalytics(domains: string[]) {
   const accounts = (await googleAccounts()).filter((a) => hasGoogleScope(a.scopes, "analytics") !== false || hasGoogleScope(a.scopes, "searchConsole") !== false);
   return fromSource<SiteAnalytics[]>(
     "Analytics",
     accounts.length > 0 && domains.length > 0,
-    async (fail) => {
-      const out = new Map<string, SiteAnalytics>(domains.map((d) => [d, { domain: d, property: null, traffic: null, search: null }]));
-      let anyOk = false;
-      let firstError: unknown = null;
-      for (const a of accounts) {
-        try {
-          const token = await googleAccessToken(a.refreshToken);
-          if (hasGoogleScope(a.scopes, "analytics") !== false) {
-            const props = await gaProperties(a, token).catch(notGrantedAsEmpty(a));
-            for (const d of domains) {
-              const site = out.get(d)!;
-              if (site.traffic) continue;
-              const match = props.find((p) => p.hosts.includes(bare(d)));
-              if (match) Object.assign(site, { property: match.property, traffic: await gaTraffic(token, match.property) });
-            }
-          }
-          if (hasGoogleScope(a.scopes, "searchConsole") !== false) {
-            const sites = await scSites(a, token).catch(notGrantedAsEmpty(a));
-            for (const d of domains) {
-              const site = out.get(d)!;
-              if (site.search) continue;
-              const siteUrl = matchSearchConsole(d, sites);
-              if (siteUrl) site.search = await scSearch(token, siteUrl);
-            }
-          }
-          anyOk = true;
-        } catch (err) {
-          firstError ??= err;
-          fail(a.id, `${a.label}: ${errorMessage(err)}`);
-        }
-      }
-      if (!anyOk) throw firstError;
-      return [...out.values()];
-    },
+    (fail) => analyticsWithStore(domains, () => fetchAnalytics(accounts, domains, fail)),
     demoAnalytics,
   );
 }

@@ -15,11 +15,22 @@ export const msClient = () => {
 };
 
 const cache = new Map<string, { token: string; expires: number }>();
+// Mail and calendar load in parallel; they share one refresh per account
+// instead of each rotating the refresh token.
+const inFlight = new Map<string, Promise<string>>();
 
 export async function msAccessToken(account: { account: string; refreshToken: string }): Promise<string> {
   const key = createHash("sha256").update(account.account).digest("hex");
   const hit = cache.get(key);
   if (hit && hit.expires > Date.now()) return hit.token;
+  const pending = inFlight.get(key);
+  if (pending) return pending;
+  const p = refresh(key, account).finally(() => inFlight.delete(key));
+  inFlight.set(key, p);
+  return p;
+}
+
+async function refresh(key: string, account: { account: string; refreshToken: string }): Promise<string> {
   const client = msClient();
   if (!client) throw new Error("MS_CLIENT_ID / MS_CLIENT_SECRET are not set");
   const res = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(msTenant())}/oauth2/v2.0/token`, {

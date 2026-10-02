@@ -51,9 +51,10 @@ export const collect = cache(async () => {
     getReviews(),
   ]);
   // Gmail and Outlook share one inbox; each message keeps its mailbox id.
-  const emails = { ...gmail, data: [...gmail.data, ...outlook.data].sort((a, b) => b.receivedAt.localeCompare(a.receivedAt)) };
+  const emails = mergeSources([gmail, outlook]);
+  emails.data.sort((a, b) => b.receivedAt.localeCompare(a.receivedAt));
   const security = await getSecurity(repos.data, repos.mode === "live");
-  const hosting = [...vercel.data, ...workers.data];
+  const hosting = mergeSources([vercel, workers]).data;
   const websiteResult = await getWebsites(sites, hosting);
   // Visitors (7 days) come from Google Analytics when a property matched the site.
   const websites = {
@@ -63,7 +64,7 @@ export const collect = cache(async () => {
       return t ? { ...w, visitors7d: lastDays(t.users, 7) } : w;
     }),
   };
-  const databases = [...supabase.data, ...d1.data];
+  const databases = mergeSources([supabase, d1]).data;
   // When stored connections couldn't be read, "demo" may mean "credentials
   // unknown" rather than "not connected", so it can't be used to close tasks.
   const { readable: credentialsKnown, undecryptable } = await connectionHealth();
@@ -79,6 +80,7 @@ export const collect = cache(async () => {
     d1: d1.mode,
     gmail: gmail.mode,
     outlook: outlook.mode,
+    inbox: emails.mode,
     calendar: calendar.mode,
     analytics: analytics.mode,
     reviews: reviews.mode,
@@ -121,8 +123,7 @@ export const collect = cache(async () => {
 
   const live = (m: SourceMode) => m === "live";
   const notifications: (Notification & { live: boolean })[] = [
-    ...gmail.data.map((e) => ({ id: `mail:${e.id}`, source: `Email · ${e.account}`, title: e.subject, body: e.from, at: e.receivedAt, severity: e.severity, url: e.url, live: live(gmail.mode) })),
-    ...outlook.data.map((e) => ({ id: `mail:${e.id}`, source: `Outlook · ${e.account}`, title: e.subject, body: e.from, at: e.receivedAt, severity: e.severity, url: e.url, live: live(outlook.mode) })),
+    ...emails.data.map((e) => ({ id: `mail:${e.id}`, source: `${e.mailbox.startsWith("ms:") ? "Outlook" : "Email"} · ${e.account}`, title: e.subject, body: e.from, at: e.receivedAt, severity: e.severity, url: e.url, live: live(emails.mode) })),
     ...reviews.data.flatMap((p) =>
       p.reviews.map((r) => ({ id: `review:${r.id}`, source: `Google reviews · ${p.name}`, title: `New ${r.rating}★ review from ${r.author}`, body: r.text.slice(0, 160), at: r.publishedAt, severity: r.rating <= 3 ? ("high" as const) : ("low" as const), url: p.url ?? undefined, live: live(reviews.mode) })),
     ),
@@ -168,7 +169,7 @@ export const collect = cache(async () => {
       reviews: reviews.mode,
     }),
     sources: sources.map(({ source, mode, error, partial, fetchedAt }) => ({ source, mode, error, partial, fetchedAt })),
-    unobserved: [...unobservedKeys({ gmail: emails.partial, supabase: supabase.partial, github: repos.partial }), ...guards.unobserved, ...risk.unobserved, ...growth.unobserved, ...(outlook.partial ?? []).map((p) => `outlook/${encodeURIComponent(p.key)}/`)],
+    unobserved: [...unobservedKeys({ gmail: gmail.partial, supabase: supabase.partial, github: repos.partial }), ...guards.unobserved, ...risk.unobserved, ...growth.unobserved, ...(outlook.partial ?? []).map((p) => `outlook/${encodeURIComponent(p.key)}/`)],
     skipScopes: guards.skipScopes,
     credentialsKnown,
     undecryptableConnections: undecryptable.length,
@@ -178,6 +179,18 @@ export const collect = cache(async () => {
 });
 
 export type Collected = Awaited<ReturnType<typeof collect>>;
+
+/**
+ * Merges sources that feed one list (Gmail + Outlook, Vercel + Workers…).
+ * Demo data never mixes with real data: once any source is live, only live
+ * sources contribute. The combined mode is live if any source is, error if
+ * one failed and none is live, and demo only when all are.
+ */
+export function mergeSources<T>(results: Pick<SourceResult<T[]>, "mode" | "data">[]): { mode: SourceMode; data: T[] } {
+  const live = results.filter((r) => r.mode === "live");
+  const mode: SourceMode = live.length ? "live" : results.some((r) => r.mode === "error") ? "error" : "demo";
+  return { mode, data: (live.length ? live : results).flatMap((r) => r.data) };
+}
 
 interface DeriveInput {
   repos: Repo[];

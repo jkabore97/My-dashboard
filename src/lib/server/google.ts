@@ -52,6 +52,10 @@ export class GoogleApiError extends Error {
   }
 }
 
+/** For accounts whose granted scopes are unknown, a 403 means "not granted", not a failure. */
+export const notGrantedAsEmpty = (a: { scopes: unknown }) => (e: unknown): never[] | Promise<never> =>
+  !a.scopes && e instanceof GoogleApiError && e.status === 403 ? [] : Promise.reject(e);
+
 /** Authorized JSON call to a Google API. 403 usually means the scope wasn't granted. */
 export async function googleApi<T>(token: string, url: string, init: { method?: string; body?: unknown; revalidate?: number } = {}): Promise<T> {
   const res = await fetch(url, {

@@ -1,6 +1,6 @@
 import { demoCalendar } from "../demo";
 import { googleAccounts, microsoftAccounts } from "../server/credentials";
-import { googleAccessToken, googleApi, hasGoogleScope } from "../server/google";
+import { googleAccessToken, googleApi, hasGoogleScope, notGrantedAsEmpty } from "../server/google";
 import { graph, msAccessToken } from "../server/microsoft";
 import { errorMessage, fromSource } from "../source";
 import type { CalendarEvent } from "../types";
@@ -30,14 +30,16 @@ interface GraphEvent {
   end: { dateTime: string; timeZone: string };
 }
 
+/** Timed Google events keep their own UTC offset; normalized to UTC like Graph's so times sort correctly. */
 export function fromGoogle(calendar: string, items: GoogleEvent[]): CalendarEvent[] {
+  const time = (t: { dateTime?: string; date?: string }) => (t.dateTime ? new Date(t.dateTime).toISOString() : t.date!);
   return items
     .filter((e) => e.status !== "cancelled")
     .map((e) => ({
       id: `google:${calendar}:${e.id}`,
       title: e.summary || "(no title)",
-      start: e.start.dateTime ?? e.start.date!,
-      end: e.end.dateTime ?? e.end.date!,
+      start: time(e.start),
+      end: time(e.end),
       allDay: !e.start.dateTime,
       calendar,
       provider: "google" as const,
@@ -66,6 +68,9 @@ export function fromGraph(calendar: string, items: GraphEvent[]): CalendarEvent[
     }));
 }
 
+/** By start time; an all-day date ("2026-10-02") sorts as that day's UTC midnight. */
+export const sortEvents = (events: CalendarEvent[]) => events.sort((a, b) => Date.parse(a.start) - Date.parse(b.start) || a.title.localeCompare(b.title));
+
 /** Today and the next 7 days from every connected Google and Microsoft calendar. */
 export async function getCalendar() {
   const [google, microsoft] = await Promise.all([googleAccounts(), microsoftAccounts()]);
@@ -85,8 +90,9 @@ export async function getCalendar() {
           run: async () => {
             const token = await googleAccessToken(a.refreshToken);
             const q = new URLSearchParams({ timeMin: from.toISOString(), timeMax: to.toISOString(), singleEvents: "true", orderBy: "startTime", maxResults: "100" });
-            const res = await googleApi<{ items?: GoogleEvent[] }>(token, `https://www.googleapis.com/calendar/v3/calendars/primary/events?${q}`);
-            return fromGoogle(a.label, res.items ?? []);
+            // Accounts connected before Calendar was requested (or from env) may lack the scope.
+            const res = await googleApi<{ items?: GoogleEvent[] }>(token, `https://www.googleapis.com/calendar/v3/calendars/primary/events?${q}`).catch(notGrantedAsEmpty(a));
+            return fromGoogle(a.label, Array.isArray(res) ? [] : (res.items ?? []));
           },
         })),
         ...microsoft.map((a) => ({
@@ -104,7 +110,7 @@ export async function getCalendar() {
       settled.forEach((r, i) => r.status === "rejected" && fail(jobs[i].key, `${jobs[i].label}: ${errorMessage(r.reason)}`));
       const ok = settled.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
       if (ok.length === 0 && settled.every((r) => r.status === "rejected")) throw (settled[0] as PromiseRejectedResult).reason;
-      return ok.sort((a, b) => a.start.localeCompare(b.start));
+      return sortEvents(ok);
     },
     demoCalendar,
   );

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveTasks, undecryptableGuards, unobservedKeys } from "@/lib/aggregate";
+import { deriveTasks, mergeSources, undecryptableGuards, unobservedKeys } from "@/lib/aggregate";
 import { classifyEmail } from "@/lib/connectors/gmail";
 import { parseBusinessRules, parseSites, businessFor } from "@/lib/server/config";
 import { demoDatabases, demoEmails, demoHosting, demoRepos, demoWebsites } from "@/lib/demo";
@@ -77,6 +77,20 @@ describe("undecryptable connections", () => {
       unobserved: ["gmail/a%40x.co/"],
       skipScopes: ["workers", "d1", "vercel"],
     });
+  });
+});
+
+describe("merging sources into one list", () => {
+  const real = { ...demoEmails()[0], id: "ms:me@x.co:1", mailbox: "ms:me@x.co", subject: "Real Outlook mail" };
+  it("drops demo Gmail once Outlook is live", () => {
+    const inbox = mergeSources([{ mode: "demo", data: demoEmails() }, { mode: "live", data: [real] }]);
+    expect(inbox).toEqual({ mode: "live", data: [real] });
+  });
+  it("is an error when one source fails and none is live, demo only when all are", () => {
+    expect(mergeSources([{ mode: "error", data: demoEmails() }, { mode: "demo", data: [] }]).mode).toBe("error");
+    const sample = demoEmails();
+    expect(mergeSources([{ mode: "demo", data: sample }, { mode: "demo", data: [] }])).toEqual({ mode: "demo", data: sample });
+    expect(mergeSources([{ mode: "error", data: demoEmails() }, { mode: "live", data: [real] }])).toEqual({ mode: "live", data: [real] });
   });
 });
 

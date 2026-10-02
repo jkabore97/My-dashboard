@@ -40,7 +40,9 @@ export const getDashboard = cache(async () => {
     openTasks = sortTasks([...stored.map(fromStored), ...demoTasks]);
     const events = await listEvents(200);
     const seen = new Set(events.map((e) => e.title + e.at));
-    notifications = [...events, ...c.notifications.filter((n) => !n.live && !seen.has(n.title + n.at))].sort((a, b) => b.at.localeCompare(a.at));
+    // Same for sample notifications: never mixed into real history.
+    const samples = c.allDemo ? c.notifications.filter((n) => !n.live && !seen.has(n.title + n.at)) : [];
+    notifications = [...events, ...samples].sort((a, b) => b.at.localeCompare(a.at));
   } catch (err) {
     dbError = err instanceof Error ? err.message : String(err);
     openTasks = sortTasks(c.derivedTasks.map(fromDerived));
