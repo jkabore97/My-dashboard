@@ -2,6 +2,7 @@ import { addDays, today } from "../dates";
 import { latestDomainCheck, type DomainCheck } from "../server/domains";
 import { listDeadlines, listInvoices, listSubscriptions, type Deadline, type Invoice, type Subscription } from "../server/store/ledger";
 import { getSetting } from "../server/store/settings";
+import { listClients, listDeals, type Client, type Deal } from "../server/store/pipeline";
 import { demoDomains } from "../demo";
 import { fromSource } from "../source";
 
@@ -11,6 +12,9 @@ export interface Records {
   deadlines: Deadline[];
   /** Security checklist confirmations: item id → ISO time confirmed. */
   checklist: Record<string, string>;
+  clients: Client[];
+  /** Open deals plus deals closed in the last 90 days. */
+  deals: Deal[];
 }
 
 /** Things you track by hand, from the dashboard's own database. */
@@ -19,15 +23,17 @@ export function getRecords() {
     "Records",
     true,
     async () => {
-      const [invoices, subscriptions, deadlines, checklist] = await Promise.all([
+      const [invoices, subscriptions, deadlines, checklist, clients, deals] = await Promise.all([
         listInvoices({ paidSince: addDays(today(), -90) }),
         listSubscriptions(true),
         listDeadlines(true),
         getSetting<Record<string, string>>("security_checklist", {}),
+        listClients(true),
+        listDeals(addDays(today(), -90)),
       ]);
-      return { invoices, subscriptions, deadlines, checklist };
+      return { invoices, subscriptions, deadlines, checklist, clients, deals };
     },
-    () => ({ invoices: [], subscriptions: [], deadlines: [], checklist: {} }),
+    () => ({ invoices: [], subscriptions: [], deadlines: [], checklist: {}, clients: [], deals: [] }),
   );
 }
 

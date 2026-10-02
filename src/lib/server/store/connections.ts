@@ -1,10 +1,10 @@
 import { getDb } from "../db";
 import { decryptJson, encryptJson } from "../crypto";
 
-export type Provider = "github" | "vercel" | "supabase" | "cloudflare" | "gmail" | "stripe";
+export type Provider = "github" | "vercel" | "supabase" | "cloudflare" | "gmail" | "stripe" | "microsoft";
 
 /** Providers that keep several accounts side by side (one per mailbox / business). */
-export const MULTI_ACCOUNT: Provider[] = ["gmail", "stripe"];
+export const MULTI_ACCOUNT: Provider[] = ["gmail", "stripe", "microsoft"];
 
 export interface Connection<S = Record<string, string>> {
   id: string;
@@ -54,7 +54,16 @@ export async function readConnections<S = Record<string, string>>(provider?: Pro
 export async function listConnectionSummaries() {
   const db = await getDb();
   const rows = await db.query<Omit<Row, "secret">>("select id, provider, account, label, business, meta, created_at from connections order by provider, created_at");
-  return rows.map((r) => ({ id: r.id, provider: r.provider, account: r.account, label: r.label, business: r.business, createdAt: new Date(r.created_at).toISOString() }));
+  return rows.map((r) => ({
+    id: r.id,
+    provider: r.provider,
+    account: r.account,
+    label: r.label,
+    business: r.business,
+    createdAt: new Date(r.created_at).toISOString(),
+    /** OAuth scopes granted, when recorded (Google). */
+    scopes: Array.isArray(r.meta?.scopes) ? (r.meta.scopes as string[]) : null,
+  }));
 }
 
 /**
@@ -75,6 +84,12 @@ export async function saveConnection(c: { provider: Provider; account: string; l
     const removed = await tx.query<{ account: string }>("delete from connections where provider = $1 and account <> $2 returning account", [c.provider, c.account]);
     return removed.map((r) => r.account);
   });
+}
+
+/** Replaces a connection's secret in place (e.g. a rotated refresh token). */
+export async function updateConnectionSecret(provider: Provider, account: string, secret: unknown) {
+  const db = await getDb();
+  await db.query("update connections set secret = $3, updated_at = now() where provider = $1 and account = $2", [provider, account, encryptJson(secret)]);
 }
 
 export async function updateConnectionLabel(id: string, label: string | null, business: string | null) {

@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState } from "react";
+import { useFormState } from "@/components/useFormState";
+
 import { enrollTwoFactor, finishEnrollment, passwordLogin, verifyTwoFactor } from "@/app/actions/auth";
 import { RecoveryCodes } from "./RecoveryCodes";
 
@@ -8,9 +9,9 @@ const input = "w-full rounded-lg border border-line bg-bg px-3 py-2 outline-none
 const button = "mt-4 w-full rounded-lg bg-accent px-3 py-2 font-medium text-bg hover:opacity-90 disabled:opacity-50";
 
 export function PasswordForm() {
-  const [state, action, pending] = useActionState(passwordLogin, {});
+  const [state, action, pending] = useFormState(passwordLogin, {});
   return (
-    <form action={action}>
+    <form onSubmit={action}>
       <label className="mb-1 block text-sm text-muted" htmlFor="password">Password</label>
       <input id="password" name="password" type="password" autoComplete="current-password" required className={input} />
       {state.error && <p className="mt-2 text-sm text-critical">{state.error}</p>}
@@ -20,9 +21,9 @@ export function PasswordForm() {
 }
 
 export function TwoFactorForm() {
-  const [state, action, pending] = useActionState(verifyTwoFactor, {});
+  const [state, action, pending] = useFormState(verifyTwoFactor, {});
   return (
-    <form action={action}>
+    <form onSubmit={action}>
       <label className="mb-1 block text-sm text-muted" htmlFor="code">6-digit code or a recovery code</label>
       <input id="code" name="code" autoComplete="one-time-code" autoFocus required maxLength={20} className={`${input} tracking-widest`} />
       {state.error && <p className="mt-2 text-sm text-critical">{state.error}</p>}
@@ -32,7 +33,7 @@ export function TwoFactorForm() {
 }
 
 export function EnrollForm() {
-  const [state, action, pending] = useActionState(enrollTwoFactor, {});
+  const [state, action, pending] = useFormState(enrollTwoFactor, {});
   if (state.codes) {
     return (
       <div className="mt-4">
@@ -45,7 +46,7 @@ export function EnrollForm() {
     );
   }
   return (
-    <form action={action} className="mt-4">
+    <form onSubmit={action} className="mt-4">
       <label className="mb-1 block text-sm text-muted" htmlFor="code">Enter the 6-digit code it shows</label>
       <input id="code" name="code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9 ]{6,7}" required className={`${input} tracking-widest`} />
       {state.error && <p className="mt-2 text-sm text-critical">{state.error}</p>}

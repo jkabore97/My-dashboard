@@ -3,8 +3,10 @@ import { ArrowUpRight } from "lucide-react";
 import { getDashboard } from "@/lib/server/dashboard";
 import { Card, Empty, ModePill, PageHeader, SeverityBadge, Stat, StatusDot, timeAgo } from "@/components/ui";
 import { TaskRow } from "@/components/TaskRow";
-import { today } from "@/lib/dates";
-import { formatTotals } from "@/lib/money";
+import { businessTimeZone, today } from "@/lib/dates";
+import { todaysEvents } from "@/lib/agenda";
+import { OPEN_STAGES } from "@/lib/server/store/pipeline";
+import { formatTotals, sumByCurrency } from "@/lib/money";
 import { moneyByBusiness, moneyOverview } from "@/lib/money-summary";
 
 export default async function Overview() {
@@ -18,6 +20,14 @@ export default async function Overview() {
   const newUsers = s.websites.reduce((n, w) => n + (w.newUsers7d ?? 0), 0);
 
   const now = today();
+  const tz = businessTimeZone();
+  const upcoming = todaysEvents(s.calendar, tz);
+  const visitors7d = s.websites.reduce((n, w) => n + (w.visitors7d ?? 0), 0);
+  const openDeals = s.records.deals.filter((x) => OPEN_STAGES.includes(x.stage));
+  const pipeline = sumByCurrency(openDeals.filter((x) => x.valueMinor != null).map((x) => ({ currency: x.currency, amount: x.valueMinor! })));
+  const followUps = openDeals.filter((x) => x.nextStepDue && x.nextStepDue <= now).length;
+  const rated = s.reviews.filter((p) => p.rating != null && p.reviewCount > 0);
+  const rating = rated.length ? rated.reduce((n, p) => n + p.rating! * p.reviewCount, 0) / rated.reduce((n, p) => n + p.reviewCount, 0) : null;
   const money = moneyOverview(s.stripe, s.records, now);
   const byBusiness = moneyByBusiness(s.stripe, s.records, now);
   const businesses = [...new Set([...[...s.repos, ...s.hosting, ...s.databases, ...s.websites, ...s.openTasks].map((x) => x.business ?? "Unassigned"), ...byBusiness.keys()])].sort();
@@ -42,6 +52,13 @@ export default async function Overview() {
         <Stat label="Monthly spend" value={formatTotals(money.monthlySpend.slice(0, 1), { compact: true })} hint={`${money.spend.length} subscriptions`} />
       </Link>
 
+      <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Link href="/analytics"><Stat label="Visitors (7d)" value={visitors7d.toLocaleString()} hint={s.modes.analytics === "live" ? "Google Analytics" : "sample data"} /></Link>
+        <Link href="/clients"><Stat label="Open pipeline" value={formatTotals(pipeline.slice(0, 1), { compact: true })} hint={`${openDeals.length} deal${openDeals.length === 1 ? "" : "s"}`} /></Link>
+        <Link href="/clients"><Stat label="Follow-ups due" value={followUps} tone={followUps ? "high" : "ok"} hint="today or overdue" /></Link>
+        <Link href="/analytics#reviews"><Stat label="Google rating" value={rating ? rating.toFixed(1) : "—"} hint={s.reviews.length ? `${s.reviews.reduce((n, p) => n + p.reviewCount, 0).toLocaleString()} reviews` : "not connected"} /></Link>
+      </div>
+
       <div className="mt-6 grid gap-6 xl:grid-cols-5">
         <Card className="xl:col-span-3" title="What needs you" action={<Link href="/tasks" className="text-xs text-accent hover:underline">All {s.openTasks.length} →</Link>}>
           <ul className="-my-2 divide-y divide-line">
@@ -49,19 +66,34 @@ export default async function Overview() {
           </ul>
         </Card>
 
-        <Card className="xl:col-span-2" title="Latest notifications" action={<Link href="/notifications" className="text-xs text-accent hover:underline">All →</Link>}>
-          <ul className="-my-2 divide-y divide-line">
-            {s.notifications.slice(0, 8).map((n) => (
-              <li key={n.id} className="flex items-start gap-3 py-2.5">
-                <SeverityBadge severity={n.severity} />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm">{n.url ? <a href={n.url} target="_blank" rel="noreferrer" className="hover:text-accent">{n.title}</a> : n.title}</div>
-                  <div className="truncate text-xs text-muted">{n.source} · {timeAgo(n.at)}</div>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </Card>
+        <div className="grid content-start gap-6 xl:col-span-2">
+          <Card title="Coming up today" action={<Link href="/agenda" className="text-xs text-accent hover:underline">Agenda →</Link>}>
+            {upcoming.length === 0 ? <Empty>No more meetings today.</Empty> : (
+              <ul className="-my-2 divide-y divide-line">
+                {upcoming.slice(0, 5).map((e) => (
+                  <li key={e.id} className="flex items-baseline gap-3 py-2.5">
+                    <span className="w-20 shrink-0 text-xs tabular-nums text-muted">{e.allDay ? "All day" : new Date(e.start).toLocaleTimeString("en-US", { timeZone: tz, hour: "numeric", minute: "2-digit" })}</span>
+                    <span className="min-w-0 flex-1 truncate text-sm">{e.meetingUrl ? <a href={e.meetingUrl} target="_blank" rel="noreferrer" className="hover:text-accent">{e.title}</a> : e.title}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+
+          <Card title="Latest notifications" action={<Link href="/notifications" className="text-xs text-accent hover:underline">All →</Link>}>
+            <ul className="-my-2 divide-y divide-line">
+              {s.notifications.slice(0, 8).map((n) => (
+                <li key={n.id} className="flex items-start gap-3 py-2.5">
+                  <SeverityBadge severity={n.severity} />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm">{n.url ? <a href={n.url} target="_blank" rel="noreferrer" className="hover:text-accent">{n.title}</a> : n.title}</div>
+                    <div className="truncate text-xs text-muted">{n.source} · {timeAgo(n.at)}</div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        </div>
       </div>
 
       <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wider text-muted">By business</h2>

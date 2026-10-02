@@ -10,6 +10,12 @@ import { getSecurity } from "./connectors/security";
 import { getStripe } from "./connectors/stripe";
 import { today } from "./dates";
 import { deriveRiskTasks, type RiskScope } from "./risk";
+import { deriveGrowthTasks, type GrowthScope } from "./growth";
+import { getAnalytics, lastDays } from "./connectors/analytics";
+import { getCalendar } from "./connectors/calendar";
+import { getOutlook } from "./connectors/outlook";
+import { getReviews } from "./connectors/reviews";
+import { businessForDomain } from "./server/config";
 import { getPlatforms } from "./platforms";
 import { getConfig } from "./server/config";
 import { connectionHealth } from "./server/credentials";
@@ -17,7 +23,7 @@ import type { Database, EmailMessage, HostingProject, Notification, Repo, Source
 
 const DAY = 86_400_000;
 
-export type Scope = "connector" | "github" | "vercel" | "workers" | "supabase" | "d1" | "gmail" | "websites" | RiskScope;
+export type Scope = "connector" | "github" | "vercel" | "workers" | "supabase" | "d1" | "gmail" | "outlook" | "websites" | RiskScope | GrowthScope;
 
 /**
  * A task generated from platform data. `scope` is the source it came from;
@@ -28,7 +34,7 @@ export type DerivedTask = Task & { live: boolean; scope: Scope; alias?: string }
 /** Fetches every source once per request. Pure reads: no database writes. */
 export const collect = cache(async () => {
   const { businessRules, sites, domains: watchedDomains } = await getConfig();
-  const [repos, ghNotes, vercel, workers, supabase, d1, emails, stripe, records, domains] = await Promise.all([
+  const [repos, ghNotes, vercel, workers, supabase, d1, gmail, stripe, records, domains, outlook, calendar, analytics, reviews] = await Promise.all([
     getRepos(businessRules),
     getGithubNotifications(),
     getVercelProjects(businessRules),
@@ -39,17 +45,31 @@ export const collect = cache(async () => {
     getStripe(),
     getRecords(),
     getDomains(watchedDomains),
+    getOutlook(),
+    getCalendar(),
+    getAnalytics(sites.map((x) => x.domain)),
+    getReviews(),
   ]);
+  // Gmail and Outlook share one inbox; each message keeps its mailbox id.
+  const emails = { ...gmail, data: [...gmail.data, ...outlook.data].sort((a, b) => b.receivedAt.localeCompare(a.receivedAt)) };
   const security = await getSecurity(repos.data, repos.mode === "live");
   const hosting = [...vercel.data, ...workers.data];
-  const websites = await getWebsites(sites, hosting);
+  const websiteResult = await getWebsites(sites, hosting);
+  // Visitors (7 days) come from Google Analytics when a property matched the site.
+  const websites = {
+    ...websiteResult,
+    data: websiteResult.data.map((w) => {
+      const t = analytics.mode === "live" ? analytics.data.find((a) => a.domain === w.domain)?.traffic : null;
+      return t ? { ...w, visitors7d: lastDays(t.users, 7) } : w;
+    }),
+  };
   const databases = [...supabase.data, ...d1.data];
   // When stored connections couldn't be read, "demo" may mean "credentials
   // unknown" rather than "not connected", so it can't be used to close tasks.
   const { readable: credentialsKnown, undecryptable } = await connectionHealth();
   const guards = undecryptableGuards(undecryptable);
 
-  const sources: SourceResult<unknown>[] = [repos, vercel, workers, supabase, d1, emails, websites, stripe, domains, security, records];
+  const sources: SourceResult<unknown>[] = [repos, vercel, workers, supabase, d1, gmail, outlook, websites, stripe, domains, security, records, calendar, analytics, reviews];
   const modes = {
     github: repos.mode,
     githubNotes: ghNotes.mode,
@@ -57,7 +77,12 @@ export const collect = cache(async () => {
     workers: workers.mode,
     supabase: supabase.mode,
     d1: d1.mode,
-    gmail: emails.mode,
+    gmail: gmail.mode,
+    outlook: outlook.mode,
+    calendar: calendar.mode,
+    analytics: analytics.mode,
+    reviews: reviews.mode,
+    pipeline: records.mode,
     websites: websites.mode,
     stripe: stripe.mode,
     invoices: records.mode,
@@ -81,11 +106,26 @@ export const collect = cache(async () => {
     credentialsKnown,
   });
 
-  const tasks = [...deriveTasks({ repos: repos.data, hosting, databases, emails: emails.data, websites: websites.data, sources, modes }), ...risk.tasks];
+  const growth = deriveGrowthTasks({
+    today: today(),
+    deals: records.data.deals,
+    reviews: reviews.data,
+    analytics: analytics.data,
+    domains: sites.map((x) => x.domain),
+    businessForDomain: (d) => businessForDomain(d, sites),
+    modes,
+    partial: { reviews: (reviews.partial ?? []).map((p) => p.key) },
+  });
+
+  const tasks: DerivedTask[] = [...deriveTasks({ repos: repos.data, hosting, databases, emails: emails.data, websites: websites.data, sources, modes }), ...risk.tasks, ...growth.tasks];
 
   const live = (m: SourceMode) => m === "live";
   const notifications: (Notification & { live: boolean })[] = [
-    ...emails.data.map((e) => ({ id: `mail:${e.id}`, source: `Email · ${e.account}`, title: e.subject, body: e.from, at: e.receivedAt, severity: e.severity, url: e.url, live: live(emails.mode) })),
+    ...gmail.data.map((e) => ({ id: `mail:${e.id}`, source: `Email · ${e.account}`, title: e.subject, body: e.from, at: e.receivedAt, severity: e.severity, url: e.url, live: live(gmail.mode) })),
+    ...outlook.data.map((e) => ({ id: `mail:${e.id}`, source: `Outlook · ${e.account}`, title: e.subject, body: e.from, at: e.receivedAt, severity: e.severity, url: e.url, live: live(outlook.mode) })),
+    ...reviews.data.flatMap((p) =>
+      p.reviews.map((r) => ({ id: `review:${r.id}`, source: `Google reviews · ${p.name}`, title: `New ${r.rating}★ review from ${r.author}`, body: r.text.slice(0, 160), at: r.publishedAt, severity: r.rating <= 3 ? ("high" as const) : ("low" as const), url: p.url ?? undefined, live: live(reviews.mode) })),
+    ),
     ...ghNotes.data.map((n) => ({ ...n, live: live(ghNotes.mode) })),
     ...hosting
       .filter((h) => h.lastDeployAt && h.lastDeployState)
@@ -110,20 +150,25 @@ export const collect = cache(async () => {
     records: records.data,
     domains: domains.data,
     security: security.data,
+    calendar: calendar.data,
+    analytics: analytics.data,
+    reviews: reviews.data,
     derivedTasks: tasks,
     notifications,
     modes,
     platforms: getPlatforms({
-      GitHub: repos.mode,
-      Vercel: vercel.mode,
-      Cloudflare: workers.mode === "error" || d1.mode === "error" ? "error" : workers.mode,
-      Supabase: supabase.mode,
-      Gmail: emails.mode,
-      Website: websites.mode,
-      Stripe: stripe.mode,
+      github: repos.mode,
+      vercel: vercel.mode,
+      cloudflare: workers.mode === "error" || d1.mode === "error" ? "error" : workers.mode,
+      supabase: supabase.mode,
+      gmail: gmail.mode,
+      websites: websites.mode,
+      stripe: stripe.mode,
+      microsoft: outlook.mode,
+      reviews: reviews.mode,
     }),
     sources: sources.map(({ source, mode, error, partial, fetchedAt }) => ({ source, mode, error, partial, fetchedAt })),
-    unobserved: [...unobservedKeys({ gmail: emails.partial, supabase: supabase.partial, github: repos.partial }), ...guards.unobserved, ...risk.unobserved],
+    unobserved: [...unobservedKeys({ gmail: emails.partial, supabase: supabase.partial, github: repos.partial }), ...guards.unobserved, ...risk.unobserved, ...growth.unobserved, ...(outlook.partial ?? []).map((p) => `outlook/${encodeURIComponent(p.key)}/`)],
     skipScopes: guards.skipScopes,
     credentialsKnown,
     undecryptableConnections: undecryptable.length,
@@ -141,7 +186,7 @@ interface DeriveInput {
   emails: EmailMessage[];
   websites: Website[];
   sources: Pick<SourceResult<unknown>, "source" | "mode" | "error" | "partial">[];
-  modes: Record<"github" | "vercel" | "workers" | "supabase" | "d1" | "gmail" | "websites", SourceMode>;
+  modes: Record<"github" | "vercel" | "workers" | "supabase" | "d1" | "gmail" | "websites", SourceMode> & { outlook?: SourceMode };
 }
 
 /**
@@ -190,7 +235,7 @@ export function deriveTasks(s: DeriveInput): DerivedTask[] {
 
   for (const e of s.emails) {
     if (e.unread && e.severity !== "low") {
-      add("gmail", `${encodeURIComponent(e.mailbox)}/${e.id}`, { title: e.subject, detail: `From ${e.from}`, severity: e.severity, source: `Email · ${e.account}`, url: e.url, createdAt: e.receivedAt, business: e.account });
+      add(e.mailbox.startsWith("ms:") ? "outlook" : "gmail", `${encodeURIComponent(e.mailbox)}/${e.id}`, { title: e.subject, detail: `From ${e.from}`, severity: e.severity, source: `Email · ${e.account}`, url: e.url, createdAt: e.receivedAt, business: e.account });
     }
   }
 
@@ -231,7 +276,12 @@ const PROVIDER_SCOPES: Record<string, Scope[]> = { github: ["github"], vercel: [
  */
 export function undecryptableGuards(rows: { provider: string; account: string }[]): { unobserved: string[]; skipScopes: string[] } {
   return {
-    unobserved: rows.flatMap((r) => (r.provider === "gmail" ? [`gmail/${encodeURIComponent(r.account)}/`] : r.provider === "stripe" ? [`stripe/${encodeURIComponent(r.account)}/`] : [])),
+    unobserved: rows.flatMap((r) =>
+      r.provider === "gmail" ? [`gmail/${encodeURIComponent(r.account)}/`]
+      : r.provider === "stripe" ? [`stripe/${encodeURIComponent(r.account)}/`]
+      : r.provider === "microsoft" ? [`outlook/${encodeURIComponent(`ms:${r.account}`)}/`]
+      : [],
+    ),
     skipScopes: [...new Set(rows.flatMap((r) => PROVIDER_SCOPES[r.provider] ?? []))],
   };
 }

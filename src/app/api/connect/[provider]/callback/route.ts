@@ -5,6 +5,7 @@ import { auditConnection, isOAuthProvider, oauthConfigured, PROVIDER_NAMES } fro
 import { appUrl, consumeOAuthState, getAuthed, postForm } from "@/lib/server/oauth";
 import { saveConnection } from "@/lib/server/store/connections";
 import { env } from "@/lib/source";
+import { MS_SCOPES, msClient, msTenant } from "@/lib/server/microsoft";
 
 export async function GET(req: Request, ctx: { params: Promise<{ provider: string }> }) {
   const { provider } = await ctx.params;
@@ -32,7 +33,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ provider: strin
       account = me.login;
       replaced = await saveConnection({ provider, account, label: me.login, secret: { token: t.access_token }, meta: { via: "oauth" } });
     } else if (provider === "gmail") {
-      const t = await postForm<{ access_token: string; refresh_token?: string }>("https://oauth2.googleapis.com/token", {
+      const t = await postForm<{ access_token: string; refresh_token?: string; scope?: string }>("https://oauth2.googleapis.com/token", {
         code,
         client_id: env("GOOGLE_CLIENT_ID")!,
         client_secret: env("GOOGLE_CLIENT_SECRET")!,
@@ -42,6 +43,21 @@ export async function GET(req: Request, ctx: { params: Promise<{ provider: strin
       if (!t.refresh_token) return back("error=Google+did+not+return+offline+access.+Remove+the+app+at+myaccount.google.com/permissions+and+try+again.");
       const info = await getAuthed<{ email: string }>("https://openidconnect.googleapis.com/v1/userinfo", t.access_token);
       account = info.email.toLowerCase();
+      // Remember what was granted: a user can untick Calendar or Analytics on Google's consent screen.
+      replaced = await saveConnection({ provider, account, secret: { refreshToken: t.refresh_token }, meta: { via: "oauth", scopes: (t.scope ?? "").split(" ").filter(Boolean) } });
+    } else if (provider === "microsoft") {
+      const client = msClient()!;
+      const t = await postForm<{ access_token: string; refresh_token?: string }>(`https://login.microsoftonline.com/${encodeURIComponent(msTenant())}/oauth2/v2.0/token`, {
+        client_id: client.id,
+        client_secret: client.secret,
+        code,
+        redirect_uri: redirectUri,
+        grant_type: "authorization_code",
+        scope: MS_SCOPES,
+      });
+      if (!t.refresh_token) return back("error=Microsoft+did+not+return+offline+access.+Try+again.");
+      const me = await getAuthed<{ mail?: string | null; userPrincipalName: string }>("https://graph.microsoft.com/v1.0/me", t.access_token);
+      account = (me.mail ?? me.userPrincipalName).toLowerCase();
       replaced = await saveConnection({ provider, account, secret: { refreshToken: t.refresh_token }, meta: { via: "oauth" } });
     } else {
       const t = await postForm<{ access_token: string; team_id?: string | null; user_id?: string; installation_id?: string }>(

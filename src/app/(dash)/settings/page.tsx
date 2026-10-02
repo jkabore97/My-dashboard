@@ -5,11 +5,14 @@ import { formatBusinessRules, formatSites, getConfig } from "@/lib/server/config
 import { listAudit } from "@/lib/server/store/audit";
 import { getUser } from "@/lib/server/store/users";
 import { Card, PageHeader, timeAgo } from "@/components/ui";
+import { PlacesForm } from "@/components/pipeline";
+import { getSetting } from "@/lib/server/store/settings";
+import type { PlaceConfig } from "@/lib/connectors/reviews";
 import { BusinessRulesForm, RegenerateCodesForm, ResetTwoFactorForm, WebsitesForm } from "@/components/settings/forms";
 
 export default async function SettingsPage() {
   const me = await requireUser();
-  const [{ businessRules, sites }, user, log] = await Promise.all([getConfig(), getUser(me.email), listAudit(50)]);
+  const [{ businessRules, sites }, user, log, places] = await Promise.all([getConfig(), getUser(me.email), listAudit(50), getSetting<PlaceConfig[]>("places", [])]);
   return (
     <>
       <PageHeader title="Settings" subtitle={`Signed in as ${me.email}.`} />
@@ -63,6 +66,11 @@ export default async function SettingsPage() {
               </dd>
             </div>
           </dl>
+        </Card>
+
+        <Card title={<span id="places">Google Business listings</span>}>
+          <p className="mb-3 text-sm text-muted">One per line: <code>place ID | Business</code>. Find a place ID with Google&apos;s Place ID Finder. Needs <code>GOOGLE_PLACES_API_KEY</code>{process.env.GOOGLE_PLACES_API_KEY ? " (set)" : " (not set yet)"}.</p>
+          <PlacesForm initial={places.map((p) => `${p.placeId} | ${p.business}`).join("\n")} />
         </Card>
 
         <Card title="Audit log" action={<span className="text-xs text-muted">last 50</span>}>

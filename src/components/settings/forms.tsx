@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState } from "react";
+import { useFormState } from "@/components/useFormState";
+
 import { saveBusinessRules, saveWebsites } from "@/app/actions/settings";
 import { regenerateRecoveryCodes, resetTwoFactor } from "@/app/actions/auth";
 import { RecoveryCodes } from "@/components/RecoveryCodes";
@@ -16,9 +17,9 @@ function Status({ state }: { state: { error?: string; ok?: string } }) {
 }
 
 export function BusinessRulesForm({ initial }: { initial: string }) {
-  const [state, action, pending] = useActionState(saveBusinessRules, {});
+  const [state, action, pending] = useFormState(saveBusinessRules, {});
   return (
-    <form action={action} className="grid gap-2">
+    <form onSubmit={action} className="grid gap-2">
       <textarea name="rules" rows={6} defaultValue={initial} placeholder={"kaj = Kaj Consulting\nshop = Kaj Store"} className={area} />
       <div className="flex items-center gap-3"><button disabled={pending} className={button}>Save</button><Status state={state} /></div>
     </form>
@@ -26,9 +27,9 @@ export function BusinessRulesForm({ initial }: { initial: string }) {
 }
 
 export function WebsitesForm({ initial }: { initial: string }) {
-  const [state, action, pending] = useActionState(saveWebsites, {});
+  const [state, action, pending] = useFormState(saveWebsites, {});
   return (
-    <form action={action} className="grid gap-2">
+    <form onSubmit={action} className="grid gap-2">
       <textarea name="sites" rows={6} defaultValue={initial} placeholder={"kajconsulting.com | Kaj Consulting | abcdefghijklmnopqrst\nshop.example | Kaj Store"} className={area} />
       <div className="flex items-center gap-3"><button disabled={pending} className={button}>Save</button><Status state={state} /></div>
     </form>
@@ -36,10 +37,10 @@ export function WebsitesForm({ initial }: { initial: string }) {
 }
 
 export function RegenerateCodesForm() {
-  const [state, action, pending] = useActionState(regenerateRecoveryCodes, {});
+  const [state, action, pending] = useFormState(regenerateRecoveryCodes, {});
   if (state.codes) return <RecoveryCodes codes={state.codes} />;
   return (
-    <form action={action} className="flex flex-wrap items-center gap-2">
+    <form onSubmit={action} className="flex flex-wrap items-center gap-2">
       <input name="code" inputMode="numeric" autoComplete="one-time-code" placeholder="123456" required className={codeInput} />
       <button disabled={pending} className={button}>New recovery codes</button>
       {state.error && <span className="text-xs text-critical">{state.error}</span>}
@@ -48,9 +49,9 @@ export function RegenerateCodesForm() {
 }
 
 export function ResetTwoFactorForm() {
-  const [state, action, pending] = useActionState(resetTwoFactor, {});
+  const [state, action, pending] = useFormState(resetTwoFactor, {});
   return (
-    <form action={action} className="flex flex-wrap items-center gap-2" onSubmit={(e) => { if (!confirm("Remove 2FA and sign out of every device?")) e.preventDefault(); }}>
+    <form className="flex flex-wrap items-center gap-2" onSubmit={(e) => { if (confirm("Remove 2FA and sign out of every device?")) action(e); else e.preventDefault(); }}>
       <input name="code" autoComplete="one-time-code" placeholder="Code or recovery code" required className={`${codeInput} w-52 tracking-normal`} />
       <button disabled={pending} className="rounded-lg border border-critical/50 px-3 py-1.5 text-sm text-critical hover:bg-critical/10 disabled:opacity-50">Reset 2FA</button>
       {state.error && <span className="text-xs text-critical">{state.error}</span>}

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { Bell, CalendarClock, CheckSquare, Database, DollarSign, Globe, Globe2, LayoutDashboard, LogOut, Mail, Menu, Plug, Server, Settings, ShieldCheck, GitBranch, X } from "lucide-react";
+import { BarChart3, Bell, Briefcase, CalendarClock, CalendarDays, CheckSquare, Database, DollarSign, Globe, Globe2, LayoutDashboard, LogOut, Mail, Menu, Plug, Server, Settings, ShieldCheck, GitBranch, X } from "lucide-react";
 import { signOut } from "@/app/actions/auth";
 
 const NAV = [
@@ -11,8 +11,11 @@ const NAV = [
   { href: "/tasks", label: "To-do", icon: CheckSquare },
   { href: "/inbox", label: "Inbox", icon: Mail },
   { href: "/notifications", label: "Notifications", icon: Bell },
+  { href: "/agenda", label: "Agenda", icon: CalendarDays },
   { href: "/money", label: "Money", icon: DollarSign },
+  { href: "/clients", label: "Clients", icon: Briefcase },
   { href: "/deadlines", label: "Deadlines", icon: CalendarClock },
+  { href: "/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/websites", label: "Websites & users", icon: Globe },
   { href: "/domains", label: "Domains", icon: Globe2 },
   { href: "/security", label: "Security", icon: ShieldCheck },

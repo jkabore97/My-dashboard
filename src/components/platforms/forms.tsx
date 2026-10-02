@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useTransition } from "react";
+import { useFormState } from "@/components/useFormState";
+import { useTransition } from "react";
 import { saveTokenConnection, disconnect, relabelConnection } from "@/app/actions/connections";
 import { saveWebhookSecret } from "@/app/actions/settings";
 import type { TokenField } from "@/lib/platforms";
@@ -9,9 +10,9 @@ const input = "w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outl
 const button = "rounded-lg border border-line px-3 py-1.5 text-xs hover:border-accent/50 disabled:opacity-50";
 
 export function TokenForm({ provider, fields, help }: { provider: string; fields: TokenField[]; help: string }) {
-  const [state, action, pending] = useActionState(saveTokenConnection, {});
+  const [state, action, pending] = useFormState(saveTokenConnection, {});
   return (
-    <form action={action} className="mt-3 grid gap-2">
+    <form onSubmit={action} className="mt-3 grid gap-2">
       <input type="hidden" name="provider" value={provider} />
       {fields.map((f) => (
         <input key={f.name} name={f.name} type={f.secret ? "password" : "text"} autoComplete="off" required={!f.optional} placeholder={`${f.label}${f.optional ? " (optional)" : ""}${f.placeholder ? ` — ${f.placeholder}` : ""}`} className={input} />
@@ -47,10 +48,10 @@ export function RelabelForm({ id, label, business }: { id: string; label: string
 }
 
 export function WebhookSecretForm({ provider, canGenerate }: { provider: string; canGenerate: boolean }) {
-  const [state, action, pending] = useActionState(saveWebhookSecret, {});
+  const [state, action, pending] = useFormState(saveWebhookSecret, {});
   return (
     <div className="mt-2">
-      <form action={action} className="flex flex-wrap gap-2">
+      <form onSubmit={action} className="flex flex-wrap gap-2">
         <input type="hidden" name="provider" value={provider} />
         <input name="secret" type="password" autoComplete="off" placeholder="Paste signing secret" className={`${input} min-w-0 flex-1 basis-48`} />
         <button disabled={pending} className={button}>Save</button>

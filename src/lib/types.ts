@@ -186,3 +186,50 @@ export interface SecurityReport {
   github2fa: boolean | null;
   githubLogin: string | null;
 }
+
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  /** ISO time, or YYYY-MM-DD for all-day events. */
+  start: string;
+  end: string;
+  allDay: boolean;
+  calendar: string;
+  provider: "google" | "microsoft";
+  location: string | null;
+  meetingUrl: string | null;
+  url: string | null;
+}
+
+export interface DailyPoint {
+  date: string;
+  value: number;
+}
+
+export interface SiteAnalytics {
+  domain: string;
+  /** GA4 property ("properties/123"), when one matched this site. */
+  property: string | null;
+  traffic: {
+    sessions: DailyPoint[];
+    users: DailyPoint[];
+    totals: { sessions: number; users: number; newUsers: number; keyEvents: number };
+    topPages: { path: string; views: number }[];
+  } | null;
+  search: {
+    siteUrl: string;
+    clicks: DailyPoint[];
+    totals: { clicks: number; impressions: number; ctr: number; position: number };
+    topQueries: { query: string; clicks: number; impressions: number; position: number }[];
+  } | null;
+}
+
+export interface PlaceReviews {
+  placeId: string;
+  business: string;
+  name: string;
+  rating: number | null;
+  reviewCount: number;
+  url: string | null;
+  reviews: { id: string; rating: number; text: string; author: string; publishedAt: string; relative: string | null }[];
+}

@@ -1,13 +1,14 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useFormState } from "@/components/useFormState";
+import { useEffect, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import { addTaskAction } from "@/app/actions/tasks";
 
 const input = "rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent";
 
 export function AddTaskForm({ businesses, defaultBusiness }: { businesses: string[]; defaultBusiness?: string }) {
-  const [state, action, pending] = useActionState(addTaskAction, {});
+  const [state, action, pending] = useFormState(addTaskAction, {});
   const [open, setOpen] = useState(false);
   const form = useRef<HTMLFormElement>(null);
   useEffect(() => {
@@ -22,7 +23,7 @@ export function AddTaskForm({ businesses, defaultBusiness }: { businesses: strin
     );
   }
   return (
-    <form ref={form} action={action} className="mb-6 grid gap-2 rounded-xl border border-line bg-panel p-4 sm:grid-cols-6">
+    <form ref={form} onSubmit={action} className="mb-6 grid gap-2 rounded-xl border border-line bg-panel p-4 sm:grid-cols-6">
       <input name="title" required maxLength={200} placeholder="What needs doing?" className={`${input} sm:col-span-6`} autoFocus />
       <select name="severity" defaultValue="medium" className={`${input} sm:col-span-1`} aria-label="Severity">
         <option value="critical">Critical</option>

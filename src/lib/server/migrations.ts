@@ -186,4 +186,45 @@ alter table deadlines add column anchor_day smallint check (anchor_day between 1
 update deadlines set anchor_day = extract(day from due_on);
 `,
   },
+  {
+    version: 5,
+    name: "clients_and_deals",
+    sql: `
+create table clients (
+  id uuid primary key default gen_random_uuid(),
+  business text,
+  name text not null,
+  contact_name text,
+  email text,
+  phone text,
+  website text,
+  notes text,
+  archived boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table deals (
+  id uuid primary key default gen_random_uuid(),
+  client_id uuid references clients(id) on delete set null,
+  business text,
+  title text not null,
+  value_minor bigint check (value_minor >= 0),
+  currency text not null default 'usd',
+  stage text not null default 'lead' check (stage in ('lead', 'proposal', 'negotiation', 'won', 'lost')),
+  expected_close date,
+  next_step text,
+  next_step_due date,
+  closed_on date,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index deals_stage_idx on deals (stage, next_step_due);
+
+alter table clients enable row level security;
+alter table deals enable row level security;
+`,
+  },
 ];
+

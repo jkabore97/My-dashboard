@@ -213,7 +213,7 @@ describe("thresholds", () => {
 const base = (): RiskInput => ({
   today: "2026-10-02",
   stripe: [],
-  records: { invoices: [], subscriptions: [], deadlines: [], checklist: {} },
+  records: { invoices: [], subscriptions: [], deadlines: [], checklist: {}, clients: [], deals: [] },
   domains: { checks: [], pending: [] },
   security: { alerts: [], repos: [], github2fa: null, githubLogin: null },
   sites: [{ domain: "kaj.com", business: "Kaj Consulting" }],
@@ -384,7 +384,7 @@ describe("risk tasks", () => {
 
 describe("money overview", () => {
   it("leaves test-mode Stripe accounts out of every roll-up", () => {
-    const records = { invoices: [], subscriptions: [], deadlines: [], checklist: {} };
+    const records = { invoices: [], subscriptions: [], deadlines: [], checklist: {}, clients: [], deals: [] };
     const [live, other] = demoStripe();
     const test = { ...other, id: "acct_test", business: "Sandbox", livemode: false };
     const both = moneyOverview([live, test], records, today());
@@ -398,7 +398,7 @@ describe("money overview", () => {
   });
 
   it("combines Stripe and manual receivables and fills 30 days", () => {
-    const records = { invoices: [{ id: "m1", business: "Kaj", client: "Manual", number: null, amountMinor: 500, currency: "usd", issuedOn: null, dueOn: "2026-01-01", status: "open" as const, paidOn: null, notes: null }], subscriptions: [], deadlines: [], checklist: {} };
+    const records = { invoices: [{ id: "m1", business: "Kaj", client: "Manual", number: null, amountMinor: 500, currency: "usd", issuedOn: null, dueOn: "2026-01-01", status: "open" as const, paidOn: null, notes: null }], subscriptions: [], deadlines: [], checklist: {}, clients: [], deals: [] };
     const m = moneyOverview(demoStripe(), records, today());
     expect(m.receivables.some((r) => r.source === "manual" && r.editable && r.daysLate! > 0)).toBe(true);
     expect(m.overdueCount).toBeGreaterThanOrEqual(2);

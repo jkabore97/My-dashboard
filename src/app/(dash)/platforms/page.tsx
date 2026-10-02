@@ -6,6 +6,7 @@ import { oauthConfigured } from "@/lib/server/connect";
 import { listConnectionSummaries, MULTI_ACCOUNT } from "@/lib/server/store/connections";
 import { getSetting, lastRun } from "@/lib/server/store/settings";
 import { WEBHOOK_ENV } from "@/lib/server/webhooks";
+import { hasGoogleScope, type GoogleFeature } from "@/lib/server/google";
 import { env } from "@/lib/source";
 import { Card, ModePill, PageHeader, timeAgo } from "@/components/ui";
 import { DisconnectButton, RelabelForm, TokenForm, WebhookSecretForm } from "@/components/platforms/forms";
@@ -17,6 +18,21 @@ const WEBHOOK_HELP: Record<string, string> = {
   stripe: "Developers → Webhooks → Add endpoint. Events: charge.dispute.*, invoice.payment_failed, invoice.paid, payout.failed, radar.early_fraud_warning.created, charge.succeeded, charge.failed. Paste the whsec_… signing secret.",
   supabase: "Project → Database → Webhooks (e.g. on auth.users INSERT). Add an HTTP header x-webhook-secret with the secret. Append ?site=yourdomain.com to the URL.",
 };
+
+const GOOGLE_FEATURES: [GoogleFeature, string][] = [["gmail", "Gmail"], ["calendar", "Calendar"], ["analytics", "Analytics"], ["searchConsole", "Search Console"]];
+
+function GoogleGrants({ scopes }: { scopes: string[] | null }) {
+  if (!scopes) return <div className="text-xs text-muted">Connected before permissions were recorded. Reconnect to add Calendar, Analytics and Search Console.</div>;
+  const missing = GOOGLE_FEATURES.filter(([f]) => !hasGoogleScope(scopes, f));
+  return (
+    <div className="mt-0.5 flex flex-wrap gap-1">
+      {GOOGLE_FEATURES.map(([f, label]) => (
+        <span key={f} className={`rounded px-1.5 py-0.5 text-[10px] ${hasGoogleScope(scopes, f) ? "bg-ok/15 text-ok" : "bg-low/20 text-muted line-through"}`}>{label}</span>
+      ))}
+      {missing.length > 0 && <span className="text-[10px] text-muted">Reconnect to grant the rest.</span>}
+    </div>
+  );
+}
 
 export default async function PlatformsPage({ searchParams }: { searchParams: Promise<{ error?: string; connected?: string }> }) {
   const { error, connected } = await searchParams;
@@ -41,7 +57,7 @@ export default async function PlatformsPage({ searchParams }: { searchParams: Pr
           const mine = connections.filter((c) => c.provider === p.provider);
           const envSet = p.envKeys.length > 0 && p.envKeys.every((k) => !!env(k));
           const mode = modes[p.id];
-          const problems = d.sources.filter((s) => s.source === p.name).flatMap((s) => (s.error ? [s.error] : (s.partial ?? []).map((x) => x.error)));
+          const problems = d.sources.filter((s) => (p.sources ?? [p.name]).includes(s.source)).flatMap((s) => (s.error ? [s.error] : (s.partial ?? []).map((x) => x.error)));
           const multi = !!p.provider && MULTI_ACCOUNT.includes(p.provider);
           return (
             <Card key={p.id} title={p.name} action={mode ? <ModePill mode={mode} /> : null}>
@@ -57,6 +73,7 @@ export default async function PlatformsPage({ searchParams }: { searchParams: Pr
                         <DisconnectButton id={c.id} name={c.label ?? c.account} />
                       </div>
                       <div className="text-xs text-muted">{c.business ? `${c.business} · ` : ""}connected {timeAgo(c.createdAt)}</div>
+                      {p.provider === "gmail" && <GoogleGrants scopes={c.scopes} />}
                       {multi && <RelabelForm id={c.id} label={c.label} business={c.business} />}
                     </li>
                   ))}
@@ -71,7 +88,7 @@ export default async function PlatformsPage({ searchParams }: { searchParams: Pr
                       {mine.length && multi ? "Connect another account" : mine.length ? "Reconnect or replace" : `Connect ${p.name}`}
                     </a>
                   ) : (
-                    <p className="text-xs text-muted">One-click connect needs {p.oauth === "github" ? "GITHUB_OAUTH_CLIENT_ID/SECRET" : p.oauth === "gmail" ? "GOOGLE_CLIENT_ID/SECRET" : "VERCEL_INTEGRATION_SLUG and VERCEL_CLIENT_ID/SECRET"} (see README).</p>
+                    <p className="text-xs text-muted">One-click connect needs {p.oauth === "github" ? "GITHUB_OAUTH_CLIENT_ID/SECRET" : p.oauth === "gmail" ? "GOOGLE_CLIENT_ID/SECRET" : p.oauth === "microsoft" ? "MS_CLIENT_ID/SECRET" : "VERCEL_INTEGRATION_SLUG and VERCEL_CLIENT_ID/SECRET"} (see README).</p>
                   ))}
                   {mine.length > 0 && !multi && <p className="mt-2 text-xs text-muted">One {p.name} account at a time: connecting another replaces this one.</p>}
                   {p.token && (

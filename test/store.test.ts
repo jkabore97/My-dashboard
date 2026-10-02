@@ -10,6 +10,8 @@ import { claimInterval } from "@/lib/server/store/settings";
 import { deleteConnection, listConnections, readConnections, saveConnection } from "@/lib/server/store/connections";
 import { consumeRecoveryCode, ensureUser, markTotpStep, setRecoveryCodes } from "@/lib/server/store/users";
 import type { Task } from "@/lib/types";
+import { listClients, listDeals, saveClient, saveDeal, setClientArchived, setDealStage } from "@/lib/server/store/pipeline";
+import { updateConnectionSecret } from "@/lib/server/store/connections";
 import { addInvoice, completeDeadline, reopenDeadline, listDeadlines, listInvoices, listSubscriptions, saveDeadline, saveSubscription, setInvoiceStatus } from "@/lib/server/store/ledger";
 import { persist } from "@/lib/server/sync";
 import { undecryptableGuards, type Collected } from "@/lib/aggregate";
@@ -26,7 +28,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   const db = await getDb();
-  await db.exec("truncate tasks, events, settings, connections, users, rate_limits, audit_log, snapshots, invoices, subscriptions, deadlines");
+  await db.exec("truncate tasks, events, settings, connections, users, rate_limits, audit_log, snapshots, invoices, subscriptions, deadlines, deals, clients");
 });
 
 describe("derived task reconciliation", () => {
@@ -427,5 +429,36 @@ describe("webhook and polling duplicates", () => {
     await db.query("update tasks set resolved_at = now() - interval '6 minutes', updated_at = now() - interval '6 minutes' where source_key = 'stripe-invoice:in_1'");
     await persist(polledInvoice(), { force: true });
     expect((await listTasks("open")).map((x) => x.title)).toEqual(["stripe/acct/invoice:in_1"]);
+  });
+});
+
+describe("clients and deals", () => {
+  it("stamps closed_on once, clears it on reopen, and lists open + recently closed deals", async () => {
+    const c = await saveClient({ business: "Kaj", name: "ClientCo", contactName: null, email: null, phone: null, website: null, notes: null });
+    const d = await saveDeal({ clientId: c!.id, business: "Kaj", title: "Redesign", valueMinor: 9_000_000_000_001, currency: "usd", stage: "proposal", expectedClose: "2026-10-31", nextStep: "Send quote", nextStepDue: "2026-10-03", notes: null }, "2026-10-02");
+    expect(d).toMatchObject({ clientName: "ClientCo", valueMinor: 9_000_000_000_001, expectedClose: "2026-10-31", nextStepDue: "2026-10-03", closedOn: null, updatedOn: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) });
+    await setDealStage(d!.id, "won", "2026-10-05");
+    await setDealStage(d!.id, "won", "2026-10-09"); // still the first close date
+    expect((await listDeals("2026-10-01"))[0]).toMatchObject({ stage: "won", closedOn: "2026-10-05" });
+    expect(await listDeals("2026-10-06")).toHaveLength(0); // closed before the window
+    await saveDeal({ id: d!.id, clientId: c!.id, business: "Kaj", title: "Redesign", valueMinor: null, currency: "usd", stage: "negotiation", expectedClose: null, nextStep: null, nextStepDue: null, notes: null }, "2026-10-10");
+    expect((await listDeals("2026-10-06"))[0]).toMatchObject({ stage: "negotiation", closedOn: null, valueMinor: null });
+  });
+  it("archives clients and keeps their deals readable", async () => {
+    const c = await saveClient({ business: null, name: "Old Co", contactName: null, email: "a@b.co", phone: null, website: null, notes: null });
+    await saveDeal({ clientId: c!.id, business: null, title: "Retainer", valueMinor: null, currency: "usd", stage: "lead", expectedClose: null, nextStep: null, nextStepDue: null, notes: null }, "2026-10-02");
+    await setClientArchived(c!.id, true);
+    expect(await listClients()).toHaveLength(0);
+    expect((await listClients(true))[0]).toMatchObject({ name: "Old Co", archived: true });
+    expect((await listDeals("2026-01-01"))[0].clientName).toBe("Old Co");
+  });
+});
+
+describe("rotating credentials", () => {
+  it("replaces a connection's secret in place", async () => {
+    await saveConnection({ provider: "microsoft", account: "me@kaj.com", secret: { refreshToken: "old" } });
+    await updateConnectionSecret("microsoft", "me@kaj.com", { refreshToken: "new" });
+    const [c] = await listConnections<{ refreshToken: string }>("microsoft");
+    expect(c.secret.refreshToken).toBe("new");
   });
 });

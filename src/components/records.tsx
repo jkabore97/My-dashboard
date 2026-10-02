@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState, useTransition } from "react";
+import { useFormState } from "@/components/useFormState";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { Check, RotateCcw, Trash2, X } from "lucide-react";
 import {
   addInvoiceAction,
@@ -19,7 +20,7 @@ import {
   type RecordState,
 } from "@/app/actions/records";
 
-export const input = "w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent";
+const input = "w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent";
 const primary = "rounded-lg bg-accent px-3 py-2 text-sm font-medium text-bg hover:opacity-90 disabled:opacity-50";
 const small = "inline-flex items-center gap-1 rounded-md border border-line px-2 py-1 text-xs text-muted hover:border-accent/50 hover:text-ink disabled:opacity-50";
 
@@ -56,12 +57,12 @@ function BusinessInput({ businesses, defaultValue }: { businesses: string[]; def
 // ─── Invoices ────────────────────────────────────────────────────────────────
 
 export function InvoiceForm({ businesses }: { businesses: string[] }) {
-  const [state, action, pending] = useActionState(addInvoiceAction, {});
+  const [state, action, pending] = useFormState(addInvoiceAction, {});
   const ref = useResetOnSave(state);
   return (
     <Toggle label="Add invoice">
       {(close) => (
-        <form ref={ref} action={action} className="grid gap-2 sm:grid-cols-6">
+        <form ref={ref} onSubmit={action} className="grid gap-2 sm:grid-cols-6">
           <input name="client" required maxLength={120} placeholder="Client" className={`${input} sm:col-span-3`} />
           <input name="number" maxLength={40} placeholder="Invoice # (optional)" className={`${input} sm:col-span-3`} />
           <input name="amount" required inputMode="decimal" placeholder="Amount, e.g. 1250.00" className={`${input} sm:col-span-2`} />
@@ -140,12 +141,12 @@ function SubscriptionFields({ s, businesses }: { s: SubscriptionDraft; businesse
 }
 
 export function SubscriptionForm({ businesses }: { businesses: string[] }) {
-  const [state, action, pending] = useActionState(saveSubscriptionAction, {});
+  const [state, action, pending] = useFormState(saveSubscriptionAction, {});
   const ref = useResetOnSave(state);
   return (
     <Toggle label="Add subscription">
       {(close) => (
-        <form ref={ref} action={action} className="grid gap-2 sm:grid-cols-6">
+        <form ref={ref} onSubmit={action} className="grid gap-2 sm:grid-cols-6">
           <SubscriptionFields s={{}} businesses={businesses} />
           <div className="flex items-center gap-3 sm:col-span-6">
             <button disabled={pending} className={primary}>{pending ? "Saving…" : "Save"}</button>
@@ -161,13 +162,13 @@ export function SubscriptionForm({ businesses }: { businesses: string[] }) {
 export function SubscriptionRowActions({ s, businesses }: { s: SubscriptionDraft & { id: string; active: boolean }; businesses: string[] }) {
   const [pending, start] = useTransition();
   const [editing, setEditing] = useState(false);
-  const [state, action, saving] = useActionState(saveSubscriptionAction, {});
+  const [state, action, saving] = useFormState(saveSubscriptionAction, {});
   useEffect(() => {
     if (state.at && !state.error) setEditing(false);
   }, [state.at, state.error]);
   if (editing) {
     return (
-      <form action={action} className="grid gap-2 rounded-lg border border-line p-3 sm:grid-cols-6">
+      <form onSubmit={action} className="grid gap-2 rounded-lg border border-line p-3 sm:grid-cols-6">
         <SubscriptionFields s={s} businesses={businesses} />
         <div className="flex items-center gap-3 sm:col-span-6">
           <button disabled={saving} className={primary}>Save</button>
@@ -229,12 +230,12 @@ function DeadlineFields({ d, businesses }: { d: DeadlineDraft; businesses: strin
 }
 
 export function DeadlineForm({ businesses }: { businesses: string[] }) {
-  const [state, action, pending] = useActionState(saveDeadlineAction, {});
+  const [state, action, pending] = useFormState(saveDeadlineAction, {});
   const ref = useResetOnSave(state);
   return (
     <Toggle label="Add deadline">
       {(close) => (
-        <form ref={ref} action={action} className="grid gap-2 sm:grid-cols-6">
+        <form ref={ref} onSubmit={action} className="grid gap-2 sm:grid-cols-6">
           <DeadlineFields d={{}} businesses={businesses} />
           <div className="flex items-center gap-3 sm:col-span-6">
             <button disabled={pending} className={primary}>{pending ? "Saving…" : "Save"}</button>
@@ -250,13 +251,13 @@ export function DeadlineForm({ businesses }: { businesses: string[] }) {
 export function DeadlineRowActions({ d, businesses, recurring }: { d: DeadlineDraft & { id: string; dueOn: string; title: string }; businesses: string[]; recurring: boolean }) {
   const [pending, start] = useTransition();
   const [editing, setEditing] = useState(false);
-  const [state, action, saving] = useActionState(saveDeadlineAction, {});
+  const [state, action, saving] = useFormState(saveDeadlineAction, {});
   useEffect(() => {
     if (state.at && !state.error) setEditing(false);
   }, [state.at, state.error]);
   if (editing) {
     return (
-      <form action={action} className="grid gap-2 rounded-lg border border-line p-3 sm:grid-cols-6">
+      <form onSubmit={action} className="grid gap-2 rounded-lg border border-line p-3 sm:grid-cols-6">
         <DeadlineFields d={d} businesses={businesses} />
         <div className="flex items-center gap-3 sm:col-span-6">
           <button disabled={saving} className={primary}>Save</button>
@@ -278,9 +279,9 @@ export function DeadlineRowActions({ d, businesses, recurring }: { d: DeadlineDr
 // ─── Domains ─────────────────────────────────────────────────────────────────
 
 export function DomainSettingsForm({ extra, selectors }: { extra: string; selectors: string }) {
-  const [state, action, pending] = useActionState(saveDomainSettingsAction, {});
+  const [state, action, pending] = useFormState(saveDomainSettingsAction, {});
   return (
-    <form action={action} className="grid gap-3">
+    <form onSubmit={action} className="grid gap-3">
       <label className="text-sm">
         <span className="text-muted">Extra domains to watch (your websites are included automatically), one per line</span>
         <textarea name="domains" rows={4} defaultValue={extra} placeholder={"kajconsulting.com\nkaj-mail.com"} className={`${input} mt-1 font-mono text-xs`} />
@@ -295,9 +296,9 @@ export function DomainSettingsForm({ extra, selectors }: { extra: string; select
 }
 
 export function CheckNowButton() {
-  const [state, action, pending] = useActionState(checkDomainsNowAction, {});
+  const [state, action, pending] = useFormState(checkDomainsNowAction, {});
   return (
-    <form action={action} className="flex items-center gap-3">
+    <form onSubmit={action} className="flex items-center gap-3">
       <button disabled={pending} className={primary}>{pending ? "Checking…" : "Check now"}</button>
       <Status state={state} />
     </form>

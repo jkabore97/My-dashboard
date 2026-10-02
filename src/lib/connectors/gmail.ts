@@ -1,25 +1,8 @@
 import { demoEmails } from "../demo";
 import { gmailAccounts, googleClient } from "../server/credentials";
+import { googleAccessToken } from "../server/google";
 import { errorMessage, fromSource, getJson } from "../source";
 import type { EmailMessage, Severity } from "../types";
-
-// Each mailbox is a refresh token from a one-time OAuth consent with the
-// gmail.readonly scope (Platforms → Connect Gmail, or GMAIL_ACCOUNTS).
-async function accessToken(client: { id: string; secret: string }, refreshToken: string) {
-  const res = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: client.id,
-      client_secret: client.secret,
-      refresh_token: refreshToken,
-      grant_type: "refresh_token",
-    }),
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(`Google token refresh failed (${res.status})`);
-  return ((await res.json()) as { access_token: string }).access_token;
-}
 
 const RULES: [Severity, RegExp][] = [
   ["critical", /dispute|chargeback|security alert|suspicious sign|account (suspended|locked)|payment (failed|declined)|site is down|outage|breach/i],
@@ -56,7 +39,7 @@ export async function getEmails() {
       // its tasks stay open and the UI shows which mailbox needs reconnecting.
       const settled = await Promise.allSettled(
         list.map(async ({ id: mailbox, label, refreshToken, email }) => {
-          const headers = { Authorization: `Bearer ${await accessToken(client!, refreshToken)}` };
+          const headers = { Authorization: `Bearer ${await googleAccessToken(refreshToken)}` };
           const base = "https://gmail.googleapis.com/gmail/v1/users/me/messages";
           // Access tokens differ on every call, so skip the fetch cache here.
           const { messages = [] } = await getJson<{ messages?: { id: string }[] }>(

@@ -50,27 +50,52 @@ export const cloudflareCreds = cache(async () => {
   return token && accountId ? { token, accountId } : null;
 });
 
-export interface GmailAccount {
+export interface GoogleAccount {
   /** Stable across relabeling: the address, or env:<label> for GMAIL_ACCOUNTS entries. */
   id: string;
   label: string;
+  business: string | null;
   refreshToken: string;
   email?: string;
+  /** Granted OAuth scopes; null when unknown (older connections, env accounts). */
+  scopes: string[] | null;
 }
 
-export const gmailAccounts = cache(async (): Promise<GmailAccount[]> => {
-  const out: GmailAccount[] = [];
+/** Every connected Google account (mail, calendar, Analytics, Search Console). */
+export const googleAccounts = cache(async (): Promise<GoogleAccount[]> => {
+  const out: GoogleAccount[] = [];
   for (const c of (await loadConnections()).list) {
-    if (c.provider === "gmail") out.push({ id: c.account, label: c.label || c.business || c.account, refreshToken: c.secret.refreshToken, email: c.account });
+    if (c.provider !== "gmail") continue;
+    const scopes = Array.isArray(c.meta?.scopes) ? (c.meta.scopes as string[]) : null;
+    out.push({ id: c.account, label: c.label || c.business || c.account, business: c.business, refreshToken: c.secret.refreshToken, email: c.account, scopes });
   }
   for (const pair of (env("GMAIL_ACCOUNTS") ?? "").split(",")) {
     const i = pair.lastIndexOf(":");
     const label = pair.slice(0, i).trim();
     const refreshToken = pair.slice(i + 1).trim();
-    if (label && refreshToken && i > 0) out.push({ id: `env:${label}`, label, refreshToken });
+    if (label && refreshToken && i > 0) out.push({ id: `env:${label}`, label, business: label, refreshToken, scopes: null });
   }
   return out;
 });
+
+export type GmailAccount = GoogleAccount;
+
+/** Google accounts that granted (or may have granted) Gmail access. */
+export const gmailAccounts = cache(async () => (await googleAccounts()).filter((a) => !a.scopes || a.scopes.some((s) => s.endsWith("/gmail.readonly"))));
+
+export interface MicrosoftAccount {
+  /** The account's address; mailbox ids are "ms:<address>". */
+  account: string;
+  label: string;
+  business: string | null;
+  refreshToken: string;
+}
+
+export const microsoftAccounts = cache(async (): Promise<MicrosoftAccount[]> =>
+  (await loadConnections()).list
+    .filter((c) => c.provider === "microsoft")
+    .map((c) => ({ account: c.account, label: c.label || c.business || c.account, business: c.business, refreshToken: c.secret.refreshToken })),
+);
 
 export interface StripeAccount {
   /** Stable id: the Stripe account (or key fingerprint), or env:<business>. */

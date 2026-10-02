@@ -1,7 +1,7 @@
 // Sample data shown until real credentials are configured. Timestamps are
 // relative to "now" so the demo always looks current.
 import type { DomainCheck } from "./server/domains";
-import type { Database, EmailMessage, HostingProject, Repo, SecurityReport, StripeAccountSummary, Task, Website } from "./types";
+import type { CalendarEvent, Database, EmailMessage, HostingProject, PlaceReviews, Repo, SecurityReport, SiteAnalytics, StripeAccountSummary, Task, Website } from "./types";
 
 const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
 
@@ -99,4 +99,62 @@ export const demoDomains = (): DomainCheck[] => [
   { domain: "kajconsulting.example", checkedAt: ago(90), registration: { ok: true, expiresOn: day(212), registrar: "Namecheap, Inc." }, certificate: { ok: true, expiresOn: day(61), issuer: "Let's Encrypt" }, email: { ok: true, mx: ["aspmx.l.google.com"], spf: "v=spf1 include:_spf.google.com ~all", dmarc: "v=DMARC1; p=none; rua=mailto:dmarc@kajconsulting.example", dmarcPolicy: "none", dkim: ["google"] } },
   { domain: "shop.example", checkedAt: ago(90), registration: { ok: true, expiresOn: day(9), registrar: "Namecheap, Inc." }, certificate: { ok: true, expiresOn: day(5), issuer: "Let's Encrypt" }, email: { ok: true, mx: ["mx1.mail.example"], spf: null, dmarc: null, dmarcPolicy: null, dkim: [] } },
   { domain: "book.example", checkedAt: ago(90), registration: { ok: true, expiresOn: day(340), registrar: "Cloudflare, Inc." }, certificate: { ok: true, expiresOn: day(80), issuer: "Google Trust Services" }, email: { ok: true, mx: [], spf: null, dmarc: null, dmarcPolicy: null, dkim: [] } },
+];
+
+function series(base: number, seed: number) {
+  return Array.from({ length: 28 }, (_, i) => ({ date: day(i - 27), value: Math.round(base * (0.7 + (((i + seed) * 37) % 11) / 18) * ((i + 2) % 7 >= 5 ? 0.6 : 1)) }));
+}
+const total = (p: { value: number }[]) => p.reduce((n, x) => n + x.value, 0);
+
+export const demoAnalytics = (): SiteAnalytics[] =>
+  [
+    { domain: "kajconsulting.example", base: 170, clicks: 22, seed: 1 },
+    { domain: "portal.kajconsulting.example", base: 40, clicks: 0, seed: 2 },
+    { domain: "shop.example", base: 860, clicks: 140, seed: 3 },
+    { domain: "book.example", base: 120, clicks: 18, seed: 4 },
+  ].map(({ domain, base, clicks, seed }) => {
+    const sessions = series(base, seed);
+    const users = sessions.map((p) => ({ ...p, value: Math.round(p.value * 0.78) }));
+    const clickSeries = series(clicks, seed + 5);
+    return {
+      domain,
+      property: `properties/demo-${seed}`,
+      traffic: {
+        sessions,
+        users,
+        totals: { sessions: total(sessions), users: Math.round(total(users) * 0.7), newUsers: Math.round(total(users) * 0.45), keyEvents: Math.round(total(sessions) * 0.03) },
+        topPages: [{ path: "/", views: Math.round(total(sessions) * 0.5) }, { path: "/services", views: Math.round(total(sessions) * 0.2) }, { path: "/contact", views: Math.round(total(sessions) * 0.08) }],
+      },
+      search: clicks
+        ? { siteUrl: `sc-domain:${domain}`, clicks: clickSeries, totals: { clicks: total(clickSeries), impressions: total(clickSeries) * 24, ctr: 1 / 24, position: 14.2 }, topQueries: [{ query: domain.split(".")[0].replace(/-/g, " "), clicks: Math.round(total(clickSeries) * 0.4), impressions: total(clickSeries) * 3, position: 1.4 }, { query: "small business consulting", clicks: Math.round(total(clickSeries) * 0.1), impressions: total(clickSeries) * 9, position: 18.6 }] }
+        : null,
+    };
+  });
+
+const at = (dayOffset: number, hour: number, minute = 0) => {
+  const d = new Date();
+  d.setDate(d.getDate() + dayOffset);
+  d.setHours(hour, minute, 0, 0);
+  return d.toISOString();
+};
+
+export const demoCalendar = (): CalendarEvent[] => [
+  { id: "c1", title: "ClientCo: scope review", start: at(0, 10), end: at(0, 11), allDay: false, calendar: "Kaj Consulting", provider: "google", location: null, meetingUrl: "https://meet.google.com", url: null },
+  { id: "c2", title: "Accountant: quarterly taxes", start: at(0, 15, 30), end: at(0, 16), allDay: false, calendar: "Kaj Consulting", provider: "google", location: "Office", meetingUrl: null, url: null },
+  { id: "c3", title: "Northwind discovery call", start: at(1, 9), end: at(1, 9, 45), allDay: false, calendar: "Kaj Consulting", provider: "microsoft", location: null, meetingUrl: "https://teams.microsoft.com", url: null },
+  { id: "c4", title: "Shop photo shoot", start: day(3), end: day(4), allDay: true, calendar: "Kaj Store", provider: "google", location: null, meetingUrl: null, url: null },
+];
+
+export const demoReviews = (): PlaceReviews[] => [
+  {
+    placeId: "demo-consulting", business: "Kaj Consulting", name: "Kaj Consulting", rating: 4.8, reviewCount: 37, url: null,
+    reviews: [
+      { id: "r1", rating: 5, text: "Clear advice and fast turnaround on our new site.", author: "Ama M.", publishedAt: ago(60 * 24 * 3), relative: "3 days ago" },
+      { id: "r2", rating: 2, text: "Good work but the project ran two weeks late and nobody told us.", author: "J. Ouedraogo", publishedAt: ago(60 * 24 * 6), relative: "6 days ago" },
+    ],
+  },
+  {
+    placeId: "demo-store", business: "Kaj Store", name: "Kaj Store", rating: 4.4, reviewCount: 212, url: null,
+    reviews: [{ id: "r3", rating: 4, text: "Nice products, delivery could be faster.", author: "Sam K.", publishedAt: ago(60 * 24 * 12), relative: "2 weeks ago" }],
+  },
 ];

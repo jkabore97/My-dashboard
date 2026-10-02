@@ -59,15 +59,15 @@ A working Next.js app, deployable to Vercel, protected by a password.
 - **Security center**: Dependabot alerts, GitHub secret scanning, Supabase RLS gaps, 2FA status on each platform.
 - **Compliance calendar**: tax deadlines, annual filings, license and insurance renewals, all as dated tasks.
 
-### Phase 3: Growth & clients (≈ 2–3 weeks)
+### Phase 3: Growth & clients ✅ shipped
 *The good news, not just the problems.*
 
-- **Analytics**: Google Analytics / Vercel Analytics visitors, top pages and conversions per site. Search Console for SEO.
-- **Users per site**: sign-up trends over time, active users, churn, with charts from stored snapshots.
-- **Clients & pipeline**: leads, proposals sent, contracts, next steps. Starts as a simple table and can link to a CRM (HubSpot, Pipedrive) later.
-- **Calendar**: today's meetings from Google or Outlook next to the to-dos.
-- **Reputation**: Google Business Profile reviews and LinkedIn page activity in the notification feed.
-- **Microsoft 365 / Outlook** inbox next to Gmail.
+- **Analytics**: Google Analytics 4 visitors, top pages and key events per site, matched to your websites automatically. Search Console clicks, impressions and top searches. A traffic drop of 40% or more week on week becomes a task.
+- **Users per site**: registered-user trend over 30 days from the stored snapshots.
+- **Clients & pipeline**: a built-in pipeline of clients and deals with values, stages, next steps and expected close dates. Follow-ups that come due land on the to-do list. *Not built:* a sync with an outside CRM (HubSpot, Pipedrive); say if you use one.
+- **Calendar**: the next 7 days from Google Calendar and Outlook, with today's meetings on the Overview.
+- **Reputation**: Google rating and recent reviews per business, through the Places API. A review of 3★ or less becomes a task to reply. *Not possible yet:* LinkedIn page activity, because LinkedIn only gives its page API to approved partners.
+- **Microsoft 365 / Outlook**: inbox and calendar next to Gmail.
 
 ### Phase 4: Intelligence & action (ongoing)
 *The dashboard starts working for you.*
