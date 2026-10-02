@@ -1,4 +1,5 @@
 import { cache } from "react";
+import { after } from "next/server";
 import { getCloudflareD1, getCloudflareWorkers } from "./connectors/cloudflare";
 import { getEmails } from "./connectors/gmail";
 import { getGithubNotifications, getRepos } from "./connectors/github";
@@ -36,10 +37,11 @@ export type Scope = "connector" | "github" | "vercel" | "workers" | "supabase" |
  */
 export type DerivedTask = Task & { live: boolean; scope: Scope; alias?: string };
 
-/** Fetches every source once per request. Pure reads: no database writes. */
-export const collect = cache(async () => {
-  const { businessRules, sites, domains: watchedDomains } = await getConfig();
-  const [repos, ghNotes, vercel, workers, supabase, d1, gmail, stripe, records, domains, outlook, calendar, analytics, reviews, cameras, solarAll] = await Promise.all([
+type Config = Awaited<ReturnType<typeof getConfig>>;
+
+/** Everything that comes from other platforms (APIs, uptime probes, recorders). */
+async function fetchExternal({ businessRules, sites }: Config) {
+  const [repos, ghNotes, vercel, workers, supabase, d1, gmail, stripe, outlook, calendar, analytics, reviews, cameras] = await Promise.all([
     getRepos(businessRules),
     getGithubNotifications(),
     getVercelProjects(businessRules),
@@ -48,24 +50,76 @@ export const collect = cache(async () => {
     getCloudflareD1(businessRules),
     getEmails(),
     getStripe(),
-    getRecords(),
-    getDomains(watchedDomains),
     getOutlook(),
     getCalendar(),
     getAnalytics(sites.map((x) => x.domain)),
     getReviews(),
     getCameras(),
-    getSolar(),
   ]);
+  const hosting = mergeSources([vercel, workers]).data;
+  const [security, websiteResult] = await Promise.all([getSecurity(repos.data, repos.mode === "live"), getWebsites(sites, hosting)]);
+  return { repos, ghNotes, vercel, workers, supabase, d1, gmail, stripe, outlook, calendar, analytics, reviews, cameras, security, websiteResult };
+}
+
+// Other platforms are slow (uptime probes wait up to 5 s, mail and calendars
+// take a second or more), so their results are kept for a minute per server
+// instance. Older results are still shown at once while a fresh fetch runs in
+// the background; after 10 minutes they're refetched before rendering.
+const EXTERNAL_FRESH_MS = 60_000;
+const EXTERNAL_STALE_MS = 10 * 60_000;
+let external: { key: string; at: number; value: Promise<Awaited<ReturnType<typeof fetchExternal>>>; refreshing: boolean } | null = null;
+
+/** Next request refetches every platform (after connecting or disconnecting one, and in cron). */
+export function invalidateExternal() {
+  external = null;
+}
+
+function externalData(config: Config) {
+  const key = JSON.stringify([config.businessRules, config.sites]);
+  const age = external ? Date.now() - external.at : Infinity;
+  if (!external || external.key !== key || age > EXTERNAL_STALE_MS) {
+    const value = fetchExternal(config);
+    const entry = { key, at: Date.now(), value, refreshing: false };
+    external = entry;
+    value.catch(() => {
+      if (external === entry) external = null;
+    });
+    return value;
+  }
+  if (age > EXTERNAL_FRESH_MS && !external.refreshing) {
+    const current = external;
+    current.refreshing = true;
+    const refresh = async () => {
+      try {
+        const value = await fetchExternal(config);
+        if (external === current) external = { key, at: Date.now(), value: Promise.resolve(value), refreshing: false };
+      } catch {
+        current.refreshing = false;
+      }
+    };
+    try {
+      after(refresh);
+    } catch {
+      void refresh();
+    }
+  }
+  return external.value;
+}
+
+/** Fetches every source once per request. Pure reads: no database writes. */
+export const collect = cache(async () => {
+  const config = await getConfig();
+  const { sites, domains: watchedDomains } = config;
+  // Your own records come straight from the database, so edits show at once.
+  const [ext, records, domains, solarAll] = await Promise.all([externalData(config), getRecords(), getDomains(watchedDomains), getSolar()]);
+  const { repos, ghNotes, vercel, workers, supabase, d1, gmail, stripe, outlook, calendar, analytics, reviews, cameras, security, websiteResult } = ext;
   const solar = solarAll.result;
   // Gmail and Outlook share one inbox; each message keeps its mailbox id.
   const merged = mergeSources([gmail, outlook]);
   // Claude's triage (when enabled) replaces the keyword severity for messages it has read.
   const emails = { ...merged, data: merged.mode === "live" ? await withTriage(merged.data) : merged.data };
   emails.data.sort((a, b) => b.receivedAt.localeCompare(a.receivedAt));
-  const security = await getSecurity(repos.data, repos.mode === "live");
   const hosting = mergeSources([vercel, workers]).data;
-  const websiteResult = await getWebsites(sites, hosting);
   // Visitors (7 days) come from Google Analytics when a property matched the site.
   const websites = {
     ...websiteResult,

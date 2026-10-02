@@ -8,6 +8,8 @@ import { canSeeTask } from "../access";
 import { listEvents } from "./store/events";
 import { listTasks, sortTasks, type StoredTask, type TaskStatus } from "./store/tasks";
 import { persist } from "./sync";
+import { lastRun } from "./store/settings";
+import { after } from "next/server";
 import { fixForTask } from "../fix-match";
 
 export interface TaskView extends Task {
@@ -43,10 +45,20 @@ export const getDashboard = cache(async () => {
   // flows they would just be noise in the real to-do list.
   const demoTasks = c.allDemo ? c.derivedTasks.filter((t) => !t.live).map(fromDerived) : [];
   try {
-    await persist(c);
-    const stored = await listTasks("open");
+    // Saving what this load saw is throttled to once a minute and done after
+    // the page is sent, unless an edit just asked for a sync (or there has
+    // never been one): then it runs first, so the change shows on this load.
+    if ((await lastRun("job:sync")) === null) await persist(c);
+    else {
+      const save = () => persist(c).catch((err) => console.error(`[sync] ${err instanceof Error ? err.message : err}`));
+      try {
+        after(save);
+      } catch {
+        void save();
+      }
+    }
+    const [stored, events] = await Promise.all([listTasks("open"), listEvents(200)]);
     openTasks = sortTasks([...stored.map(fromStored), ...demoTasks]);
-    const events = await listEvents(200);
     const seen = new Set(events.map((e) => e.title + e.at));
     // Same for sample notifications: never mixed into real history.
     const samples = c.allDemo ? c.notifications.filter((n) => !n.live && !seen.has(n.title + n.at)) : [];

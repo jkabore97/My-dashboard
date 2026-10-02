@@ -10,7 +10,7 @@ export async function probe(domain: string): Promise<Pick<Website, "status" | "r
     const res = await fetch(`https://${domain}`, {
       method: "GET",
       redirect: "follow",
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(5000),
       cache: "no-store",
       headers: { "User-Agent": "KajCommandCenter-Uptime/1.0" },
     });

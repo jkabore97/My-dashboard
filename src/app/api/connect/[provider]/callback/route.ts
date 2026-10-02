@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { invalidateExternal } from "@/lib/aggregate";
 import { revalidatePath } from "next/cache";
 import { currentUser } from "@/lib/server/auth";
 import { isFullOwner } from "@/lib/access";
@@ -71,6 +72,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ provider: strin
     }
     await auditConnection(user.email, provider, account, "oauth", replaced);
     revalidatePath("/", "layout");
+    invalidateExternal();
     return back(`connected=${encodeURIComponent(PROVIDER_NAMES[provider])}`);
   } catch (err) {
     return back(`error=${encodeURIComponent(err instanceof Error ? err.message : "Connection failed")}`);
