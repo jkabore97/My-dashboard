@@ -1,22 +1,137 @@
 @import "tailwindcss";
 
+/* Iron HUD theme. Red and orange are reserved for problems; every other color
+   is identity (a section, a business, a series). */
 @theme {
-  --color-bg: #0b0d12;
-  --color-panel: #12151c;
-  --color-panel-2: #181c25;
-  --color-line: #232836;
-  --color-ink: #e7e9ee;
-  --color-muted: #8a91a3;
-  --color-accent: #6ea8ff;
-  --color-critical: #ff5d5d;
-  --color-high: #ff9f43;
-  --color-medium: #f5d547;
-  --color-low: #7c8597;
-  --color-ok: #3ddc97;
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --color-bg: #060714;
+  --color-panel: #0b1626;
+  --color-panel-2: #11213a;
+  --color-line: #17304a;
+  --color-ink: #ddebf5;
+  --color-muted: #7f97ab;
+  --color-accent: #3fd0ff;
+  --color-critical: #ff3d6e;
+  --color-high: #ff9f1c;
+  --color-medium: #3fd0ff;
+  --color-low: #8fa6b8;
+  --color-ok: #3df5a0;
+  --color-cyan: #3fd0ff;
+  --color-teal: #2ef2d0;
+  --color-violet: #a98bff;
+  --color-pink: #ff5fd7;
+  --color-lime: #c6f432;
+  --color-emerald: #3df5a0;
+  --color-gold: #ffd84d;
+  --font-sans: "Exo 2", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Oxanium", "Exo 2", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 html, body {
   background: var(--color-bg);
   color: var(--color-ink);
 }
+
+body {
+  background-image:
+    radial-gradient(ellipse 45% 40% at 18% 20%, rgb(63 208 255 / 0.16), transparent 70%),
+    radial-gradient(ellipse 40% 35% at 85% 15%, rgb(255 95 215 / 0.12), transparent 70%),
+    radial-gradient(ellipse 45% 40% at 70% 85%, rgb(169 139 255 / 0.12), transparent 70%),
+    radial-gradient(ellipse 40% 35% at 10% 90%, rgb(61 245 160 / 0.08), transparent 70%),
+    linear-gradient(rgb(63 208 255 / 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(63 208 255 / 0.05) 1px, transparent 1px);
+  background-size: auto, auto, auto, auto, 44px 44px, 44px 44px;
+  background-attachment: fixed;
+}
+
+@media print {
+  body { background: #fff; color: #000; }
+}
+
+/* Panel: cut corners, accent brackets and a tinted header. Set --a for the accent. */
+.hud-panel {
+  --a: var(--ga, var(--color-cyan));
+  position: relative;
+  min-width: 0;
+  background: rgb(10 22 38 / 0.72);
+  border: 1px solid color-mix(in srgb, var(--a) 22%, transparent);
+  clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+  backdrop-filter: blur(6px);
+}
+.hud-panel::before, .hud-panel::after {
+  content: "";
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border: 0 solid var(--a);
+  filter: drop-shadow(0 0 4px var(--a));
+  pointer-events: none;
+}
+.hud-panel::before { top: 6px; right: 6px; border-top-width: 1.5px; border-right-width: 1.5px; }
+.hud-panel::after { bottom: 6px; left: 6px; border-bottom-width: 1.5px; border-left-width: 1.5px; }
+.hud-head {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--a) 14%, transparent), transparent 60%);
+  border-bottom: 1px solid color-mix(in srgb, var(--a) 30%, transparent);
+}
+.hud-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--a, var(--color-cyan));
+  text-shadow: 0 0 10px color-mix(in srgb, var(--a, var(--color-cyan)) 55%, transparent);
+}
+.hud-label {
+  font-family: var(--font-display);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+}
+/* Big numbers with a gradient: set --c1 / --c2. */
+.hud-num {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  background: linear-gradient(90deg, var(--c1, #eaf7ff), var(--c2, var(--c1, #eaf7ff)));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--c1, #3fd0ff) 35%, transparent));
+}
+.hud-cut { clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px); }
+.hud-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  padding: 7px 13px;
+  border: 1px solid color-mix(in srgb, var(--b, var(--color-cyan)) 50%, transparent);
+  color: color-mix(in srgb, var(--b, var(--color-cyan)) 35%, #ffffff);
+  background: color-mix(in srgb, var(--b, var(--color-cyan)) 8%, transparent);
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+  transition: background 0.15s, box-shadow 0.15s;
+  cursor: pointer;
+}
+.hud-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--b, var(--color-cyan)) 18%, transparent); }
+.hud-btn:disabled { opacity: 0.5; cursor: default; }
+.hud-btn-solid {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--b, var(--color-cyan)) 35%, transparent), color-mix(in srgb, var(--b, var(--color-cyan)) 14%, transparent));
+  border-color: var(--b, var(--color-cyan));
+  box-shadow: 0 0 14px color-mix(in srgb, var(--b, var(--color-cyan)) 35%, transparent);
+}
+.hud-input {
+  background: rgb(63 208 255 / 0.04);
+  border: 1px solid var(--color-line);
+  color: var(--color-ink);
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+}
+.hud-input:focus { outline: none; border-color: var(--color-cyan); box-shadow: inset 0 0 0 1px var(--color-cyan); }
+.hud-glow { filter: drop-shadow(0 0 6px currentColor); }
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }

@@ -55,7 +55,7 @@ export const isFullOwner = (a: Access) => a.role === "owner" && a.businesses ===
 /** The page a path belongs to, for the sidebar. */
 export const PATH_SECTION: Record<string, Section> = {
   "/": "overview", "/tasks": "tasks", "/ask": "ask", "/inbox": "inbox", "/notifications": "notifications", "/agenda": "agenda",
-  "/money": "money", "/clients": "clients", "/deadlines": "deadlines", "/analytics": "analytics", "/websites": "websites",
+  "/money": "money", "/spend": "money", "/clients": "clients", "/deadlines": "deadlines", "/analytics": "analytics", "/websites": "websites",
   "/domains": "domains", "/security": "security", "/repos": "repos", "/hosting": "hosting", "/databases": "databases",
   "/cameras": "cameras", "/solar": "solar", "/reports": "reports", "/platforms": "platforms", "/team": "team", "/settings": "settings",
 };

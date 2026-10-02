@@ -11,6 +11,7 @@ import { persist } from "./sync";
 import { lastRun } from "./store/settings";
 import { after } from "next/server";
 import { fixForTask } from "../fix-match";
+import { businessFilter } from "./view";
 
 export interface TaskView extends Task {
   status: TaskStatus;
@@ -70,8 +71,13 @@ export const getDashboard = cache(async () => {
   }
   // Everyone but a full owner gets a copy cut down to their role and businesses.
   const { sites } = await getConfig();
-  const scoped = scopeFor({ ...c, openTasks, notifications, dbError }, user, user.email, { businessForDomain: (d) => businessForDomain(d, sites) });
-  return { ...scoped, user };
+  const ctx = { businessForDomain: (d: string) => businessForDomain(d, sites) };
+  const scoped = scopeFor({ ...c, openTasks, notifications, dbError }, user, user.email, ctx);
+  // The business filter narrows the view further, within what this person may see.
+  const focus = await businessFilter();
+  const visible = focus && (user.businesses === null || user.businesses.includes(focus)) ? focus : null;
+  const view = visible ? scopeFor(scoped, { ...user, businesses: [visible] }, user.email, ctx) : scoped;
+  return { ...view, user, business: visible };
 });
 
 export type Dashboard = Awaited<ReturnType<typeof getDashboard>>;

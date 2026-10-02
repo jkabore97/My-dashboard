@@ -1,5 +1,6 @@
 import { connection } from "next/server";
-import { Sidebar } from "@/components/Sidebar";
+import { Shell } from "@/components/shell/Shell";
+import { knownBusinesses } from "@/lib/server/reports";
 import { AutoRefresh } from "@/components/AutoRefresh";
 import { clockZones } from "@/lib/server/clocks";
 import { requireUser } from "@/lib/server/auth";
@@ -21,37 +22,37 @@ export default async function DashLayout({ children }: { children: React.ReactNo
   const allowed = Object.keys(PATH_SECTION).filter((p) => canSee(user, PATH_SECTION[p]));
   const errors = !owner ? [] : d.sources.flatMap((s) => (s.mode === "error" ? [`${s.source} (${s.error})`] : (s.partial ?? []).map((p) => `${s.source} (${p.error})`)));
 
+  const all = await knownBusinesses().catch(() => [] as string[]);
+  const businesses = user.businesses === null ? all : all.filter((b) => user.businesses!.includes(b));
+
   return (
-    <div className="lg:flex">
-      <Sidebar counts={counts} email={user.email} name={user.name} role={user.envOwner ? null : ROLE_LABEL[user.role]} allowed={allowed} clocks={clockZones()} />
-      <main className="min-w-0 flex-1 px-4 py-6 sm:px-8">
+    <Shell counts={counts} email={user.email} name={user.name} role={user.envOwner ? null : ROLE_LABEL[user.role]} allowed={allowed} clocks={clockZones()} businesses={businesses} business={d.business} externalAt={d.externalAt}>
         {d.dbError && (
-          <div className="mb-6 rounded-lg border border-critical/40 bg-critical/10 px-4 py-3 text-sm">
+          <div className="hud-cut mb-5 border border-critical/40 bg-critical/10 px-4 py-3 text-sm">
             <strong className="text-critical">Database unavailable.</strong>{" "}
             <span className="text-muted">Tasks are read-only and history is paused. ({d.dbError})</span>
           </div>
         )}
         {owner && d.allDemo && (
-          <div className="mb-6 rounded-lg border border-accent/30 bg-accent/10 px-4 py-3 text-sm">
+          <div className="hud-cut mb-5 border border-accent/30 bg-accent/10 px-4 py-3 text-sm">
             <strong className="text-accent">{samplesEnabled() ? "Demo data." : "Nothing connected yet."}</strong>{" "}
             <span className="text-muted">{samplesEnabled() ? "Nothing is connected yet. " : ""}Connect platforms on the <a href="/platforms" className="text-accent hover:underline">Platforms</a> page and each section fills in with your data on its own.</span>
           </div>
         )}
         {d.undecryptableConnections > 0 && (
-          <div className="mb-6 rounded-lg border border-critical/40 bg-critical/10 px-4 py-3 text-sm">
+          <div className="hud-cut mb-5 border border-critical/40 bg-critical/10 px-4 py-3 text-sm">
             <strong className="text-critical">Stored connections can&apos;t be decrypted.</strong>{" "}
             <span className="text-muted">{d.undecryptableConnections} connection{d.undecryptableConnections === 1 ? "" : "s"} no longer decrypt{d.undecryptableConnections === 1 ? "s" : ""}. Did ENCRYPTION_KEY change? Restore the old key, or reconnect or disconnect them on the <a href="/platforms" className="text-accent hover:underline">Platforms</a> page. Their tasks are left as they are until then.</span>
           </div>
         )}
         {errors.length > 0 && (
-          <div className="mb-6 rounded-lg border border-critical/40 bg-critical/10 px-4 py-3 text-sm">
+          <div className="hud-cut mb-5 border border-critical/40 bg-critical/10 px-4 py-3 text-sm">
             <strong className="text-critical">Connector errors:</strong>{" "}
             <span className="break-words text-muted">{errors.join(" · ")}</span>
           </div>
         )}
         {children}
         <AutoRefresh at={d.externalAt} />
-      </main>
-    </div>
+    </Shell>
   );
 }

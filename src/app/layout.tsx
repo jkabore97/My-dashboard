@@ -1,4 +1,12 @@
 import type { Metadata, Viewport } from "next";
+import "@fontsource/exo-2/400.css";
+import "@fontsource/exo-2/500.css";
+import "@fontsource/exo-2/600.css";
+import "@fontsource/oxanium/500.css";
+import "@fontsource/oxanium/600.css";
+import "@fontsource/oxanium/700.css";
+import "@fontsource/jetbrains-mono/400.css";
+import "@fontsource/jetbrains-mono/500.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -10,7 +18,7 @@ export const metadata: Metadata = {
   appleWebApp: { capable: true, title: "Command Center", statusBarStyle: "black-translucent" },
 };
 
-export const viewport: Viewport = { themeColor: "#0b1220" };
+export const viewport: Viewport = { themeColor: "#060714" };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
