@@ -425,3 +425,14 @@ describe("sample data", () => {
     expect(emptyLike({ alerts: [1], github2fa: true, githubLogin: "kaj", nested: { list: [1], n: 2 } })).toEqual({ alerts: [], github2fa: null, githubLogin: null, nested: { list: [], n: null } });
   });
 });
+
+import { onSharedHost } from "@/lib/server/config";
+
+describe("shared hosting addresses", () => {
+  it("skips domain checks for platform subdomains only", () => {
+    expect(onSharedHost("kajshipping.vercel.app")).toBe(true);
+    expect(onSharedHost("elim.kaj.workers.dev")).toBe(true);
+    expect(onSharedHost("kaj-consulting.com")).toBe(false);
+    expect(onSharedHost("notvercel.app")).toBe(false);
+  });
+});

@@ -62,7 +62,7 @@ export const getConfig = cache(async () => {
     sites: resolvedSites,
     extraDomains: extras,
     /** Every host to watch for registration, certificate and email health. */
-    domains: [...new Set([...resolvedSites.map((s) => s.domain), ...extras])],
+    domains: [...new Set([...resolvedSites.map((s) => s.domain), ...extras])].filter((d) => !onSharedHost(d)),
     dkimSelectors: dkimSelectors ?? DEFAULT_DKIM_SELECTORS,
   };
 });
@@ -72,6 +72,13 @@ export function parseDomainList(text: string): string[] {
 }
 
 /** Which business a domain belongs to, from the websites list. */
+/**
+ * Free addresses on a hosting platform (my-site.vercel.app): their registration,
+ * certificate and email belong to the platform, so only uptime is watched.
+ */
+const SHARED_HOSTS = ["vercel.app", "workers.dev", "pages.dev", "netlify.app", "github.io", "onrender.com", "fly.dev", "herokuapp.com", "web.app", "firebaseapp.com", "supabase.co", "railway.app"];
+export const onSharedHost = (domain: string) => SHARED_HOSTS.some((h) => domain === h || domain.endsWith(`.${h}`));
+
 export function businessForDomain(domain: string, sites: SiteConfig[]): string | undefined {
   return sites.find((s) => s.domain === domain || domain.endsWith(`.${s.domain}`) || s.domain.endsWith(`.${domain}`))?.business;
 }
