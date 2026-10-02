@@ -72,6 +72,28 @@ export const gmailAccounts = cache(async (): Promise<GmailAccount[]> => {
   return out;
 });
 
+export interface StripeAccount {
+  /** Stable id: the Stripe account (or key fingerprint), or env:<business>. */
+  id: string;
+  business: string;
+  key: string;
+}
+
+// STRIPE_SECRET_KEYS="Kaj Consulting:rk_live_…,Kaj Store:rk_live_…"
+export const stripeAccounts = cache(async (): Promise<StripeAccount[]> => {
+  const out: StripeAccount[] = [];
+  for (const c of (await loadConnections()).list) {
+    if (c.provider === "stripe") out.push({ id: c.account, business: c.business || c.label || c.account, key: c.secret.token });
+  }
+  for (const pair of (env("STRIPE_SECRET_KEYS") ?? "").split(",")) {
+    const i = pair.lastIndexOf(":");
+    const business = pair.slice(0, i).trim();
+    const key = pair.slice(i + 1).trim();
+    if (business && key && i > 0) out.push({ id: `env:${business}`, business, key });
+  }
+  return out;
+});
+
 export const googleClient = () => {
   const id = env("GOOGLE_CLIENT_ID");
   const secret = env("GOOGLE_CLIENT_SECRET");

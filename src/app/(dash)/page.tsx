@@ -3,6 +3,9 @@ import { ArrowUpRight } from "lucide-react";
 import { getDashboard } from "@/lib/server/dashboard";
 import { Card, Empty, ModePill, PageHeader, SeverityBadge, Stat, StatusDot, timeAgo } from "@/components/ui";
 import { TaskRow } from "@/components/TaskRow";
+import { today } from "@/lib/dates";
+import { formatTotals } from "@/lib/money";
+import { moneyByBusiness, moneyOverview } from "@/lib/money-summary";
 
 export default async function Overview() {
   const s = await getDashboard();
@@ -14,7 +17,10 @@ export default async function Overview() {
   const users = s.websites.reduce((n, w) => n + (w.totalUsers ?? 0), 0);
   const newUsers = s.websites.reduce((n, w) => n + (w.newUsers7d ?? 0), 0);
 
-  const businesses = [...new Set([...s.repos, ...s.hosting, ...s.databases, ...s.websites, ...s.openTasks].map((x) => x.business ?? "Unassigned"))].sort();
+  const now = today();
+  const money = moneyOverview(s.stripe, s.records, now);
+  const byBusiness = moneyByBusiness(s.stripe, s.records, now);
+  const businesses = [...new Set([...[...s.repos, ...s.hosting, ...s.databases, ...s.websites, ...s.openTasks].map((x) => x.business ?? "Unassigned"), ...byBusiness.keys()])].sort();
 
   return (
     <>
@@ -28,6 +34,13 @@ export default async function Overview() {
         <Stat label="Sites up" value={`${sitesUp}/${s.websites.length}`} tone={sitesUp === s.websites.length ? "ok" : "high"} />
         <Stat label="Users" value={users.toLocaleString()} hint={`+${newUsers} this week`} />
       </div>
+
+      <Link href="/money" className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Stat label="Revenue (30d)" value={formatTotals(money.gross30d.slice(0, 1), { compact: true })} hint={s.modes.stripe === "live" ? "all Stripe accounts" : "sample data"} />
+        <Stat label="MRR" value={formatTotals(money.mrr.slice(0, 1), { compact: true })} />
+        <Stat label="Overdue invoices" value={money.overdueCount} tone={money.overdueCount ? "high" : "ok"} hint={money.overdueCount ? formatTotals(money.overdue, { compact: true }) : "all paid on time"} />
+        <Stat label="Monthly spend" value={formatTotals(money.monthlySpend.slice(0, 1), { compact: true })} hint={`${money.spend.length} subscriptions`} />
+      </Link>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-5">
         <Card className="xl:col-span-3" title="What needs you" action={<Link href="/tasks" className="text-xs text-accent hover:underline">All {s.openTasks.length} →</Link>}>
@@ -65,6 +78,12 @@ export default async function Overview() {
                 <div><dt>DBs</dt><dd className="text-lg font-semibold text-ink">{s.databases.filter(is).length}</dd></div>
                 <div><dt>Open</dt><dd className={`text-lg font-semibold ${t.some((x) => x.severity === "critical") ? "text-critical" : "text-ink"}`}>{t.length}</dd></div>
               </dl>
+              {byBusiness.get(b) && (
+                <div className="mt-3 flex justify-between border-t border-line pt-3 text-xs text-muted">
+                  <span>Revenue 30d <span className="text-ink tabular-nums">{formatTotals(byBusiness.get(b)!.revenue, { compact: true })}</span></span>
+                  <span>Spend <span className="text-ink tabular-nums">{formatTotals(byBusiness.get(b)!.spend, { compact: true })}</span>/mo</span>
+                </div>
+              )}
               {sites.length > 0 && (
                 <ul className="mt-4 space-y-1.5 border-t border-line pt-3 text-sm">
                   {sites.map((w) => (

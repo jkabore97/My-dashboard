@@ -9,6 +9,7 @@ import { claimInterval } from "@/lib/server/store/settings";
 import { deleteConnection, listConnections, readConnections, saveConnection } from "@/lib/server/store/connections";
 import { consumeRecoveryCode, ensureUser, markTotpStep, setRecoveryCodes } from "@/lib/server/store/users";
 import type { Task } from "@/lib/types";
+import { addInvoice, completeDeadline, listDeadlines, listInvoices, listSubscriptions, saveDeadline, saveSubscription, setInvoiceStatus } from "@/lib/server/store/ledger";
 import { persist } from "@/lib/server/sync";
 import { undecryptableGuards, type Collected } from "@/lib/aggregate";
 
@@ -24,7 +25,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   const db = await getDb();
-  await db.exec("truncate tasks, events, settings, connections, users, rate_limits, audit_log, snapshots");
+  await db.exec("truncate tasks, events, settings, connections, users, rate_limits, audit_log, snapshots, invoices, subscriptions, deadlines");
 });
 
 describe("derived task reconciliation", () => {
@@ -267,5 +268,47 @@ describe("migrations", () => {
     } finally {
       await admin.exec(`drop database if exists ${name} with (force)`);
     }
+  });
+});
+
+describe("money and deadlines records", () => {
+  it("round-trips dates and large amounts exactly on every driver", async () => {
+    await addInvoice({ business: "Kaj", client: "ClientCo", number: "K-1", amountMinor: 9_007_199_254_740, currency: "xof", issuedOn: "2026-09-01", dueOn: "2026-09-30", notes: null });
+    const [inv] = await listInvoices({ status: "open" });
+    expect(inv).toMatchObject({ amountMinor: 9_007_199_254_740, dueOn: "2026-09-30", issuedOn: "2026-09-01", status: "open", paidOn: null });
+    await setInvoiceStatus(inv.id, "paid", "2026-10-02");
+    expect(await listInvoices({ status: "open" })).toHaveLength(0);
+    expect((await listInvoices({ paidSince: "2026-07-01" }))[0]).toMatchObject({ status: "paid", paidOn: "2026-10-02" });
+    expect(await listInvoices({ paidSince: "2026-10-03" })).toHaveLength(0);
+  });
+
+  it("saves and edits subscriptions", async () => {
+    const s = await saveSubscription({ business: null, vendor: "Vercel", plan: "Pro", amountMinor: 2000, currency: "usd", interval: "month", nextRenewal: "2026-10-05", autoRenew: true, url: null, notes: null });
+    await saveSubscription({ id: s!.id, business: "Kaj", vendor: "Vercel", plan: "Pro", amountMinor: 4000, currency: "usd", interval: "month", nextRenewal: "2026-10-05", autoRenew: false, url: null, notes: null });
+    const [after] = await listSubscriptions();
+    expect(after).toMatchObject({ business: "Kaj", amountMinor: 4000, autoRenew: false, nextRenewal: "2026-10-05", active: true });
+    expect(await saveSubscription({ id: "00000000-0000-0000-0000-000000000000", business: null, vendor: "x", plan: null, amountMinor: 1, currency: "usd", interval: "month", nextRenewal: null, autoRenew: true, url: null, notes: null })).toBeNull();
+  });
+
+  it("rolls recurring deadlines forward once, even on a double click", async () => {
+    const q = await saveDeadline({ business: null, title: "Estimated tax", category: "tax", dueOn: "2026-10-15", recurrence: "quarterly", remindDays: 14, notes: null, url: null });
+    const once = await saveDeadline({ business: null, title: "Annual report", category: "filing", dueOn: "2026-10-20", recurrence: "none", remindDays: 14, notes: null, url: null });
+    expect((await completeDeadline(q!.id, "2026-10-02", "2026-10-15"))?.next).toBe("2027-01-15");
+    expect(await completeDeadline(q!.id, "2026-10-02", "2026-10-15")).toBeNull(); // stale second click
+    await completeDeadline(once!.id, "2026-10-02");
+    const all = await listDeadlines(true);
+    expect(all.find((d) => d.id === q!.id)).toMatchObject({ dueOn: "2027-01-15", completedOn: null });
+    expect(all.find((d) => d.id === once!.id)).toMatchObject({ completedOn: "2026-10-02" });
+    expect((await listDeadlines()).map((d) => d.title)).toEqual(["Estimated tax"]);
+  });
+});
+
+describe("webhook and polling duplicates", () => {
+  it("drops a polled task when the webhook already reported the same problem", async () => {
+    await upsertEventTask("stripe-dispute:dp_1", { title: "webhook dispute", severity: "critical", source: "Stripe", createdAt: new Date().toISOString() });
+    const polled = (id: string, alias: string) => ({ ...t(id), live: true, scope: "stripe", alias });
+    const c = { modes: { stripe: "live" }, derivedTasks: [polled("stripe/acct/dispute:dp_1", "stripe-dispute:dp_1"), polled("stripe/acct/dispute:dp_2", "stripe-dispute:dp_2")], notifications: [], websites: [], unobserved: [], skipScopes: [], credentialsKnown: true } as unknown as Collected;
+    await persist(c, { force: true });
+    expect((await listTasks("open")).map((x) => x.title).sort()).toEqual(["stripe/acct/dispute:dp_2", "webhook dispute"]);
   });
 });

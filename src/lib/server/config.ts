@@ -1,5 +1,6 @@
 import { cache } from "react";
 import { env } from "../source";
+import { DEFAULT_DKIM_SELECTORS } from "./domains";
 import { getSetting } from "./store/settings";
 
 export interface BusinessRule {
@@ -42,17 +43,38 @@ export const formatSites = (sites: SiteConfig[]) =>
 export const getConfig = cache(async () => {
   let rules: BusinessRule[] | null = null;
   let sites: SiteConfig[] | null = null;
+  let extraDomains: string[] | null = null;
+  let dkimSelectors: string[] | null = null;
   try {
-    rules = await getSetting<BusinessRule[] | null>("business_rules", null);
-    sites = await getSetting<SiteConfig[] | null>("websites", null);
+    [rules, sites, extraDomains, dkimSelectors] = await Promise.all([
+      getSetting<BusinessRule[] | null>("business_rules", null),
+      getSetting<SiteConfig[] | null>("websites", null),
+      getSetting<string[] | null>("domains_extra", null),
+      getSetting<string[] | null>("dkim_selectors", null),
+    ]);
   } catch {
     /* database unavailable: env only */
   }
+  const resolvedSites = sites ?? parseSites(env("WEBSITES") ?? "");
+  const extras = extraDomains ?? parseDomainList(env("EXTRA_DOMAINS") ?? "");
   return {
     businessRules: rules ?? parseBusinessRules(env("BUSINESS_MAP") ?? ""),
-    sites: sites ?? parseSites(env("WEBSITES") ?? ""),
+    sites: resolvedSites,
+    extraDomains: extras,
+    /** Every host to watch for registration, certificate and email health. */
+    domains: [...new Set([...resolvedSites.map((s) => s.domain), ...extras])],
+    dkimSelectors: dkimSelectors ?? DEFAULT_DKIM_SELECTORS,
   };
 });
+
+export function parseDomainList(text: string): string[] {
+  return [...new Set(text.split(/[\s,;]+/).map((d) => d.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "")).filter(Boolean))];
+}
+
+/** Which business a domain belongs to, from the websites list. */
+export function businessForDomain(domain: string, sites: SiteConfig[]): string | undefined {
+  return sites.find((s) => s.domain === domain || domain.endsWith(`.${s.domain}`) || s.domain.endsWith(`.${domain}`))?.business;
+}
 
 export function businessFor(name: string, rules: BusinessRule[]): string | undefined {
   const n = name.toLowerCase();

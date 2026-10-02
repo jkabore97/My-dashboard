@@ -5,6 +5,11 @@ import { getGithubNotifications, getRepos } from "./connectors/github";
 import { getSupabaseProjects } from "./connectors/supabase";
 import { getVercelProjects } from "./connectors/vercel";
 import { getWebsites } from "./connectors/websites";
+import { getDomains, getRecords } from "./connectors/records";
+import { getSecurity } from "./connectors/security";
+import { getStripe } from "./connectors/stripe";
+import { today } from "./dates";
+import { deriveRiskTasks, type RiskScope } from "./risk";
 import { getPlatforms } from "./platforms";
 import { getConfig } from "./server/config";
 import { connectionHealth } from "./server/credentials";
@@ -12,18 +17,18 @@ import type { Database, EmailMessage, HostingProject, Notification, Repo, Source
 
 const DAY = 86_400_000;
 
-export type Scope = "connector" | "github" | "vercel" | "workers" | "supabase" | "d1" | "gmail" | "websites";
+export type Scope = "connector" | "github" | "vercel" | "workers" | "supabase" | "d1" | "gmail" | "websites" | RiskScope;
 
 /**
  * A task generated from platform data. `scope` is the source it came from;
  * `live` is false when that source served demo or fallback data.
  */
-export type DerivedTask = Task & { live: boolean; scope: Scope };
+export type DerivedTask = Task & { live: boolean; scope: Scope; alias?: string };
 
 /** Fetches every source once per request. Pure reads: no database writes. */
 export const collect = cache(async () => {
-  const { businessRules, sites } = await getConfig();
-  const [repos, ghNotes, vercel, workers, supabase, d1, emails] = await Promise.all([
+  const { businessRules, sites, domains: watchedDomains } = await getConfig();
+  const [repos, ghNotes, vercel, workers, supabase, d1, emails, stripe, records, domains] = await Promise.all([
     getRepos(businessRules),
     getGithubNotifications(),
     getVercelProjects(businessRules),
@@ -31,7 +36,11 @@ export const collect = cache(async () => {
     getSupabaseProjects(businessRules),
     getCloudflareD1(businessRules),
     getEmails(),
+    getStripe(),
+    getRecords(),
+    getDomains(watchedDomains),
   ]);
+  const security = await getSecurity(repos.data, repos.mode === "live");
   const hosting = [...vercel.data, ...workers.data];
   const websites = await getWebsites(sites, hosting);
   const databases = [...supabase.data, ...d1.data];
@@ -40,7 +49,7 @@ export const collect = cache(async () => {
   const { readable: credentialsKnown, undecryptable } = await connectionHealth();
   const guards = undecryptableGuards(undecryptable);
 
-  const sources: SourceResult<unknown>[] = [repos, vercel, workers, supabase, d1, emails, websites];
+  const sources: SourceResult<unknown>[] = [repos, vercel, workers, supabase, d1, emails, websites, stripe, domains, security, records];
   const modes = {
     github: repos.mode,
     githubNotes: ghNotes.mode,
@@ -50,9 +59,28 @@ export const collect = cache(async () => {
     d1: d1.mode,
     gmail: emails.mode,
     websites: websites.mode,
+    stripe: stripe.mode,
+    invoices: records.mode,
+    subscriptions: records.mode,
+    deadlines: records.mode,
+    checklist: records.mode,
+    domains: domains.mode,
+    security: security.mode,
   };
 
-  const tasks = deriveTasks({ repos: repos.data, hosting, databases, emails: emails.data, websites: websites.data, sources, modes });
+  const risk = deriveRiskTasks({
+    today: today(),
+    stripe: stripe.data,
+    records: records.data,
+    domains: domains.data,
+    security: security.data,
+    sites,
+    repos: repos.data.map((r) => r.fullName),
+    modes,
+    partial: { stripe: (stripe.partial ?? []).map((p) => p.key), security: (security.partial ?? []).map((p) => p.key) },
+  });
+
+  const tasks = [...deriveTasks({ repos: repos.data, hosting, databases, emails: emails.data, websites: websites.data, sources, modes }), ...risk.tasks];
 
   const live = (m: SourceMode) => m === "live";
   const notifications: (Notification & { live: boolean })[] = [
@@ -77,6 +105,10 @@ export const collect = cache(async () => {
     databases,
     emails: emails.data,
     websites: websites.data,
+    stripe: stripe.data,
+    records: records.data,
+    domains: domains.data,
+    security: security.data,
     derivedTasks: tasks,
     notifications,
     modes,
@@ -87,13 +119,15 @@ export const collect = cache(async () => {
       Supabase: supabase.mode,
       Gmail: emails.mode,
       Website: websites.mode,
+      Stripe: stripe.mode,
     }),
     sources: sources.map(({ source, mode, error, partial, fetchedAt }) => ({ source, mode, error, partial, fetchedAt })),
-    unobserved: [...unobservedKeys({ gmail: emails.partial, supabase: supabase.partial, github: repos.partial }), ...guards.unobserved],
+    unobserved: [...unobservedKeys({ gmail: emails.partial, supabase: supabase.partial, github: repos.partial }), ...guards.unobserved, ...risk.unobserved],
     skipScopes: guards.skipScopes,
     credentialsKnown,
     undecryptableConnections: undecryptable.length,
-    allDemo: sources.every((s) => s.mode === "demo"),
+    // Records are your own entries (always "live"), so they don't count here.
+    allDemo: sources.every((s) => s === records || s.mode === "demo"),
   };
 });
 
@@ -118,7 +152,7 @@ export function deriveTasks(s: DeriveInput): DerivedTask[] {
   const now = new Date().toISOString();
   const tasks: DerivedTask[] = [];
   const add = (scope: Scope, key: string, t: Omit<Task, "id">) =>
-    tasks.push({ ...t, id: `${scope}/${key}`, scope, live: scope === "connector" || s.modes[scope] === "live" });
+    tasks.push({ ...t, id: `${scope}/${key}`, scope, live: scope === "connector" || (s.modes as Record<string, SourceMode>)[scope] === "live" });
 
   // Several sources can share a platform name (Cloudflare Workers + D1), so
   // problems are merged into one task per platform.
@@ -196,7 +230,7 @@ const PROVIDER_SCOPES: Record<string, Scope[]> = { github: ["github"], vercel: [
  */
 export function undecryptableGuards(rows: { provider: string; account: string }[]): { unobserved: string[]; skipScopes: string[] } {
   return {
-    unobserved: rows.filter((r) => r.provider === "gmail").map((r) => `gmail/${encodeURIComponent(r.account)}/`),
+    unobserved: rows.flatMap((r) => (r.provider === "gmail" ? [`gmail/${encodeURIComponent(r.account)}/`] : r.provider === "stripe" ? [`stripe/${encodeURIComponent(r.account)}/`] : [])),
     skipScopes: [...new Set(rows.flatMap((r) => PROVIDER_SCOPES[r.provider] ?? []))],
   };
 }

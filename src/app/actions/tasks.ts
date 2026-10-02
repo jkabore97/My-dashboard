@@ -5,6 +5,9 @@ import { requireUser } from "@/lib/server/auth";
 import { audit } from "@/lib/server/store/audit";
 import { addManualTask, completeTask, deleteManualTask, getTask, reopenTask, setTaskBusiness, snoozeTask } from "@/lib/server/store/tasks";
 import { SEVERITY_ORDER, type Severity } from "@/lib/types";
+import { completeDeadline } from "@/lib/server/store/ledger";
+import { requestSync } from "@/lib/server/sync";
+import { today } from "@/lib/dates";
 
 const SNOOZE_HOURS = { "4h": 4, "1d": 24, "3d": 72, "1w": 168 } as const;
 export type SnoozePreset = keyof typeof SNOOZE_HOURS;
@@ -22,7 +25,13 @@ async function act(id: string, action: string, fn: () => Promise<unknown>, detai
 }
 
 export async function completeTaskAction(id: string) {
-  await act(id, "task.done", () => completeTask(id));
+  await act(id, "task.done", async () => {
+    await completeTask(id);
+    // Finishing a deadline's task completes that occurrence (recurring ones move to their next date).
+    const task = await getTask(id);
+    const m = task?.origin === "derived" ? task.sourceKey?.match(/^deadlines\/([0-9a-f-]{36}):(\d{4}-\d{2}-\d{2})$/) : null;
+    if (m && (await completeDeadline(m[1], today(), m[2]))) await requestSync();
+  });
 }
 
 export async function reopenTaskAction(id: string) {

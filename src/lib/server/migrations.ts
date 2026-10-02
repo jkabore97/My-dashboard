@@ -118,4 +118,63 @@ alter table rate_limits enable row level security;
     // Created by migrate() itself, so it missed the RLS above.
     sql: "alter table schema_migrations enable row level security;",
   },
+  {
+    version: 3,
+    name: "money_and_risk",
+    sql: `
+create table invoices (
+  id uuid primary key default gen_random_uuid(),
+  business text,
+  client text not null,
+  number text,
+  amount_minor bigint not null check (amount_minor >= 0),
+  currency text not null default 'usd',
+  issued_on date,
+  due_on date not null,
+  status text not null default 'open' check (status in ('open', 'paid', 'void')),
+  paid_on date,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index invoices_status_idx on invoices (status, due_on);
+
+create table subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  business text,
+  vendor text not null,
+  plan text,
+  amount_minor bigint not null check (amount_minor >= 0),
+  currency text not null default 'usd',
+  billing_interval text not null check (billing_interval in ('month', 'year')),
+  next_renewal date,
+  auto_renew boolean not null default true,
+  url text,
+  notes text,
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table deadlines (
+  id uuid primary key default gen_random_uuid(),
+  business text,
+  title text not null,
+  category text not null default 'other' check (category in ('tax', 'filing', 'license', 'insurance', 'contract', 'other')),
+  due_on date not null,
+  recurrence text not null default 'none' check (recurrence in ('none', 'monthly', 'quarterly', 'yearly')),
+  remind_days integer not null default 14 check (remind_days between 0 and 365),
+  notes text,
+  url text,
+  completed_on date,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index deadlines_due_idx on deadlines (completed_on, due_on);
+
+alter table invoices enable row level security;
+alter table subscriptions enable row level security;
+alter table deadlines enable row level security;
+`,
+  },
 ];

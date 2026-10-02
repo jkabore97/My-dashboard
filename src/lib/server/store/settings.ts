@@ -30,8 +30,14 @@ export async function claimInterval(key: string, intervalSeconds: number): Promi
   return rows.length > 0;
 }
 
+/** Makes the next claimInterval() for this key succeed immediately. */
+export async function expireInterval(key: string) {
+  const db = await getDb();
+  await db.query("update settings set updated_at = 'epoch'::timestamptz where key = $1", [key]);
+}
+
 export async function lastRun(key: string): Promise<string | null> {
   const db = await getDb();
-  const [row] = await db.query<{ updated_at: Date | string }>("select updated_at from settings where key = $1", [key]);
+  const [row] = await db.query<{ updated_at: Date | string }>("select updated_at from settings where key = $1 and updated_at > 'epoch'::timestamptz", [key]);
   return row ? new Date(row.updated_at).toISOString() : null;
 }

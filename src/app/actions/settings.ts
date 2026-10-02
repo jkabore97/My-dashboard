@@ -6,6 +6,7 @@ import { formatBusinessRules, formatSites, parseBusinessRules, parseSites } from
 import { encrypt, randomToken } from "@/lib/server/crypto";
 import { audit } from "@/lib/server/store/audit";
 import { setSetting } from "@/lib/server/store/settings";
+import { requestSync } from "@/lib/server/sync";
 import type { WebhookProvider } from "@/lib/server/webhooks";
 
 export interface SettingsState {
@@ -22,6 +23,7 @@ export async function saveBusinessRules(_prev: SettingsState, form: FormData): P
   const rules = parseBusinessRules(text, /\n/);
   await setSetting("business_rules", rules);
   await audit(user.email, "settings.business_rules", null, { count: rules.length });
+  await requestSync();
   revalidatePath("/", "layout");
   return { ok: `Saved ${rules.length} rule${rules.length === 1 ? "" : "s"}.\n${formatBusinessRules(rules)}` };
 }
@@ -35,6 +37,7 @@ export async function saveWebsites(_prev: SettingsState, form: FormData): Promis
   if (badRef) return { error: `"${badRef.supabaseRef}" doesn't look like a Supabase project ref.` };
   await setSetting("websites", sites);
   await audit(user.email, "settings.websites", null, { count: sites.length });
+  await requestSync();
   revalidatePath("/", "layout");
   return { ok: `Saved ${sites.length} site${sites.length === 1 ? "" : "s"}.\n${formatSites(sites)}` };
 }

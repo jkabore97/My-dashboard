@@ -2,11 +2,20 @@ import { collect, type Collected } from "../aggregate";
 import type { Website } from "../types";
 import { recordEvent } from "./store/events";
 import { pruneOldData } from "./store/maintenance";
-import { claimInterval, setSetting } from "./store/settings";
+import { claimInterval, expireInterval, setSetting } from "./store/settings";
 import { latestSnapshot, recordSnapshot } from "./store/snapshots";
-import { reconcileDerived } from "./store/tasks";
+import { existingEventKeys, reconcileDerived } from "./store/tasks";
+import { getConfig } from "./config";
+import { refreshDomainChecks } from "./domains";
 
 const PAGE_SYNC_SECONDS = 60;
+
+/**
+ * Call after changing something tasks are derived from (invoices, deadlines,
+ * settings…) so the next page view re-syncs instead of waiting out the
+ * throttle. lastRun("job:sync") then reads as never until it runs.
+ */
+export const requestSync = () => expireInterval("job:sync");
 
 /**
  * Persists what the latest collection saw: derived tasks, new events and
@@ -24,7 +33,11 @@ export async function persist(c: Collected, { force = false } = {}) {
   const scopes = (Object.entries(c.modes) as [string, string][])
     .filter(([k, m]) => (m === "live" || (m === "demo" && c.credentialsKnown)) && !c.skipScopes.includes(k))
     .map(([k]) => k);
-  await reconcileDerived(c.derivedTasks.filter((t) => t.live), ["connector", ...scopes], c.unobserved);
+  // A problem a webhook already reported (same dispute, same alert) keeps the
+  // webhook's task; the polled duplicate is dropped.
+  const live = c.derivedTasks.filter((t) => t.live);
+  const covered = await existingEventKeys(live.flatMap((t) => (t.alias ? [t.alias] : [])));
+  await reconcileDerived(live.filter((t) => !t.alias || !covered.has(t.alias)), ["connector", ...scopes], c.unobserved);
 
   for (const n of c.notifications) {
     if (!n.live) continue;
@@ -82,6 +95,9 @@ async function recordWebsite(w: Website) {
 /** Cron entry point: fresh collection, forced persist, housekeeping. */
 export async function runScheduledChecks() {
   const started = Date.now();
+  // Domain checks hit RDAP/DNS/TLS, so they run here (twice a day per domain), not on page loads.
+  const { domains, dkimSelectors } = await getConfig();
+  const domainsChecked = await refreshDomainChecks(domains, dkimSelectors);
   const c = await collect();
   await persist(c, { force: true });
   await pruneOldData();
@@ -90,5 +106,6 @@ export async function runScheduledChecks() {
     ms: Date.now() - started,
     sources: c.sources.map((s) => ({ source: s.source, mode: s.mode, error: s.error, partial: s.partial })),
     tasks: c.derivedTasks.filter((t) => t.live).length,
+    domainsChecked,
   };
 }

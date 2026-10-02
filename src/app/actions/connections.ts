@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { clientIp, requireUser } from "@/lib/server/auth";
 import { auditConnection } from "@/lib/server/connect";
+import { sha256Hex } from "@/lib/server/crypto";
 import { getAuthed } from "@/lib/server/oauth";
 import { audit } from "@/lib/server/store/audit";
 import { deleteConnection, saveConnection, updateConnectionLabel, type Provider } from "@/lib/server/store/connections";
@@ -47,6 +48,18 @@ export async function saveTokenConnection(_prev: ConnectState, form: FormData): 
       await auditConnection(user.email, provider, account, "token", replaced);
       revalidatePath("/", "layout");
       return { ok: `Connected Cloudflare (${res.result.name})${replacedNote(replaced)}.` };
+    } else if (provider === "stripe") {
+      if (!/^(rk|sk)_(live|test)_[A-Za-z0-9]+$/.test(token)) return { error: "Use a secret or restricted key (rk_live_… is best). Publishable keys (pk_…) can't read data." };
+      const business = field(form, "business").slice(0, 80);
+      if (!business) return { error: "Say which business this Stripe account belongs to." };
+      await getAuthed("https://api.stripe.com/v1/balance", token);
+      // Restricted keys may not read the account object; fall back to a stable key fingerprint.
+      const acct = await getAuthed<{ id: string }>("https://api.stripe.com/v1/account", token).then((a) => a.id).catch(() => `key-${sha256Hex(token).slice(0, 10)}`);
+      account = token.includes("_test_") ? `${acct} (test)` : acct;
+      await saveConnection({ provider, account, label: business, business, secret, meta: { via: "token" } });
+      await auditConnection(user.email, provider, account, "token", []);
+      revalidatePath("/", "layout");
+      return { ok: `Connected Stripe for ${business}.` };
     } else {
       return { error: "This platform connects with the Connect button instead." };
     }

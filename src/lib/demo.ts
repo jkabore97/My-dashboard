@@ -1,6 +1,7 @@
 // Sample data shown until real credentials are configured. Timestamps are
 // relative to "now" so the demo always looks current.
-import type { Database, EmailMessage, HostingProject, Repo, Task, Website } from "./types";
+import type { DomainCheck } from "./server/domains";
+import type { Database, EmailMessage, HostingProject, Repo, SecurityReport, StripeAccountSummary, Task, Website } from "./types";
 
 const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
 
@@ -46,4 +47,56 @@ export const demoManualTasks = (): Task[] => [
   { id: "m1", title: "File quarterly estimated taxes", detail: "Due Oct 15", severity: "high", source: "Manual", createdAt: ago(60 * 24 * 2), business: "Kaj Consulting" },
   { id: "m2", title: "Send invoice to ClientCo for September", severity: "medium", source: "Manual", createdAt: ago(60 * 24), business: "Kaj Consulting" },
   { id: "m3", title: "Refresh portfolio case studies", severity: "low", source: "Manual", createdAt: ago(60 * 24 * 10), business: "Kaj Consulting" },
+];
+
+const day = (offset: number) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+
+function demoDaily(base: number, currency: string) {
+  return Array.from({ length: 30 }, (_, i) => ({ date: day(i - 29), currency, gross: Math.round(base * (0.55 + ((i * 37) % 10) / 10) * (i % 7 === 5 || i % 7 === 6 ? 0.4 : 1)) }));
+}
+
+export const demoStripe = (): StripeAccountSummary[] => {
+  const consulting = demoDaily(42_000, "usd");
+  const store = demoDaily(18_500, "usd");
+  const sum = (d: { gross: number }[]) => d.reduce((n, x) => n + x.gross, 0);
+  return [
+    {
+      id: "demo-consulting", business: "Kaj Consulting", livemode: true,
+      balance: [{ currency: "usd", available: 1_284_000, pending: 312_500 }],
+      revenue: [{ currency: "usd", gross: sum(consulting), refunds: 0, fees: Math.round(sum(consulting) * 0.029), net: Math.round(sum(consulting) * 0.971) }],
+      daily: consulting, mrr: [{ currency: "usd", amount: 650_000 }], activeSubscriptions: 9, pastDueSubscriptions: 1,
+      disputes: [{ id: "dp_demo", amount: 48_000, currency: "usd", reason: "fraudulent", status: "needs_response", dueBy: new Date(Date.now() + 6 * 86_400_000).toISOString(), created: ago(40) }],
+      openInvoices: [
+        { id: "in_demo1", source: "stripe", business: "Kaj Consulting", client: "ClientCo", number: "KC-0142", amount: 360_000, currency: "usd", dueOn: day(-12) },
+        { id: "in_demo2", source: "stripe", business: "Kaj Consulting", client: "Northwind LLC", number: "KC-0147", amount: 125_000, currency: "usd", dueOn: day(9) },
+      ],
+      truncated: false,
+    },
+    {
+      id: "demo-store", business: "Kaj Store", livemode: true,
+      balance: [{ currency: "usd", available: 402_300, pending: 88_100 }],
+      revenue: [{ currency: "usd", gross: sum(store), refunds: 21_900, fees: Math.round(sum(store) * 0.032), net: Math.round(sum(store) * 0.95) }],
+      daily: store, mrr: [], activeSubscriptions: 0, pastDueSubscriptions: 0, disputes: [], openInvoices: [], truncated: false,
+    },
+  ];
+};
+
+export const demoSecurity = (): SecurityReport => ({
+  githubLogin: "kaj",
+  github2fa: true,
+  alerts: [
+    { kind: "dependabot", repo: "kaj/client-portal", number: 14, severity: "high", title: "Vulnerable next: authorization bypass in middleware", url: "https://github.com", createdAt: ago(60 * 20) },
+    { kind: "dependabot", repo: "kaj/shop-storefront", number: 3, severity: "medium", title: "Vulnerable vite: dev server file read", url: "https://github.com", createdAt: ago(60 * 24 * 6) },
+  ],
+  repos: [
+    { repo: "kaj/client-portal", dependabot: "on", secretScanning: "unavailable" },
+    { repo: "kaj/kaj-consulting-site", dependabot: "on", secretScanning: "on" },
+    { repo: "kaj/booking-api", dependabot: "off", secretScanning: "unavailable" },
+  ],
+});
+
+export const demoDomains = (): DomainCheck[] => [
+  { domain: "kajconsulting.example", checkedAt: ago(90), registration: { ok: true, expiresOn: day(212), registrar: "Namecheap, Inc." }, certificate: { ok: true, expiresOn: day(61), issuer: "Let's Encrypt" }, email: { ok: true, mx: ["aspmx.l.google.com"], spf: "v=spf1 include:_spf.google.com ~all", dmarc: "v=DMARC1; p=none; rua=mailto:dmarc@kajconsulting.example", dmarcPolicy: "none", dkim: ["google"] } },
+  { domain: "shop.example", checkedAt: ago(90), registration: { ok: true, expiresOn: day(9), registrar: "Namecheap, Inc." }, certificate: { ok: true, expiresOn: day(5), issuer: "Let's Encrypt" }, email: { ok: true, mx: ["mx1.mail.example"], spf: null, dmarc: null, dmarcPolicy: null, dkim: [] } },
+  { domain: "book.example", checkedAt: ago(90), registration: { ok: true, expiresOn: day(340), registrar: "Cloudflare, Inc." }, certificate: { ok: true, expiresOn: day(80), issuer: "Google Trust Services" }, email: { ok: true, mx: [], spf: null, dmarc: null, dmarcPolicy: null, dkim: [] } },
 ];

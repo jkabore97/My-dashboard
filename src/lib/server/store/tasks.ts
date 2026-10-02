@@ -6,6 +6,7 @@ export type TaskOrigin = "derived" | "manual" | "event";
 
 export interface StoredTask extends Task {
   origin: TaskOrigin;
+  sourceKey: string | null;
   status: TaskStatus;
   snoozedUntil: string | null;
   resolvedBy: "user" | "auto" | null;
@@ -43,6 +44,7 @@ function toTask(r: TaskRow): StoredTask {
     business: r.business_override ?? r.business ?? undefined,
     createdAt: iso(r.occurred_at)!,
     origin: r.origin,
+    sourceKey: r.source_key,
     status: r.status,
     snoozedUntil: iso(r.snoozed_until),
     resolvedBy: r.resolved_by,
@@ -137,6 +139,14 @@ export async function upsertEventTask(key: string, t: Omit<Task, "id">) {
        updated_at = now()`,
     [key, t.title, t.detail ?? null, t.severity, t.source, t.url ?? null, t.business ?? null, t.createdAt],
   );
+}
+
+/** Which of these keys already exist as webhook (event) tasks, in any state. */
+export async function existingEventKeys(keys: string[]): Promise<Set<string>> {
+  if (!keys.length) return new Set();
+  const db = await getDb();
+  const rows = await db.query<{ source_key: string }>("select source_key from tasks where origin = 'event' and source_key = any($1::text[])", [keys]);
+  return new Set(rows.map((r) => r.source_key));
 }
 
 /**

@@ -3,7 +3,7 @@ import { requireUser } from "@/lib/server/auth";
 import { getDashboard } from "@/lib/server/dashboard";
 import { PLATFORM_DEFS } from "@/lib/platforms";
 import { oauthConfigured } from "@/lib/server/connect";
-import { listConnectionSummaries } from "@/lib/server/store/connections";
+import { listConnectionSummaries, MULTI_ACCOUNT } from "@/lib/server/store/connections";
 import { getSetting, lastRun } from "@/lib/server/store/settings";
 import { WEBHOOK_ENV } from "@/lib/server/webhooks";
 import { env } from "@/lib/source";
@@ -42,7 +42,7 @@ export default async function PlatformsPage({ searchParams }: { searchParams: Pr
           const envSet = p.envKeys.length > 0 && p.envKeys.every((k) => !!env(k));
           const mode = modes[p.id];
           const problems = d.sources.filter((s) => s.source === p.name).flatMap((s) => (s.error ? [s.error] : (s.partial ?? []).map((x) => x.error)));
-          const multi = p.provider === "gmail";
+          const multi = !!p.provider && MULTI_ACCOUNT.includes(p.provider);
           return (
             <Card key={p.id} title={p.name} action={mode ? <ModePill mode={mode} /> : null}>
               {p.note && <p className="text-sm text-muted">{p.note}</p>}
@@ -57,7 +57,7 @@ export default async function PlatformsPage({ searchParams }: { searchParams: Pr
                         <DisconnectButton id={c.id} name={c.label ?? c.account} />
                       </div>
                       <div className="text-xs text-muted">{c.business ? `${c.business} · ` : ""}connected {timeAgo(c.createdAt)}</div>
-                      {p.provider === "gmail" && <RelabelForm id={c.id} label={c.label} business={c.business} />}
+                      {multi && <RelabelForm id={c.id} label={c.label} business={c.business} />}
                     </li>
                   ))}
                 </ul>
@@ -68,7 +68,7 @@ export default async function PlatformsPage({ searchParams }: { searchParams: Pr
                 <div className="mt-3 border-t border-line pt-3">
                   {p.oauth && (oauthConfigured(p.oauth) ? (
                     <a href={`/api/connect/${p.oauth}`} className="inline-block rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-bg hover:opacity-90">
-                      {mine.length && multi ? "Connect another mailbox" : mine.length ? "Reconnect or replace" : `Connect ${p.name}`}
+                      {mine.length && multi ? "Connect another account" : mine.length ? "Reconnect or replace" : `Connect ${p.name}`}
                     </a>
                   ) : (
                     <p className="text-xs text-muted">One-click connect needs {p.oauth === "github" ? "GITHUB_OAUTH_CLIENT_ID/SECRET" : p.oauth === "gmail" ? "GOOGLE_CLIENT_ID/SECRET" : "VERCEL_INTEGRATION_SLUG and VERCEL_CLIENT_ID/SECRET"} (see README).</p>
@@ -76,7 +76,7 @@ export default async function PlatformsPage({ searchParams }: { searchParams: Pr
                   {mine.length > 0 && !multi && <p className="mt-2 text-xs text-muted">One {p.name} account at a time: connecting another replaces this one.</p>}
                   {p.token && (
                     <details className="mt-2">
-                      <summary className="cursor-pointer text-xs text-accent">{mine.length && !multi ? "Replace with an API token" : "Use an API token instead"}</summary>
+                      <summary className="cursor-pointer text-xs text-accent">{mine.length && !multi ? "Replace with an API token" : p.oauth ? "Use an API token instead" : mine.length ? "Add another account" : "Connect with an API key"}</summary>
                       <TokenForm provider={p.provider!} fields={p.token.fields} help={p.token.help} />
                     </details>
                   )}

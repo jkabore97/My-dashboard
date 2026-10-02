@@ -48,11 +48,11 @@ A working Next.js app, deployable to Vercel, protected by a password.
 | **Audit log, rate limiting, sign out everywhere** | Know who did what; stop password guessing |
 | **Connect from the UI**: OAuth "Connect Gmail / GitHub / Vercel" buttons, tokens encrypted at rest | No more pasting tokens into environment variables |
 
-### Phase 2: Money & risk (≈ 2 weeks)
-*The things that cost money when they're missed.*
+### Phase 2: Money & risk ✅ shipped
+*The things that cost money when they're missed.* Built as listed below. One item still needs a decision from you: which accounting tool you use (see the note under Accounting).
 
-- **Stripe** (or your payment provider): revenue per business, MRR, failed payments, **disputes as critical tasks** with the deadline.
-- **Accounting** (QuickBooks / Wave / Xero): unpaid invoices, overdue receivables, cash per business.
+- **Stripe** (several accounts, one per business): revenue per business, MRR, failed payments, **disputes as critical tasks** with the deadline.
+- **Accounting**: unpaid invoices and overdue receivables are tracked from Stripe plus invoices you enter. *Not built yet:* a direct QuickBooks / Wave / Xero sync, waiting on which one you use.
 - **Subscription tracker**: every SaaS bill (Vercel, Supabase, Google Workspace, domains…) with monthly cost per business and renewal dates.
 - **Domains & SSL**: expiry dates for every domain and certificate. 30/14/3-day warnings escalate low → high → critical.
 - **Email health**: SPF/DKIM/DMARC checks per domain, so client emails don't land in spam.

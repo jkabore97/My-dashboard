@@ -17,7 +17,7 @@ export interface PlatformDef {
   docsUrl: string;
   note?: string;
   /** Provider id for stored connections, when the platform supports them. */
-  provider?: "github" | "vercel" | "supabase" | "cloudflare" | "gmail";
+  provider?: "github" | "vercel" | "supabase" | "cloudflare" | "gmail" | "stripe";
   oauth?: "github" | "gmail" | "vercel";
   token?: { fields: TokenField[]; help: string };
   webhook?: "github" | "vercel" | "stripe" | "supabase";
@@ -34,7 +34,7 @@ export const PLATFORM_DEFS: PlatformDef[] = [
   { id: "cloudflare", name: "Cloudflare", category: "hosting", available: true, provider: "cloudflare", envKeys: ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"], docsUrl: "https://dash.cloudflare.com/profile/api-tokens", note: "Workers and D1 databases", token: { fields: [tokenField, { name: "accountId", label: "Account ID", placeholder: "32-character ID" }], help: "Token permissions: Account Settings:Read, Workers Scripts:Read, D1:Read." } },
   { id: "supabase", name: "Supabase", category: "database", available: true, provider: "supabase", webhook: "supabase", envKeys: ["SUPABASE_ACCESS_TOKEN"], docsUrl: "https://supabase.com/dashboard/account/tokens", note: "Project health, security advisors, user counts", token: { fields: [tokenField], help: "Personal access token from Account → Access Tokens." } },
   { id: "gmail", name: "Gmail", category: "email", available: true, provider: "gmail", oauth: "gmail", envKeys: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"], docsUrl: "https://console.cloud.google.com/apis/credentials", note: "Connect each business mailbox (read-only)" },
-  { id: "stripe", name: "Stripe", category: "payments", available: true, webhook: "stripe", envKeys: ["STRIPE_WEBHOOK_SECRET"], docsUrl: "https://dashboard.stripe.com/webhooks", note: "Disputes, failed payments and payouts as tasks (webhook)" },
+  { id: "stripe", name: "Stripe", category: "payments", available: true, provider: "stripe", webhook: "stripe", envKeys: ["STRIPE_SECRET_KEYS"], docsUrl: "https://dashboard.stripe.com/apikeys", note: "Revenue, MRR, balances, disputes and overdue invoices. Add one key per business.", token: { fields: [{ name: "token", label: "Restricted key", placeholder: "rk_live_…", secret: true }, { name: "business", label: "Business" }], help: "Create a restricted key with Read access to Balance, Charges, Disputes, Invoices, Subscriptions and Customers." } },
   { id: "websites", name: "Website monitor", category: "analytics", available: true, envKeys: [], docsUrl: "/settings#websites", note: "Uptime every 5 minutes + sign-ups per site" },
   { id: "outlook", name: "Microsoft 365 / Outlook", category: "email", available: false, envKeys: [], docsUrl: "https://entra.microsoft.com" },
   { id: "ga4", name: "Google Analytics", category: "analytics", available: false, envKeys: [], docsUrl: "https://analytics.google.com", note: "Visitors per site" },
@@ -45,6 +45,6 @@ export const PLATFORM_DEFS: PlatformDef[] = [
 
 /** Live/demo/error status for the connectors shown on the overview. */
 export function getPlatforms(modes: Record<string, SourceMode | undefined>) {
-  // Webhook-only platforms (Stripe) have no polling mode.
+  // Platforms without a polling source (none today) have no mode.
   return PLATFORM_DEFS.filter((p) => p.available).map((p) => ({ ...p, mode: modes[p.name.split(" ")[0]] ?? null }));
 }

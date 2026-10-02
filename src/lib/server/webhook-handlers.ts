@@ -1,3 +1,4 @@
+import { formatMoney } from "../money";
 import { sha256Hex } from "./crypto";
 import { recordEvent, type NewEvent } from "./store/events";
 import { resolveEventTask, upsertEventTask } from "./store/tasks";
@@ -25,8 +26,7 @@ export async function apply(outcome: Outcome) {
   return { events: outcome.events.length, tasks: outcome.openTasks.length, resolved: outcome.resolveTasks.length };
 }
 
-const money = (amount: number, currency: string) =>
-  new Intl.NumberFormat("en-US", { style: "currency", currency: currency.toUpperCase() }).format(amount / 100);
+const money = (amount: number, currency: string) => formatMoney(amount, currency);
 
 const ALERT_SEVERITY: Record<string, Severity> = { critical: "critical", high: "high", medium: "medium", low: "low" };
 

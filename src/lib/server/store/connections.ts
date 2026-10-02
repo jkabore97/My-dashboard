@@ -1,7 +1,10 @@
 import { getDb } from "../db";
 import { decryptJson, encryptJson } from "../crypto";
 
-export type Provider = "github" | "vercel" | "supabase" | "cloudflare" | "gmail";
+export type Provider = "github" | "vercel" | "supabase" | "cloudflare" | "gmail" | "stripe";
+
+/** Providers that keep several accounts side by side (one per mailbox / business). */
+export const MULTI_ACCOUNT: Provider[] = ["gmail", "stripe"];
 
 export interface Connection<S = Record<string, string>> {
   id: string;
@@ -68,7 +71,7 @@ export async function saveConnection(c: { provider: Provider; account: string; l
          business = coalesce(excluded.business, connections.business), secret = excluded.secret, meta = excluded.meta, updated_at = now()`,
       [c.provider, c.account, c.label ?? null, c.business ?? null, encryptJson(c.secret), JSON.stringify(c.meta ?? {})],
     );
-    if (c.provider === "gmail") return [];
+    if (MULTI_ACCOUNT.includes(c.provider)) return [];
     const removed = await tx.query<{ account: string }>("delete from connections where provider = $1 and account <> $2 returning account", [c.provider, c.account]);
     return removed.map((r) => r.account);
   });

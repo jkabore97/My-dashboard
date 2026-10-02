@@ -116,3 +116,73 @@ export interface Platform {
   docsUrl: string;
   note?: string;
 }
+
+export interface MoneyLine {
+  currency: string;
+  amount: number;
+}
+
+export interface StripeDispute {
+  id: string;
+  amount: number;
+  currency: string;
+  reason: string;
+  status: string;
+  dueBy: string | null;
+  created: string;
+}
+
+export interface ReceivableInvoice {
+  id: string;
+  source: "stripe" | "manual";
+  business: string | null;
+  client: string;
+  number: string | null;
+  amount: number;
+  currency: string;
+  dueOn: string | null;
+  url?: string;
+}
+
+export interface StripeAccountSummary {
+  /** Stable account id (task keys use it). */
+  id: string;
+  business: string;
+  livemode: boolean;
+  balance: { currency: string; available: number; pending: number }[];
+  /** Last 30 days, per currency. */
+  revenue: { currency: string; gross: number; refunds: number; fees: number; net: number }[];
+  /** Gross charges per UTC day for the last 30 days, per currency. */
+  daily: { date: string; currency: string; gross: number }[];
+  mrr: MoneyLine[];
+  activeSubscriptions: number;
+  pastDueSubscriptions: number;
+  disputes: StripeDispute[];
+  openInvoices: ReceivableInvoice[];
+  /** True when a list was cut off at the page limit. */
+  truncated: boolean;
+}
+
+export interface SecurityAlert {
+  kind: "dependabot" | "secret";
+  repo: string;
+  number: number;
+  severity: Severity;
+  title: string;
+  url: string;
+  createdAt: string;
+}
+
+export interface RepoSecurity {
+  repo: string;
+  dependabot: "on" | "off" | "unknown";
+  secretScanning: "on" | "unavailable" | "unknown";
+}
+
+export interface SecurityReport {
+  alerts: SecurityAlert[];
+  repos: RepoSecurity[];
+  /** GitHub account two-factor status; null when the token can't tell. */
+  github2fa: boolean | null;
+  githubLogin: string | null;
+}

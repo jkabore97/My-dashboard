@@ -45,6 +45,7 @@ export const PROVIDER_NAMES: Record<Provider, string> = {
   supabase: "Supabase",
   cloudflare: "Cloudflare",
   gmail: "Gmail",
+  stripe: "Stripe",
 };
 
 /** Audit entries for a new connection and any account it replaced. */
