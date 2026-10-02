@@ -363,7 +363,8 @@ async function flush(db: Db, now: Date, team: () => Promise<Person[]>): Promise<
   const byPerson = new Map<string, QueuedRow[]>();
   for (const r of keep) if (still.has(r.id)) byPerson.set(r.user_email, [...(byPerson.get(r.user_email) ?? []), r]);
 
-  const results: { id: string; status: Final; reason: string | null }[] = [];
+  // Each send is recorded as soon as it's made, so a run cut off midway
+  // (time limit, background budget) can repeat at most the push in flight.
   await Promise.all(
     [...byPerson].map(async ([email, rows]) => {
       const digest = rows.filter((r) => r.kind === "alert" && r.reason === DIGEST_REASON);
@@ -372,15 +373,21 @@ async function flush(db: Db, now: Date, team: () => Promise<Person[]>): Promise<
       await Promise.all(
         individual.map(async (r) => {
           const d = await deliver(email, payloadFor(r));
-          results.push({ id: r.id, ...d });
+          await settle(db, [{ id: r.id, ...d }], now);
           out[d.status]++;
         }),
       );
-      if (folded.length) await summarize(db, email, folded, now, `${folded.length} more alert${folded.length === 1 ? "" : "s"}`, "rate limit: combined into one push", out, results);
-      if (digest.length) await summarize(db, email, digest, now, `Noon digest: ${digest.length} item${digest.length === 1 ? "" : "s"}`, "in the noon digest", out, results);
+      for (const [items, title, reason] of [
+        [folded, `${folded.length} more alert${folded.length === 1 ? "" : "s"}`, "rate limit: combined into one push"],
+        [digest, `Noon digest: ${digest.length} item${digest.length === 1 ? "" : "s"}`, "in the noon digest"],
+      ] as const) {
+        if (!items.length) continue;
+        const settled: { id: string; status: Final; reason: string | null }[] = [];
+        await summarize(db, email, [...items], now, title, reason, out, settled);
+        await settle(db, settled, now);
+      }
     }),
   );
-  await settle(db, results, now);
   return out;
 }
 
