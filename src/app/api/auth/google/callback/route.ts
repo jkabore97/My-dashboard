@@ -27,7 +27,7 @@ export async function GET(req: Request) {
       return fail("not_allowed");
     }
     await audit(email, "login.google.first_factor", null, null, ip);
-    return NextResponse.redirect(new URL(await completeFirstFactor(email), req.url));
+    return NextResponse.redirect(new URL(await completeFirstFactor(email, "google"), req.url));
   } catch {
     return fail("google");
   }

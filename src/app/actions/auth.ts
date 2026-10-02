@@ -46,7 +46,7 @@ async function passwordLoginInner(prev: FormState, form: FormData): Promise<Form
   }
   await succeeded(limit);
   await audit(ownerIdentity(), "login.password.first_factor", null, null, ip);
-  redirect(await completeFirstFactor(ownerIdentity()));
+  redirect(await completeFirstFactor(ownerIdentity(), "password"));
 }
 
 /** Team members sign in with their email and the password they chose from their invite. */
@@ -62,7 +62,7 @@ async function memberLogin(email: string, given: string): Promise<FormState> {
   }
   await succeeded(limit);
   await audit(email, "login.password.first_factor", null, null, ip);
-  redirect(await completeFirstFactor(email));
+  redirect(await completeFirstFactor(email, "password"));
 }
 
 /** Accepting an invite: the member picks a password, then signs in (and sets up 2FA) as usual. */
@@ -80,7 +80,7 @@ export async function acceptInviteAction(_prev: FormState, form: FormData): Prom
     const email = await acceptInvite(token, await hashPassword(password));
     if (!email) return { error: "This invite link has expired or was already used. Ask for a new one." };
     await audit(email, "team.invite_accepted", null, null, await clientIp());
-    redirect(await completeFirstFactor(email));
+    redirect(await completeFirstFactor(email, "password"));
   });
 }
 
@@ -101,7 +101,7 @@ async function verifyTwoFactorInner(_prev: FormState, form: FormData): Promise<F
   }
   await succeeded(limit);
   const user = (await getUser(email))!;
-  await writeSession(email, "full", user.session_version);
+  await writeSession(email, "full", user.session_version, (await readSession())?.m);
   await audit(email, method === "recovery" ? "login.recovery_code_used" : "login.success", null, { remainingRecoveryCodes: method === "recovery" ? user.recovery_codes.length : undefined }, ip);
   redirect("/");
 }
@@ -126,7 +126,7 @@ export async function finishEnrollment(form: FormData) {
   if (!s || !(await consumeFinishToken(s.sub, token))) redirect("/login");
   const user = await getUser(s.sub);
   if (!user?.totp_enabled_at || user.session_version !== s.sv) redirect("/login");
-  await writeSession(s.sub, "full", user.session_version);
+  await writeSession(s.sub, "full", user.session_version, s.m);
   redirect("/");
 }
 

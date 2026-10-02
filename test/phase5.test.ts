@@ -337,7 +337,8 @@ describe("team, assignments and client pages (PGlite)", () => {
 
 import { CONSUMER_TENANT, decodeJwtPayload, msIdentity } from "@/lib/server/ms-identity";
 import { googleSignInEnabled, memberPasswordsEnabled, microsoftSignInEnabled, passwordSignInEnabled, isEnvOwner } from "@/lib/server/auth";
-import { ensureUser, linkMicrosoft } from "@/lib/server/store/users";
+import { ensureUser, linkMicrosoft, resetMicrosoftLink } from "@/lib/server/store/users";
+import { sessionMethodAllowed } from "@/lib/server/auth";
 
 describe("Microsoft sign-in", () => {
   const TID = "11111111-2222-3333-4444-555555555555";
@@ -373,8 +374,11 @@ describe("Microsoft sign-in", () => {
     // With passwords off, the password identity is no longer an owner.
     expect(isEnvOwner("owner")).toBe(false);
     expect(isEnvOwner("jean@kajconsulting.com")).toBe(true);
+    // Sessions made with a method that's now off stop working, as do unlabelled old ones.
+    expect([sessionMethodAllowed("microsoft"), sessionMethodAllowed("password"), sessionMethodAllowed("google"), sessionMethodAllowed(undefined)]).toEqual([true, false, false, false]);
     vi.stubEnv("SIGN_IN_METHODS", "");
     expect([microsoftSignInEnabled(), googleSignInEnabled(), passwordSignInEnabled()]).toEqual([true, true, true]);
+    expect(sessionMethodAllowed(undefined)).toBe(true);
   });
 
   it("pins the first Microsoft account to a user and refuses a different one later", async () => {
@@ -383,10 +387,19 @@ describe("Microsoft sign-in", () => {
     await db.exec("truncate users cascade");
     await ensureUser("jean@kajconsulting.com");
     await ensureUser("amy@kajconsulting.com");
-    expect(await linkMicrosoft("jean@kajconsulting.com", "t:o1")).toBe(true);
-    expect(await linkMicrosoft("jean@kajconsulting.com", "t:o1")).toBe(true);
-    expect(await linkMicrosoft("jean@kajconsulting.com", "t:o2")).toBe(false);
-    // The same Microsoft account can't become a second user.
-    expect(await linkMicrosoft("amy@kajconsulting.com", "t:o1")).toBe(false);
+    const allowed = new Set(["jean@kajconsulting.com", "amy@kajconsulting.com"]);
+    const still = async (e: string) => allowed.has(e);
+    expect(await linkMicrosoft("jean@kajconsulting.com", "t:o1", still)).toBe(true);
+    expect(await linkMicrosoft("jean@kajconsulting.com", "t:o1", still)).toBe(true);
+    expect(await linkMicrosoft("jean@kajconsulting.com", "t:o2", still)).toBe(false);
+    // The same Microsoft account can't become a second active user…
+    expect(await linkMicrosoft("amy@kajconsulting.com", "t:o1", still)).toBe(false);
+    // …but an address that can no longer sign in (an owner's old address) gives it up.
+    allowed.delete("jean@kajconsulting.com");
+    await ensureUser("jean.k@kajconsulting.com");
+    expect(await linkMicrosoft("jean.k@kajconsulting.com", "t:o1", still)).toBe(true);
+    // A reset lets a recreated account link again.
+    expect(await resetMicrosoftLink("jean.k@kajconsulting.com")).toBe(true);
+    expect(await linkMicrosoft("jean.k@kajconsulting.com", "t:o3", still)).toBe(true);
   });
 });

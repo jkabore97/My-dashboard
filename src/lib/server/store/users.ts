@@ -90,12 +90,26 @@ export async function resetTotp(email: string) {
  * Pins a Microsoft account to a user on first sign-in. Returns false when the
  * user is already pinned to a different account, or that account is pinned to someone else.
  */
-export async function linkMicrosoft(email: string, subject: string): Promise<boolean> {
+export async function linkMicrosoft(email: string, subject: string, stillAllowed: (email: string) => Promise<boolean>): Promise<boolean> {
   const db = await getDb();
   const [row] = await db.query<{ ms_subject: string | null }>("select ms_subject from users where email = $1", [email]);
   if (row?.ms_subject) return row.ms_subject === subject;
-  const taken = await db.query("select 1 from users where ms_subject = $1 and email <> $2", [subject, email]);
-  if (taken.length) return false;
-  await db.query("update users set ms_subject = $2 where email = $1 and ms_subject is null", [email, subject]);
-  return true;
+  const [holder] = await db.query<{ email: string }>("select email from users where ms_subject = $1 and email <> $2", [subject, email]);
+  if (holder) {
+    // An address that can no longer sign in (an owner's old address, a disabled
+    // member) gives the account up; an active one keeps it.
+    if (await stillAllowed(holder.email)) return false;
+    await db.query("update users set ms_subject = null where email = $1 and ms_subject = $2", [holder.email, subject]);
+  }
+  // Only one of two simultaneous first sign-ins can set the link; both then compare against it.
+  await db.query("update users set ms_subject = $2 where email = $1 and ms_subject is null", [email, subject]).catch(() => {});
+  const [after] = await db.query<{ ms_subject: string | null }>("select ms_subject from users where email = $1", [email]);
+  return after?.ms_subject === subject;
+}
+
+/** Forgets a user's Microsoft account so their next Microsoft sign-in links again. Signs them out. */
+export async function resetMicrosoftLink(email: string): Promise<boolean> {
+  const db = await getDb();
+  const rows = await db.query("update users set ms_subject = null, session_version = session_version + 1 where email = $1 and ms_subject is not null returning email", [email]);
+  return rows.length > 0;
 }

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { clientIp, isEnvOwner, memberPasswordsEnabled, requireOwner } from "@/lib/server/auth";
 import { audit } from "@/lib/server/store/audit";
 import { getMember, INVITE_DAYS, inviteMember, reissueInvite, removeMember, setMemberDisabled, updateMember } from "@/lib/server/store/team";
-import { bumpSessionVersion, resetTotp } from "@/lib/server/store/users";
+import { bumpSessionVersion, resetMicrosoftLink, resetTotp } from "@/lib/server/store/users";
 import { emailEnabled, sendEmail } from "@/lib/server/notify";
 import { appUrl } from "@/lib/server/reports";
 import { parseBusinessList, ROLE_DESCRIPTION, ROLE_LABEL, ROLES, type Role } from "@/lib/access";
@@ -113,4 +113,15 @@ export async function resetMemberTwoFactorAction(email: string): Promise<TeamSta
   await audit(user.email, "team.reset_2fa", email, null, await clientIp());
   revalidatePath("/team");
   return { ok: "2FA reset. They'll set it up again when they next sign in.", at: Date.now() };
+}
+
+/** For a member whose Microsoft account was recreated: their next Microsoft sign-in links the new one. */
+export async function resetMicrosoftLinkAction(email: string): Promise<TeamState> {
+  const user = await requireOwner();
+  if (email === user.email) return { error: "Ask another owner to do this for you." };
+  if (!(await getMember(email))) return { error: "That person is no longer on the team." };
+  if (!(await resetMicrosoftLink(email))) return { error: "They haven't signed in with Microsoft yet." };
+  await audit(user.email, "team.reset_microsoft_link", email, null, await clientIp());
+  revalidatePath("/team");
+  return { ok: "Microsoft link reset and signed out. Their next Microsoft sign-in links the account they use.", at: Date.now() };
 }

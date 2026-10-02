@@ -62,6 +62,13 @@ export function signInMethods(): SignInMethod[] | null {
 }
 const methodOn = (m: SignInMethod) => signInMethods()?.includes(m) ?? true;
 
+/**
+ * A session made with a method that's since been turned off stops working, so
+ * switching to SIGN_IN_METHODS=microsoft signs out password and Google sessions.
+ * With SIGN_IN_METHODS set, sessions that don't record their method are refused too.
+ */
+export const sessionMethodAllowed = (m: string | undefined) => (signInMethods() === null ? true : !!m && methodOn(m as SignInMethod));
+
 /** Microsoft sign-in works for ALLOWED_EMAILS and for invited team members. Uses the MS_CLIENT_ID app. */
 export const microsoftSignInEnabled = () => methodOn("microsoft") && !!(env("MS_CLIENT_ID") && env("MS_CLIENT_SECRET"));
 /** Google sign-in works for ALLOWED_EMAILS and for invited team members. */
@@ -115,11 +122,11 @@ export async function readSession(): Promise<SessionPayload | null> {
   return verifySession((await cookies()).get(SESSION_COOKIE)?.value, secret);
 }
 
-export async function writeSession(email: string, stage: SessionPayload["stage"], sessionVersion: number) {
+export async function writeSession(email: string, stage: SessionPayload["stage"], sessionVersion: number, method?: string) {
   const secret = sessionSecret();
   if (!secret) throw new Error("SESSION_SECRET must be set (32+ characters)");
   const ttl = stage === "full" ? SESSION_TTL_SECONDS : PENDING_TTL_SECONDS;
-  (await cookies()).set(SESSION_COOKIE, await signSession({ sub: email, stage, sv: sessionVersion }, ttl, secret), {
+  (await cookies()).set(SESSION_COOKIE, await signSession({ sub: email, stage, sv: sessionVersion, ...(method ? { m: method } : {}) }, ttl, secret), {
     httpOnly: true,
     secure: isProduction(),
     sameSite: "lax",
@@ -139,7 +146,7 @@ export async function clearSession() {
  */
 export async function currentUser(): Promise<CurrentUser | null> {
   const s = await readSession();
-  if (!s || s.stage !== "full") return null;
+  if (!s || s.stage !== "full" || !sessionMethodAllowed(s.m)) return null;
   const user = await getUser(s.sub);
   if (!user || !rowAllowed(user, s.sub) || user.session_version !== s.sv) return null;
   if (require2fa() && !user.totp_enabled_at) return null;
@@ -169,30 +176,30 @@ export async function requireOwner(): Promise<CurrentUser> {
 /** The first-factor-passed identity during 2FA (pending session). */
 export async function pendingUser(): Promise<string | null> {
   const s = await readSession();
-  if (!s || s.stage !== "pending") return null;
+  if (!s || s.stage !== "pending" || !sessionMethodAllowed(s.m)) return null;
   const user = await getUser(s.sub);
   return user && rowAllowed(user, s.sub) && user.session_version === s.sv ? s.sub : null;
 }
 
 /** After password or Google sign-in: decide whether 2FA is owed. Returns where to go next. */
-export async function completeFirstFactor(email: string): Promise<string> {
+export async function completeFirstFactor(email: string, method: SignInMethod): Promise<string> {
   const user = await ensureUser(email.toLowerCase());
   if (user.totp_enabled_at) {
-    await writeSession(user.email, "pending", user.session_version);
+    await writeSession(user.email, "pending", user.session_version, method);
     return "/login/2fa";
   }
   if (require2fa()) {
-    await writeSession(user.email, "pending", user.session_version);
+    await writeSession(user.email, "pending", user.session_version, method);
     return "/login/2fa/setup";
   }
-  await writeSession(user.email, "full", user.session_version);
+  await writeSession(user.email, "full", user.session_version, method);
   return "/";
 }
 
 /** Who may enroll in 2FA: someone mid-login without it, or a signed-in user turning it on. */
 export async function enrollingUser(): Promise<string | null> {
   const s = await readSession();
-  if (!s) return null;
+  if (!s || !sessionMethodAllowed(s.m)) return null;
   const u = await getUser(s.sub);
   if (!u || !rowAllowed(u, s.sub) || u.totp_enabled_at || u.session_version !== s.sv) return null;
   return s.sub;

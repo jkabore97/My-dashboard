@@ -44,7 +44,7 @@ export default async function TeamPage() {
                   <MemberEditor email={m.email} name={m.name} role={m.role} selected={m.businesses} businesses={businesses} />
                 </details>
                 <div className="mt-3 border-t border-line pt-3">
-                  <MemberActions email={m.email} disabled={m.disabled} needsInvite={!m.hasPassword || !!m.inviteExpiresAt} hasTotp={m.totpEnabled} />
+                  <MemberActions email={m.email} disabled={m.disabled} needsInvite={!m.hasPassword || !!m.inviteExpiresAt} hasTotp={m.totpEnabled} msLinked={m.microsoftLinked} />
                 </div>
               </Card>
             ))

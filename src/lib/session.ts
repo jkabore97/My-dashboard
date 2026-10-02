@@ -9,6 +9,8 @@ export interface SessionPayload {
   sub: string;
   stage: "full" | "pending";
   sv: number;
+  /** How this session signed in (microsoft, google, password); absent on sessions from before it was recorded. */
+  m?: string;
   iat: number;
   exp: number;
 }

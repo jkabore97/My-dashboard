@@ -39,12 +39,12 @@ export async function GET(req: Request) {
       return fail("not_allowed");
     }
     await ensureUser(id.email);
-    if (!(await linkMicrosoft(id.email, id.subject))) {
+    if (!(await linkMicrosoft(id.email, id.subject, isAllowed))) {
       await audit(id.email, "login.microsoft.denied", null, { reason: "different Microsoft account" }, ip);
       return fail("ms_mismatch");
     }
     await audit(id.email, "login.microsoft.first_factor", null, null, ip);
-    return NextResponse.redirect(new URL(await completeFirstFactor(id.email), req.url));
+    return NextResponse.redirect(new URL(await completeFirstFactor(id.email, "microsoft"), req.url));
   } catch {
     return fail("microsoft");
   }

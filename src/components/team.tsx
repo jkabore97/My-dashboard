@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { Copy } from "lucide-react";
 import { useFormState } from "@/components/useFormState";
-import { inviteMemberAction, reissueInviteAction, removeMemberAction, resetMemberTwoFactorAction, setMemberDisabledAction, updateMemberAction, type TeamState } from "@/app/actions/team";
+import { inviteMemberAction, reissueInviteAction, removeMemberAction, resetMemberTwoFactorAction, resetMicrosoftLinkAction, setMemberDisabledAction, updateMemberAction, type TeamState } from "@/app/actions/team";
 import { ROLE_DESCRIPTION, ROLE_LABEL, ROLES, type Role } from "@/lib/access";
 
 const input = "rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent";
@@ -84,7 +84,7 @@ export function MemberEditor({ email, name, role, selected, businesses }: { emai
   );
 }
 
-export function MemberActions({ email, disabled, needsInvite, hasTotp }: { email: string; disabled: boolean; needsInvite: boolean; hasTotp: boolean }) {
+export function MemberActions({ email, disabled, needsInvite, hasTotp, msLinked = false }: { email: string; disabled: boolean; needsInvite: boolean; hasTotp: boolean; msLinked?: boolean }) {
   const [pending, start] = useTransition();
   const [state, setState] = useState<TeamState>({});
   const run = (fn: () => Promise<TeamState>, ask?: string) => {
@@ -96,6 +96,7 @@ export function MemberActions({ email, disabled, needsInvite, hasTotp }: { email
       <div className="flex flex-wrap gap-2">
         {needsInvite && <button className={small} disabled={pending} onClick={() => run(() => reissueInviteAction(email))}>New invite link</button>}
         {hasTotp && <button className={small} disabled={pending} onClick={() => run(() => resetMemberTwoFactorAction(email), `Reset 2FA for ${email}? They'll be signed out and set it up again.`)}>Reset 2FA</button>}
+        {msLinked && <button className={small} disabled={pending} onClick={() => run(() => resetMicrosoftLinkAction(email), `Reset the Microsoft account linked to ${email}? Only do this if their Microsoft account was recreated.`)}>Reset Microsoft link</button>}
         <button className={small} disabled={pending} onClick={() => run(() => setMemberDisabledAction(email, !disabled), disabled ? undefined : `Disable ${email}? They're signed out at once.`)}>{disabled ? "Enable" : "Disable"}</button>
         <button className={`${small} hover:text-critical`} disabled={pending} onClick={() => run(() => removeMemberAction(email), `Remove ${email} from the team? Their tasks become unassigned.`)}>Remove</button>
       </div>
