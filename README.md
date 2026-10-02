@@ -48,7 +48,8 @@ Marking a signal task done keeps it done for as long as the condition persists. 
 
 ## Security
 
-- Sign in with Google (allow-listed emails) and/or a password, then **mandatory 2FA** with an authenticator app. Ten single-use recovery codes are issued.
+- Sign in with Microsoft, Google and/or a password (`SIGN_IN_METHODS=microsoft` allows Microsoft only), then **mandatory 2FA** with an authenticator app. Ten single-use recovery codes are issued.
+- Microsoft sign-in identifies people by their Microsoft account name (UPN), whose domain the organization must have verified, never by the editable email claim; guest accounts are refused, and each person is pinned to the Microsoft account they first signed in with.
 - Sessions are HMAC-signed cookies (7 days). "Sign out of all devices" revokes every session.
 - Platform tokens, OAuth refresh tokens, TOTP secrets and webhook secrets are **encrypted with AES-256-GCM** before they reach the database.
 - Every webhook is signature-checked. Cron needs `CRON_SECRET`. Failed login and 2FA attempts are rate-limited (a correct one doesn't count). Password sign-in is limited per IP on Vercel, or behind your own reverse proxy with `TRUSTED_PROXY=true`; without a trustworthy IP, all callers share one looser limit (100 failures an hour), and a tripped limit is audited.
@@ -74,14 +75,25 @@ npm run test:pg   # database tests against a real Postgres (TEST_DATABASE_URL)
 npm run typecheck
 ```
 
-## Deploy (Vercel + Supabase)
+## Deploy (Vercel + Supabase), signing in with Microsoft
 
 1. **Database:** create a Supabase project, or use an existing one. Copy the **transaction pooler** connection string into `DATABASE_URL`. Tables are created on first start.
-2. **Secrets:** set `SESSION_SECRET`, `ENCRYPTION_KEY`, `CRON_SECRET`, `APP_URL`, and a sign-in method (`DASHBOARD_PASSWORD` and/or Google + `ALLOWED_EMAILS`). Production refuses to start without the secrets.
-3. **Deploy** the repo on Vercel. `vercel.json` schedules `/api/cron/check` every 5 minutes. This needs a Pro plan; on Hobby, change it to daily or call the endpoint from any scheduler with `Authorization: Bearer $CRON_SECRET`.
-4. **Sign in**, scan the 2FA QR code, and save your recovery codes.
-5. **Platforms page:** connect GitHub, Vercel, Gmail (one per mailbox), Supabase and Cloudflare (one account each; connecting another replaces it), then add the webhook URLs it shows to GitHub, Vercel, Stripe and Supabase.
-6. **Settings:** list your businesses and websites.
+2. **Deploy** the repo on Vercel (Add New → Project → import it). Note the address it gets, e.g. `https://my-dashboard.vercel.app`, or add your own domain. That address is your `APP_URL`.
+3. **Microsoft app** at [entra.microsoft.com](https://entra.microsoft.com) → App registrations → New registration:
+   - *Supported account types:* **Accounts in this organizational directory only** if everyone has a Kaj Consulting Microsoft 365 account (simplest and safest). Choose *any organizational directory and personal Microsoft accounts* only if some people use outlook.com/hotmail addresses.
+   - *Redirect URI (Web):* `APP_URL/api/auth/microsoft/callback`. Add `APP_URL/api/connect/microsoft/callback` too if you'll connect Outlook mail and calendar.
+   - Certificates & secrets → New client secret. Copy the **Value**.
+   - From Overview, copy the **Application (client) ID** and the **Directory (tenant) ID**.
+4. **Environment variables** (Vercel → Project → Settings → Environment Variables), then redeploy:
+   - `SIGN_IN_METHODS=microsoft` (no password or Google sign-in at all)
+   - `ALLOWED_EMAILS=` the address you sign in to Microsoft with (you become the owner)
+   - `MS_CLIENT_ID`, `MS_CLIENT_SECRET`, `MS_TENANT_ID` (the tenant ID for a single-organization app; leave it empty for the multi-account option)
+   - `APP_URL`, `DATABASE_URL`, `SESSION_SECRET` (`openssl rand -base64 48`), `ENCRYPTION_KEY` (`openssl rand -base64 32`, keep it safe), `CRON_SECRET` (`openssl rand -hex 32`). Production refuses to start without the secrets.
+   - `vercel.json` schedules `/api/cron/check` every 5 minutes. This needs a Pro plan; on Hobby, change it to daily or call the endpoint from any scheduler with `Authorization: Bearer $CRON_SECRET`.
+5. **Sign in** at your `APP_URL` with Microsoft, scan the 2FA QR code, and save your recovery codes.
+6. **Team page:** invite people by the address they sign in to Microsoft with (usually their work email). They open the link (or just the dashboard) and choose *Sign in with Microsoft*.
+7. **Platforms page:** connect GitHub, Vercel, Gmail (one per mailbox), Supabase and Cloudflare (one account each; connecting another replaces it), then add the webhook URLs it shows to GitHub, Vercel, Stripe and Supabase.
+8. **Settings:** list your businesses and websites.
 
 ## Team and client pages
 
@@ -96,7 +108,7 @@ npm run typecheck
 
 Everyone gets the Overview, To-do, Ask and their own Settings. Inside each page, a person limited to some businesses only sees rows tagged with those businesses; anything untagged (a manual task without a business, a domain no site maps to) is only shown to people with every business. Ask, push notifications and the to-do list follow the same rules. Calendars aren't tied to a business, so whoever has the Agenda sees them.
 
-**Inviting.** Team → Invite: email, role, businesses. You get a one-time link (valid 7 days; it's also emailed when Resend is set up). They choose a password of 12+ characters and set up an authenticator app; 2FA is mandatory for everyone. With Google sign-in configured they can also use Google with that address. Disabling someone signs them out at once and stops their notifications; removing them unassigns their tasks.
+**Inviting.** Team → Invite: email, role, businesses. You get a link (valid 7 days; it's also emailed when Resend is set up). With `SIGN_IN_METHODS=microsoft` they sign in with the Microsoft account for that address; otherwise they can choose a password of 12+ characters, or use Microsoft or Google with that address. Everyone then sets up an authenticator app; 2FA is mandatory. Disabling someone signs them out at once and stops their notifications; removing them unassigns their tasks.
 
 **Assigning tasks.** Any task can be assigned to someone who can see its business, from the To-do list or when adding a task. They get a push notification, and an *Assigned to me* view. The *Activity* view (and the Team page) shows who did what: created, assigned, snoozed, moved, marked done.
 

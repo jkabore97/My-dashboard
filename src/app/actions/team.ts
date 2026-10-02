@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { clientIp, isEnvOwner, requireOwner } from "@/lib/server/auth";
+import { clientIp, isEnvOwner, memberPasswordsEnabled, requireOwner } from "@/lib/server/auth";
 import { audit } from "@/lib/server/store/audit";
 import { getMember, INVITE_DAYS, inviteMember, reissueInvite, removeMember, setMemberDisabled, updateMember } from "@/lib/server/store/team";
 import { bumpSessionVersion, resetTotp } from "@/lib/server/store/users";
@@ -36,8 +36,9 @@ const inviteLink = (token: string) => `${appUrl()}/invite/${token}`;
 async function emailInvite(email: string, name: string | null, role: Role, link: string, by: string) {
   if (!emailEnabled()) return false;
   const hi = name ? `Hi ${name},` : "Hi,";
-  const text = `${hi}\n\n${by} invited you to Kaj Command Center as ${ROLE_LABEL[role]}: ${ROLE_DESCRIPTION[role]}\n\nSet your password here (the link works for ${INVITE_DAYS} days, once):\n${link}\n\nYou'll also set up an authenticator app, which is required for everyone.`;
-  const html = `<p>${esc(hi)}</p><p>${esc(by)} invited you to <strong>Kaj Command Center</strong> as <strong>${ROLE_LABEL[role]}</strong>: ${esc(ROLE_DESCRIPTION[role])}</p><p><a href="${esc(link)}">Set your password</a> (the link works for ${INVITE_DAYS} days, once).</p><p>You'll also set up an authenticator app, which is required for everyone.</p>`;
+  const how = memberPasswordsEnabled() ? "Set your password here" : `Sign in with your Microsoft account (${email}) here`;
+  const text = `${hi}\n\n${by} invited you to Kaj Command Center as ${ROLE_LABEL[role]}: ${ROLE_DESCRIPTION[role]}\n\n${how} (the link works for ${INVITE_DAYS} days):\n${link}\n\nYou'll also set up an authenticator app, which is required for everyone.`;
+  const html = `<p>${esc(hi)}</p><p>${esc(by)} invited you to <strong>Kaj Command Center</strong> as <strong>${ROLE_LABEL[role]}</strong>: ${esc(ROLE_DESCRIPTION[role])}</p><p><a href="${esc(link)}">${esc(how)}</a> (the link works for ${INVITE_DAYS} days).</p><p>You'll also set up an authenticator app, which is required for everyone.</p>`;
   await sendEmail("You're invited to Kaj Command Center", html, text, email);
   return true;
 }

@@ -1,7 +1,7 @@
 "use server";
 
 import { redirect, unstable_rethrow } from "next/navigation";
-import { clearSession, clientIp, completeFirstFactor, currentUser, enrollingUser, ownerIdentity, passwordSignInEnabled, pendingUser, readSession, requireUser, writeSession } from "@/lib/server/auth";
+import { clearSession, clientIp, completeFirstFactor, currentUser, enrollingUser, memberPasswordsEnabled, ownerIdentity, passwordSignInEnabled, pendingUser, readSession, requireUser, writeSession } from "@/lib/server/auth";
 import { safeEqual } from "@/lib/server/crypto";
 import { attempt, loginLimit, succeeded, twoFactorLimit } from "@/lib/server/limits";
 import { audit } from "@/lib/server/store/audit";
@@ -51,6 +51,7 @@ async function passwordLoginInner(prev: FormState, form: FormData): Promise<Form
 
 /** Team members sign in with their email and the password they chose from their invite. */
 async function memberLogin(email: string, given: string): Promise<FormState> {
+  if (!memberPasswordsEnabled()) return { error: "Password sign-in is disabled." };
   const ip = await clientIp();
   const limit = loginLimit(ip, email);
   if (!(await attempt(limit, email, ip))) return { error: "Too many attempts. Wait a while and try again." };
@@ -67,6 +68,7 @@ async function memberLogin(email: string, given: string): Promise<FormState> {
 /** Accepting an invite: the member picks a password, then signs in (and sets up 2FA) as usual. */
 export async function acceptInviteAction(_prev: FormState, form: FormData): Promise<FormState> {
   return guarded(async () => {
+    if (!memberPasswordsEnabled()) return { error: "This dashboard uses Microsoft sign-in only." };
     const token = String(form.get("token") ?? "");
     const password = String(form.get("password") ?? "");
     const info = await inviteByToken(token);

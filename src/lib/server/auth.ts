@@ -27,7 +27,7 @@ export const allowedEmails = () =>
 /** Owners configured in the environment: the password identity and ALLOWED_EMAILS. */
 export function isEnvOwner(email: string) {
   const e = email.toLowerCase();
-  return (!!env("DASHBOARD_PASSWORD") && e === ownerIdentity()) || allowedEmails().includes(e);
+  return (passwordSignInEnabled() && e === ownerIdentity()) || allowedEmails().includes(e);
 }
 
 /** Whether a user row may sign in: an environment owner, or an active team member. */
@@ -49,9 +49,27 @@ export function accessFor(row: Pick<UserRow, "email" | "role" | "businesses">): 
 /** 2FA is mandatory unless explicitly disabled with REQUIRE_2FA=false. */
 export const require2fa = () => env("REQUIRE_2FA") !== "false";
 
+export type SignInMethod = "microsoft" | "google" | "password";
+
+/**
+ * SIGN_IN_METHODS limits how anyone can sign in, e.g. "microsoft" for
+ * Microsoft only. Unset: every method that's configured.
+ */
+export function signInMethods(): SignInMethod[] | null {
+  const raw = env("SIGN_IN_METHODS");
+  if (!raw) return null;
+  return raw.split(",").map((m) => m.trim().toLowerCase()).filter((m): m is SignInMethod => m === "microsoft" || m === "google" || m === "password");
+}
+const methodOn = (m: SignInMethod) => signInMethods()?.includes(m) ?? true;
+
+/** Microsoft sign-in works for ALLOWED_EMAILS and for invited team members. Uses the MS_CLIENT_ID app. */
+export const microsoftSignInEnabled = () => methodOn("microsoft") && !!(env("MS_CLIENT_ID") && env("MS_CLIENT_SECRET"));
 /** Google sign-in works for ALLOWED_EMAILS and for invited team members. */
-export const googleSignInEnabled = () => !!(env("GOOGLE_CLIENT_ID") && env("GOOGLE_CLIENT_SECRET"));
-export const passwordSignInEnabled = () => !!env("DASHBOARD_PASSWORD");
+export const googleSignInEnabled = () => methodOn("google") && !!(env("GOOGLE_CLIENT_ID") && env("GOOGLE_CLIENT_SECRET"));
+/** The owner password (DASHBOARD_PASSWORD) and team members' own passwords. */
+export const passwordSignInEnabled = () => methodOn("password") && !!env("DASHBOARD_PASSWORD");
+/** Whether invited members may set a password (off when sign-in is limited to Microsoft/Google). */
+export const memberPasswordsEnabled = () => methodOn("password");
 
 /** Whether this deployment can know a caller's real IP (see pickClientIp). */
 export const clientIpVerifiable = () => !!process.env.VERCEL || env("TRUSTED_PROXY") === "true";

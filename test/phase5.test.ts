@@ -332,3 +332,61 @@ describe("team, assignments and client pages (PGlite)", () => {
     expect(await portalByToken(token)).toBeNull();
   });
 });
+
+// ─── Microsoft sign-in ───────────────────────────────────────────────────────
+
+import { CONSUMER_TENANT, decodeJwtPayload, msIdentity } from "@/lib/server/ms-identity";
+import { googleSignInEnabled, memberPasswordsEnabled, microsoftSignInEnabled, passwordSignInEnabled, isEnvOwner } from "@/lib/server/auth";
+import { ensureUser, linkMicrosoft } from "@/lib/server/store/users";
+
+describe("Microsoft sign-in", () => {
+  const TID = "11111111-2222-3333-4444-555555555555";
+
+  it("uses the account name (UPN), never the email claim", () => {
+    expect(msIdentity({ tid: TID, oid: "o1", preferred_username: "Jean@KajConsulting.com", email: "ceo@victim.com", name: "Jean" }, { tenant: "common" })).toEqual({ email: "jean@kajconsulting.com", subject: `${TID}:o1`, name: "Jean" });
+    expect(msIdentity({ tid: CONSUMER_TENANT, oid: "o2", preferred_username: "me@outlook.com" }, { tenant: "common" })).toMatchObject({ email: "me@outlook.com" });
+  });
+
+  it("refuses guest accounts, missing ids and other organizations when a tenant is set", () => {
+    expect(msIdentity({ tid: TID, oid: "o", preferred_username: "a_gmail.com#EXT#@kaj.onmicrosoft.com" }, { tenant: "common" })).toEqual({ error: expect.stringMatching(/guest/) });
+    expect(msIdentity({ tid: TID, preferred_username: "a@b.com" }, { tenant: "common" })).toHaveProperty("error");
+    expect(msIdentity({ tid: TID, oid: "o", preferred_username: "not-an-email" }, { tenant: "common" })).toHaveProperty("error");
+    expect(msIdentity({ tid: "99999999-2222-3333-4444-555555555555", oid: "o", preferred_username: "a@b.com" }, { tenant: TID, expectedTid: TID })).toEqual({ error: expect.stringMatching(/different organization/) });
+    expect(msIdentity({ tid: TID, oid: "o", preferred_username: "a@b.com" }, { tenant: TID, expectedTid: TID })).toHaveProperty("email", "a@b.com");
+  });
+
+  it("decodes an ID token payload", () => {
+    const payload = Buffer.from(JSON.stringify({ tid: TID, oid: "x" })).toString("base64url");
+    expect(decodeJwtPayload(`h.${payload}.s`)).toEqual({ tid: TID, oid: "x" });
+    expect(decodeJwtPayload("garbage")).toBeNull();
+  });
+
+  it("can be the only sign-in method", () => {
+    vi.stubEnv("MS_CLIENT_ID", "id");
+    vi.stubEnv("MS_CLIENT_SECRET", "secret");
+    vi.stubEnv("GOOGLE_CLIENT_ID", "gid");
+    vi.stubEnv("GOOGLE_CLIENT_SECRET", "gsecret");
+    vi.stubEnv("DASHBOARD_PASSWORD", "pw");
+    vi.stubEnv("SIGN_IN_METHODS", "microsoft");
+    vi.stubEnv("ALLOWED_EMAILS", "jean@kajconsulting.com");
+    expect([microsoftSignInEnabled(), googleSignInEnabled(), passwordSignInEnabled(), memberPasswordsEnabled()]).toEqual([true, false, false, false]);
+    // With passwords off, the password identity is no longer an owner.
+    expect(isEnvOwner("owner")).toBe(false);
+    expect(isEnvOwner("jean@kajconsulting.com")).toBe(true);
+    vi.stubEnv("SIGN_IN_METHODS", "");
+    expect([microsoftSignInEnabled(), googleSignInEnabled(), passwordSignInEnabled()]).toEqual([true, true, true]);
+  });
+
+  it("pins the first Microsoft account to a user and refuses a different one later", async () => {
+    await useDb(await pgliteDb());
+    const db = await getDb();
+    await db.exec("truncate users cascade");
+    await ensureUser("jean@kajconsulting.com");
+    await ensureUser("amy@kajconsulting.com");
+    expect(await linkMicrosoft("jean@kajconsulting.com", "t:o1")).toBe(true);
+    expect(await linkMicrosoft("jean@kajconsulting.com", "t:o1")).toBe(true);
+    expect(await linkMicrosoft("jean@kajconsulting.com", "t:o2")).toBe(false);
+    // The same Microsoft account can't become a second user.
+    expect(await linkMicrosoft("amy@kajconsulting.com", "t:o1")).toBe(false);
+  });
+});

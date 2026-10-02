@@ -12,6 +12,7 @@ export interface UserRow {
   businesses: string[] | null;
   name: string | null;
   disabled_at: Date | string | null;
+  ms_subject: string | null;
 }
 
 export async function getUser(email: string): Promise<UserRow | null> {
@@ -83,4 +84,18 @@ export async function resetTotp(email: string) {
     "update users set totp_secret = null, totp_pending_secret = null, totp_enabled_at = null, totp_last_step = null, recovery_codes = '[]'::jsonb where email = $1",
     [email],
   );
+}
+
+/**
+ * Pins a Microsoft account to a user on first sign-in. Returns false when the
+ * user is already pinned to a different account, or that account is pinned to someone else.
+ */
+export async function linkMicrosoft(email: string, subject: string): Promise<boolean> {
+  const db = await getDb();
+  const [row] = await db.query<{ ms_subject: string | null }>("select ms_subject from users where email = $1", [email]);
+  if (row?.ms_subject) return row.ms_subject === subject;
+  const taken = await db.query("select 1 from users where ms_subject = $1 and email <> $2", [subject, email]);
+  if (taken.length) return false;
+  await db.query("update users set ms_subject = $2 where email = $1 and ms_subject is null", [email, subject]);
+  return true;
 }

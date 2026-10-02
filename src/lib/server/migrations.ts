@@ -332,5 +332,13 @@ alter table task_activity enable row level security;
 alter table client_portals enable row level security;
 `,
   },
+  {
+    version: 9,
+    name: "microsoft_sign_in",
+    // The Microsoft account (tenant:object id) a user signed in with first; later sign-ins must match.
+    sql: `
+alter table users add column ms_subject text unique;
+`,
+  },
 ];
 
