@@ -14,6 +14,11 @@ export async function setSetting(key: string, value: unknown) {
   );
 }
 
+export async function deleteSetting(key: string) {
+  const db = await getDb();
+  await db.query("delete from settings where key = $1", [key]);
+}
+
 /**
  * Atomically claims a periodic job slot. Returns true for exactly one caller
  * per interval, so page loads and cron don't all run the same sync at once.

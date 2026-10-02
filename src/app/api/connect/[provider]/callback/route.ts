@@ -72,7 +72,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ provider: strin
     }
     await auditConnection(user.email, provider, account, "oauth", replaced);
     revalidatePath("/", "layout");
-    invalidateExternal();
+    await invalidateExternal();
     return back(`connected=${encodeURIComponent(PROVIDER_NAMES[provider])}`);
   } catch (err) {
     return back(`error=${encodeURIComponent(err instanceof Error ? err.message : "Connection failed")}`);

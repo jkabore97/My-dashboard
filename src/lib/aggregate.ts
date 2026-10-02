@@ -25,6 +25,8 @@ import { getPlatforms } from "./platforms";
 import { withTriage } from "./server/triage";
 import { getConfig } from "./server/config";
 import { connectionHealth } from "./server/credentials";
+import { claimInterval, deleteSetting, getSetting, setSetting } from "./server/store/settings";
+import { decryptJson, encryptJson } from "./server/crypto";
 import type { Database, EmailMessage, HostingProject, Notification, Repo, SourceMode, SourceResult, Task, Website } from "./types";
 
 const DAY = 86_400_000;
@@ -62,48 +64,75 @@ async function fetchExternal({ businessRules, sites }: Config) {
 }
 
 // Other platforms are slow (uptime probes wait up to 5 s, mail and calendars
-// take a second or more), so their results are kept for a minute per server
-// instance. Older results are still shown at once while a fresh fetch runs in
-// the background; after 10 minutes they're refetched before rendering.
+// take a second or more), so their results are kept in the database, shared by
+// every server instance and surviving cold starts, plus a copy in memory. A
+// page always renders from the last saved results at once; when they're over
+// a minute old, one instance refetches in the background and the page refreshes
+// itself when that lands. Only the very first load (or one right after a
+// connection or the business/site setup changed) waits for the platforms.
+type External = Awaited<ReturnType<typeof fetchExternal>>;
 const EXTERNAL_FRESH_MS = 60_000;
-const EXTERNAL_STALE_MS = 10 * 60_000;
-let external: { key: string; at: number; value: Promise<Awaited<ReturnType<typeof fetchExternal>>>; refreshing: boolean } | null = null;
+const SNAPSHOT_KEY = "cache:external";
+let external: { key: string; at: number; value: Promise<External> } | null = null;
 
 /** Next request refetches every platform (after connecting or disconnecting one, and in cron). */
-export function invalidateExternal() {
+export async function invalidateExternal() {
+  external = null;
+  await deleteSetting(SNAPSHOT_KEY).catch(() => {});
+}
+
+/** Tests: drop this instance's copy, as a fresh server instance would start. */
+export function forgetExternalMemory() {
   external = null;
 }
 
-function externalData(config: Config) {
+async function readSnapshot(key: string): Promise<{ at: number; value: External } | null> {
+  try {
+    const snap = await getSetting<{ key: string; at: number; data: string } | null>(SNAPSHOT_KEY, null);
+    if (!snap || snap.key !== key) return null;
+    return { at: snap.at, value: decryptJson<External>(snap.data) };
+  } catch {
+    return null; // unreadable (database down, key rotated): fetch live instead
+  }
+}
+
+async function fetchAndSave(config: Config, key: string): Promise<External> {
+  const value = await fetchExternal(config);
+  const at = Date.now();
+  external = { key, at, value: Promise.resolve(value) };
+  // Mail subjects and the like are stored encrypted, like credentials.
+  await setSetting(SNAPSHOT_KEY, { key, at, data: encryptJson(value) }).catch((err) => console.error(`[cache] ${err instanceof Error ? err.message : err}`));
+  return value;
+}
+
+function refreshInBackground(config: Config, key: string) {
+  const refresh = async () => {
+    // One instance refreshes at a time; the others keep serving the snapshot.
+    if (!(await claimInterval("job:external", 45).catch(() => true))) return;
+    await fetchAndSave(config, key).catch((err) => console.error(`[cache] ${err instanceof Error ? err.message : err}`));
+  };
+  try {
+    after(refresh);
+  } catch {
+    void refresh();
+  }
+}
+
+async function externalData(config: Config): Promise<{ at: number; value: External }> {
   const key = JSON.stringify([config.businessRules, config.sites]);
-  const age = external ? Date.now() - external.at : Infinity;
-  if (!external || external.key !== key || age > EXTERNAL_STALE_MS) {
-    const value = fetchExternal(config);
-    const entry = { key, at: Date.now(), value, refreshing: false };
-    external = entry;
+  if (external?.key === key && Date.now() - external.at <= EXTERNAL_FRESH_MS) return { at: external.at, value: await external.value };
+  const snap = await readSnapshot(key);
+  if (!snap) {
+    const value = fetchAndSave(config, key);
+    external = { key, at: Date.now(), value };
     value.catch(() => {
-      if (external === entry) external = null;
+      if (external?.value === value) external = null;
     });
-    return value;
+    return { at: Date.now(), value: await value };
   }
-  if (age > EXTERNAL_FRESH_MS && !external.refreshing) {
-    const current = external;
-    current.refreshing = true;
-    const refresh = async () => {
-      try {
-        const value = await fetchExternal(config);
-        if (external === current) external = { key, at: Date.now(), value: Promise.resolve(value), refreshing: false };
-      } catch {
-        current.refreshing = false;
-      }
-    };
-    try {
-      after(refresh);
-    } catch {
-      void refresh();
-    }
-  }
-  return external.value;
+  external = { key, at: snap.at, value: Promise.resolve(snap.value) };
+  if (Date.now() - snap.at > EXTERNAL_FRESH_MS) refreshInBackground(config, key);
+  return snap;
 }
 
 /** Fetches every source once per request. Pure reads: no database writes. */
@@ -111,7 +140,7 @@ export const collect = cache(async () => {
   const config = await getConfig();
   const { sites, domains: watchedDomains } = config;
   // Your own records come straight from the database, so edits show at once.
-  const [ext, records, domains, solarAll] = await Promise.all([externalData(config), getRecords(), getDomains(watchedDomains), getSolar()]);
+  const [{ at: externalAt, value: ext }, records, domains, solarAll] = await Promise.all([externalData(config), getRecords(), getDomains(watchedDomains), getSolar()]);
   const { repos, ghNotes, vercel, workers, supabase, d1, gmail, stripe, outlook, calendar, analytics, reviews, cameras, security, websiteResult } = ext;
   const solar = solarAll.result;
   // Gmail and Outlook share one inbox; each message keeps its mailbox id.
@@ -218,6 +247,7 @@ export const collect = cache(async () => {
   ].sort((a, b) => b.at.localeCompare(a.at));
 
   return {
+    externalAt,
     repos: repos.data,
     hosting,
     databases,

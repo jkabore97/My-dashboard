@@ -1,5 +1,6 @@
 import { connection } from "next/server";
 import { Sidebar } from "@/components/Sidebar";
+import { AutoRefresh } from "@/components/AutoRefresh";
 import { clockZones } from "@/lib/server/clocks";
 import { requireUser } from "@/lib/server/auth";
 import { getDashboard } from "@/lib/server/dashboard";
@@ -49,6 +50,7 @@ export default async function DashLayout({ children }: { children: React.ReactNo
           </div>
         )}
         {children}
+        <AutoRefresh at={d.externalAt} />
       </main>
     </div>
   );

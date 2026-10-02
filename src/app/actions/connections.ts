@@ -49,7 +49,7 @@ export async function saveTokenConnection(_prev: ConnectState, form: FormData): 
       secret = { token, accountId };
       const replaced = await saveConnection({ provider, account, label: res.result.name, secret, meta: { via: "token" } });
       await auditConnection(user.email, provider, account, "token", replaced);
-      invalidateExternal();
+      await invalidateExternal();
       revalidatePath("/", "layout");
       return { ok: `Connected Cloudflare (${res.result.name})${replacedNote(replaced)}.` };
     } else if (provider === "hikvision") {
@@ -74,7 +74,7 @@ export async function saveTokenConnection(_prev: ConnectState, form: FormData): 
       const status = await fetchSite({ id: account, label, business, ...site });
       await saveConnection({ provider, account, label, business, secret: site, meta: { via: "token", model: status.device.model } });
       await auditConnection(user.email, provider, account, "token", []);
-      invalidateExternal();
+      await invalidateExternal();
       revalidatePath("/", "layout");
       return { ok: `Connected ${label}: ${status.device.model ?? "Hikvision device"} with ${status.channels.length} camera${status.channels.length === 1 ? "" : "s"}.` };
     } else if (provider === "stripe") {
@@ -92,7 +92,7 @@ export async function saveTokenConnection(_prev: ConnectState, form: FormData): 
       if (existing) return { error: `This Stripe account is already connected (${existing.business ?? existing.label ?? account}). Disconnect it first to replace its key.` };
       await saveConnection({ provider, account, label: business, business, secret, meta: { via: "token" } });
       await auditConnection(user.email, provider, account, "token", []);
-      invalidateExternal();
+      await invalidateExternal();
       revalidatePath("/", "layout");
       return { ok: `Connected Stripe for ${business}.` };
     } else {
@@ -100,7 +100,7 @@ export async function saveTokenConnection(_prev: ConnectState, form: FormData): 
     }
     const replaced = await saveConnection({ provider, account, label: account, secret, meta: { via: "token" } });
     await auditConnection(user.email, provider, account, "token", replaced);
-    invalidateExternal();
+    await invalidateExternal();
       revalidatePath("/", "layout");
     return { ok: `Connected ${account}${replacedNote(replaced)}.` };
   } catch (err) {
@@ -112,7 +112,7 @@ export async function disconnect(id: string) {
   const user = await requireOwner();
   const removed = await deleteConnection(id);
   if (removed) await audit(user.email, "connection.remove", `${removed.provider}:${removed.account}`, null, await clientIp());
-  invalidateExternal();
+  await invalidateExternal();
       revalidatePath("/", "layout");
 }
 
@@ -122,6 +122,6 @@ export async function relabelConnection(id: string, form: FormData) {
   const business = field(form, "business").slice(0, 80) || null;
   await updateConnectionLabel(id, label, business);
   await audit(user.email, "connection.relabel", id, { label, business });
-  invalidateExternal();
+  await invalidateExternal();
       revalidatePath("/", "layout");
 }

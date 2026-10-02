@@ -110,7 +110,7 @@ const TRIAGE_LATEST_START_MS = 40_000;
 /** Cron entry point: sync, then notifications, then the slow optional work. */
 export async function runScheduledChecks() {
   const started = Date.now();
-  invalidateExternal(); // cron always looks at the platforms afresh
+  await invalidateExternal(); // cron always looks at the platforms afresh
   const c = await collect();
   await persist(c, { force: true });
   // Alerts and the brief come right after the sync, before anything slow can
