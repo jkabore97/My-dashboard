@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { BarChart3, Bell, Briefcase, CalendarClock, CalendarDays, Cctv, CheckSquare, Database, DollarSign, FileText, Globe, Globe2, LayoutDashboard, LogOut, Mail, Menu, Plug, Server, Settings, ShieldCheck, Sparkles, Sun, GitBranch, X } from "lucide-react";
+import { BarChart3, Bell, Briefcase, CalendarClock, CalendarDays, Cctv, CheckSquare, Database, DollarSign, FileText, Globe, Globe2, LayoutDashboard, LogOut, Mail, Menu, Plug, Server, Settings, ShieldCheck, Sparkles, Sun, GitBranch, Users, X } from "lucide-react";
 import { signOut } from "@/app/actions/auth";
 
 const NAV = [
@@ -27,16 +27,17 @@ const NAV = [
   { href: "/solar", label: "Solar", icon: Sun },
   { href: "/reports", label: "Reports", icon: FileText },
   { href: "/platforms", label: "Platforms", icon: Plug },
+  { href: "/team", label: "Team", icon: Users },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
-export function Sidebar({ counts, email }: { counts: Record<string, number>; email: string }) {
+export function Sidebar({ counts, email, name, role, allowed }: { counts: Record<string, number>; email: string; name: string; role: string | null; allowed: string[] }) {
   const path = usePathname();
   const [open, setOpen] = useState(false);
 
   const nav = (
     <nav className="flex flex-col gap-0.5">
-      {NAV.map(({ href, label, icon: Icon }) => {
+      {NAV.filter((n) => allowed.includes(n.href)).map(({ href, label, icon: Icon }) => {
         const active = href === "/" ? path === "/" : path.startsWith(href);
         const count = counts[href];
         return (
@@ -57,7 +58,8 @@ export function Sidebar({ counts, email }: { counts: Record<string, number>; ema
 
   const footer = (
     <div className="mt-6 border-t border-line px-3 pt-4">
-      <div className="truncate text-xs text-muted" title={email}>{email}</div>
+      <div className="truncate text-xs text-muted" title={email}>{name !== email ? `${name} · ` : ""}{email}</div>
+      {role && <div className="text-[11px] uppercase tracking-wider text-muted">{role}</div>}
       <form action={signOut}>
         <button className="mt-2 inline-flex items-center gap-2 text-xs text-muted hover:text-ink"><LogOut size={12} /> Sign out</button>
       </form>

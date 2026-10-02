@@ -1,3 +1,4 @@
+import { requireSection } from "@/lib/server/auth";
 import Link from "next/link";
 import { getDashboard } from "@/lib/server/dashboard";
 import { HEALTHY_DISK } from "@/lib/devices";
@@ -7,6 +8,7 @@ import { SnapshotGrid } from "@/components/devices/SnapshotGrid";
 const gb = (mb: number | null) => (mb === null ? "—" : mb >= 1_000_000 ? `${(mb / 1_048_576).toFixed(1)} TB` : `${Math.round(mb / 1024)} GB`);
 
 export default async function CamerasPage() {
+  await requireSection("cameras");
   const d = await getDashboard();
   const live = d.modes.cameras === "live";
   const sites = d.cameras;

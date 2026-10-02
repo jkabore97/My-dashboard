@@ -1,5 +1,5 @@
 import { getDashboard } from "@/lib/server/dashboard";
-import { clientIpVerifiable, require2fa, requireUser } from "@/lib/server/auth";
+import { clientIpVerifiable, require2fa, requireUser, requireSection } from "@/lib/server/auth";
 import { ACCOUNT_CHECKLIST, CONFIRMATION_VALID_DAYS } from "@/lib/security-checklist";
 import { daysBetween, today } from "@/lib/dates";
 import { env } from "@/lib/source";
@@ -7,6 +7,7 @@ import { Card, Empty, PageHeader, SeverityBadge, StatusDot, timeAgo } from "@/co
 import { ChecklistToggle } from "@/components/records";
 
 export default async function SecurityPage() {
+  await requireSection("security");
   const me = await requireUser();
   const d = await getDashboard();
   const now = today();

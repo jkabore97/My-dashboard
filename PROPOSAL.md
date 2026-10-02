@@ -81,10 +81,14 @@ A working Next.js app, deployable to Vercel, protected by a password.
 - **One-click fixes**: redeploy a failed Vercel deploy, restore a paused Supabase project, re-run failed GitHub Actions jobs, each with a confirmation and an audit entry. *Next:* Vercel rollback, domain renewal, open a GitHub issue from any task.
 - **Installable app (PWA)** with push notifications for new critical items only.
 
-### Phase 5: Team-ready (when you hire)
-- Multiple users with roles (owner, developer, assistant, accountant), each seeing only their businesses.
-- Assign tasks to people, with an activity log of who did what.
-- Optional read-only **client view**: a page per client showing their site's uptime and project status.
+### Phase 5: Team-ready ✅ shipped
+*For when you hire.*
+
+- **Team members with roles** (owner, developer, assistant, accountant), each limited to the businesses you choose. Invite links, their own password or Google sign-in, mandatory 2FA, disable and remove.
+- **Assign tasks to people**, with push notifications to the assignee, an *Assigned to me* view, and an activity log of who did what.
+- **Client status pages**: a private read-only link per client with their sites' uptime and project stages.
+
+*Later, if you need them:* passkeys, per-person email digests, client logins with file sharing.
 
 ---
 

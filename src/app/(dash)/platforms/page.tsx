@@ -1,3 +1,4 @@
+import { requireOwner } from "@/lib/server/auth";
 import { headers } from "next/headers";
 import { requireUser } from "@/lib/server/auth";
 import { getDashboard } from "@/lib/server/dashboard";
@@ -36,6 +37,7 @@ function GoogleGrants({ scopes }: { scopes: string[] | null }) {
 }
 
 export default async function PlatformsPage({ searchParams }: { searchParams: Promise<{ error?: string; connected?: string }> }) {
+  await requireOwner();
   const { error, connected } = await searchParams;
   await requireUser(); // reads the database directly below
   const d = await getDashboard();

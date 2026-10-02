@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Check, Clock, RotateCcw, Tag, Trash2 } from "lucide-react";
-import { completeTaskAction, deleteTaskAction, reopenTaskAction, setTaskBusinessAction, snoozeTaskAction, type SnoozePreset } from "@/app/actions/tasks";
+import { Check, Clock, RotateCcw, Tag, Trash2, UserRound } from "lucide-react";
+import { assignTaskAction, completeTaskAction, deleteTaskAction, reopenTaskAction, setTaskBusinessAction, snoozeTaskAction, type SnoozePreset } from "@/app/actions/tasks";
 import type { TaskStatus } from "@/lib/server/store/tasks";
 
 const btn = "inline-flex items-center gap-1 rounded-md border border-line px-2 py-1 text-xs text-muted hover:border-accent/50 hover:text-ink disabled:opacity-50";
 
-export function TaskActions({ id, status, manual, business, businesses }: { id: string; status: TaskStatus; manual: boolean; business?: string; businesses: string[] }) {
+export function TaskActions({ id, status, manual, business, businesses, assignee = null, people = [] }: { id: string; status: TaskStatus; manual: boolean; business?: string; businesses: string[]; assignee?: string | null; people?: { email: string; name: string }[] }) {
   const [pending, start] = useTransition();
   const [editing, setEditing] = useState(false);
   const run = (fn: () => Promise<void>) => start(() => fn());
@@ -53,6 +53,22 @@ export function TaskActions({ id, status, manual, business, businesses }: { id: 
         </>
       ) : (
         <button className={btn} disabled={pending} onClick={() => run(() => reopenTaskAction(id))} title="Reopen"><RotateCcw size={12} />Reopen</button>
+      )}
+      {people.length > 0 && (
+        <label className={`${btn} cursor-pointer`} title="Assign to someone">
+          <UserRound size={12} />
+          <select
+            aria-label="Assign to"
+            className="max-w-28 cursor-pointer bg-transparent outline-none"
+            disabled={pending}
+            value={assignee ?? ""}
+            onChange={(e) => run(() => assignTaskAction(id, e.target.value))}
+          >
+            <option value="">Unassigned</option>
+            {people.map((p) => <option key={p.email} value={p.email}>{p.name}</option>)}
+            {assignee && !people.some((p) => p.email === assignee) && <option value={assignee}>{assignee}</option>}
+          </select>
+        </label>
       )}
       <button className={btn} disabled={pending} onClick={() => setEditing(true)} title="Assign business" aria-label="Assign business"><Tag size={12} /></button>
       {manual && (

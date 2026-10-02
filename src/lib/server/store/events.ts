@@ -28,8 +28,8 @@ export async function recordEvent(e: NewEvent): Promise<boolean> {
 
 export async function listEvents(limit = 200): Promise<Notification[]> {
   const db = await getDb();
-  const rows = await db.query<{ id: string; source: string; title: string; body: string | null; severity: Severity; url: string | null; occurred_at: Date | string }>(
-    "select id, source, title, body, severity, url, occurred_at from events order by occurred_at desc limit $1",
+  const rows = await db.query<{ id: string; source: string; title: string; body: string | null; severity: Severity; url: string | null; business: string | null; occurred_at: Date | string }>(
+    "select id, source, title, body, severity, url, business, occurred_at from events order by occurred_at desc limit $1",
     [limit],
   );
   return rows.map((r) => ({
@@ -39,6 +39,7 @@ export async function listEvents(limit = 200): Promise<Notification[]> {
     body: r.body ?? undefined,
     severity: r.severity,
     url: r.url ?? undefined,
+    ...(r.business ? { business: r.business } : {}),
     at: new Date(r.occurred_at).toISOString(),
   }));
 }

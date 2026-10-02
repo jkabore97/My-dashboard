@@ -277,5 +277,60 @@ create trigger tasks_clear_notified after update of status on tasks
 for each row when (old.status is distinct from new.status) execute function clear_task_notified();
 `,
   },
+  {
+    version: 8,
+    name: "team_assignments_client_portals",
+    sql: `
+-- Team members. Owners from the environment (DASHBOARD_PASSWORD / ALLOWED_EMAILS)
+-- have no role here and always get full access.
+alter table users add column role text check (role in ('owner', 'developer', 'assistant', 'accountant'));
+alter table users add column businesses jsonb;
+alter table users add column name text;
+alter table users add column password_hash text;
+alter table users add column disabled_at timestamptz;
+alter table users add column invited_by text;
+
+create table invites (
+  id uuid primary key default gen_random_uuid(),
+  email text not null references users(email) on delete cascade,
+  token_hash text not null unique,
+  created_by text not null,
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null,
+  used_at timestamptz
+);
+
+alter table tasks add column assignee text references users(email) on delete set null;
+create index tasks_assignee_idx on tasks (assignee) where assignee is not null;
+
+create table task_activity (
+  id bigserial primary key,
+  task_id uuid not null references tasks(id) on delete cascade,
+  actor text not null,
+  action text not null,
+  detail jsonb,
+  at timestamptz not null default now()
+);
+create index task_activity_task_idx on task_activity (task_id, at desc);
+create index task_activity_at_idx on task_activity (at desc);
+
+-- Read-only status pages shared with a client. Only the token's hash is kept.
+create table client_portals (
+  id uuid primary key default gen_random_uuid(),
+  client_id uuid not null references clients(id) on delete cascade,
+  token_hash text not null unique,
+  sites jsonb not null default '[]'::jsonb,
+  show_projects boolean not null default true,
+  created_by text not null,
+  created_at timestamptz not null default now(),
+  revoked_at timestamptz,
+  last_viewed_at timestamptz
+);
+
+alter table invites enable row level security;
+alter table task_activity enable row level security;
+alter table client_portals enable row level security;
+`,
+  },
 ];
 

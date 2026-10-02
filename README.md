@@ -26,7 +26,8 @@ One private dashboard for every business Kaj Consulting runs: repositories, host
 | **Reports** | A weekly one-pager per business (revenue vs last week, new users, uptime, issues closed, deals won, solar), printable and emailed on Mondays, plus a morning brief every day |
 | **Repositories / Hosting / Databases** | GitHub, Vercel, Cloudflare Workers, Supabase (with security advisors), Cloudflare D1 |
 | **Platforms** | Connect platforms with one click or an API token, set up webhooks, check the scheduler |
-| **Settings** | Businesses, websites, solar, push notifications on this device, two-factor authentication, sign out everywhere, audit log |
+| **Team** | Invite people with a role and the businesses they work on, change their access, disable or remove them, reset their 2FA. Recent task activity from everyone |
+| **Settings** | Businesses, websites, solar, push notifications on this device, two-factor authentication, sign out everywhere, audit log (team members see only their own sign-in and device settings) |
 
 Some tasks have a **one-click fix** next to them, always behind a confirmation and written to the audit log: **Redeploy** a failed Vercel production deploy, **Restore** a paused Supabase project, **Re-run failed jobs** for failing GitHub Actions. They need a token with write access; a read-only token gets a clear "reconnect with write access" message.
 
@@ -52,6 +53,7 @@ Marking a signal task done keeps it done for as long as the condition persists. 
 - Platform tokens, OAuth refresh tokens, TOTP secrets and webhook secrets are **encrypted with AES-256-GCM** before they reach the database.
 - Every webhook is signature-checked. Cron needs `CRON_SECRET`. Failed login and 2FA attempts are rate-limited (a correct one doesn't count). Password sign-in is limited per IP on Vercel, or behind your own reverse proxy with `TRUSTED_PROXY=true`; without a trustworthy IP, all callers share one looser limit (100 failures an hour), and a tripped limit is audited.
 - Every sign-in, connection change, setting change and task action goes to the audit log (Settings).
+- Team members' access is checked on every page and every action on the server, not just hidden in the menu. Member passwords are hashed with scrypt; invite and client-page links are random 256-bit tokens stored only as hashes.
 - Row-level security is enabled on all tables, so Supabase's public API keys can't read them.
 - Camera recorders are only reached through an https tunnel hostname (IP addresses, local names and names that resolve to private addresses are refused, checked again before every request). Snapshots are only passed through as JPEG or PNG. Snapshots are fetched server-side, so the browser never sees the NVR's address or password. The solar ingest token is stored as a hash.
 - AI features send a compact summary of dashboard data (never passwords or tokens) to Anthropic's API, are limited to 60 requests an hour, and treat email text as untrusted content.
@@ -80,6 +82,25 @@ npm run typecheck
 4. **Sign in**, scan the 2FA QR code, and save your recovery codes.
 5. **Platforms page:** connect GitHub, Vercel, Gmail (one per mailbox), Supabase and Cloudflare (one account each; connecting another replaces it), then add the webhook URLs it shows to GitHub, Vercel, Stripe and Supabase.
 6. **Settings:** list your businesses and websites.
+
+## Team and client pages
+
+**Roles.** Owners set in the environment (`DASHBOARD_PASSWORD`, `ALLOWED_EMAILS`) always have full access. Everyone else is invited from the **Team** page with one role and either every business or a list of them:
+
+| Role | Sees |
+|---|---|
+| **Owner** | Everything. With every business, also Platforms, Settings, the Team page and the audit log |
+| **Developer** | Repos, hosting, databases, websites, domains, security, analytics |
+| **Assistant** | Inbox, agenda, clients, deadlines, cameras, solar |
+| **Accountant** | Money, invoices, subscriptions, deadlines, clients, weekly reports |
+
+Everyone gets the Overview, To-do, Ask and their own Settings. Inside each page, a person limited to some businesses only sees rows tagged with those businesses; anything untagged (a manual task without a business, a domain no site maps to) is only shown to people with every business. Ask, push notifications and the to-do list follow the same rules. Calendars aren't tied to a business, so whoever has the Agenda sees them.
+
+**Inviting.** Team → Invite: email, role, businesses. You get a one-time link (valid 7 days; it's also emailed when Resend is set up). They choose a password of 12+ characters and set up an authenticator app; 2FA is mandatory for everyone. With Google sign-in configured they can also use Google with that address. Disabling someone signs them out at once and stops their notifications; removing them unassigns their tasks.
+
+**Assigning tasks.** Any task can be assigned to someone who can see its business, from the To-do list or when adding a task. They get a push notification, and an *Assigned to me* view. The *Activity* view (and the Team page) shows who did what: created, assigned, snoozed, moved, marked done.
+
+**Client status pages.** Clients → *Status page* on a client: pick which monitored sites to show and whether to list their projects. The client gets a private link to a read-only page with uptime (live status, last 24 hours, 7 and 30 days) and each project's stage in plain words. No amounts, notes or next steps are shown, it's built only from data the dashboard already stored, and it's never indexed. Making a new link retires the old one; *Turn off* or archiving the client stops it.
 
 ## Cameras (Hikvision)
 

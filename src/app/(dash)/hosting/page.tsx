@@ -1,9 +1,11 @@
+import { requireSection } from "@/lib/server/auth";
 import { getDashboard } from "@/lib/server/dashboard";
 import { Card, PageHeader, StatusDot, Table, td, timeAgo } from "@/components/ui";
 
 const DOT = { ready: "ok", building: "warn", queued: "warn", error: "bad", canceled: "idle" } as const;
 
 export default async function HostingPage() {
+  await requireSection("hosting");
   const s = await getDashboard();
   return (
     <>

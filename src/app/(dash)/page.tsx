@@ -8,9 +8,12 @@ import { todaysEvents } from "@/lib/agenda";
 import { OPEN_STAGES } from "@/lib/server/store/pipeline";
 import { formatTotals, sumByCurrency } from "@/lib/money";
 import { moneyByBusiness, moneyOverview } from "@/lib/money-summary";
+import { canSee, isFullOwner } from "@/lib/access";
 
-export default async function Overview() {
+export default async function Overview({ searchParams }: { searchParams: Promise<{ denied?: string }> }) {
+  const { denied } = await searchParams;
   const s = await getDashboard();
+  const can = (x: Parameters<typeof canSee>[1]) => canSee(s.user, x);
   const critical = s.openTasks.filter((t) => t.severity === "critical").length;
   const high = s.openTasks.filter((t) => t.severity === "high").length;
   const unread = s.emails.filter((e) => e.unread).length;
@@ -36,28 +39,29 @@ export default async function Overview() {
   return (
     <>
       <PageHeader title="Overview" subtitle={`${critical} critical and ${high} high-priority items across ${businesses.length} businesses.`} />
+      {denied && <p className="mb-4 rounded-lg border border-high/40 bg-high/10 px-4 py-2 text-sm">That page isn&apos;t part of your role. Ask an owner if you need it.</p>}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <Stat label="Critical" value={critical} tone={critical ? "critical" : "ok"} hint="needs you today" />
         <Stat label="High" value={high} tone={high ? "high" : "ok"} hint="this week" />
-        <Stat label="Unread email" value={unread} hint={`${s.emails.length} in last 14 days`} />
-        <Stat label="Failed deploys" value={failing} tone={failing ? "critical" : "ok"} hint={`${s.hosting.length} projects`} />
-        <Stat label="Sites up" value={`${sitesUp}/${s.websites.length}`} tone={sitesUp === s.websites.length ? "ok" : "high"} />
-        <Stat label="Users" value={users.toLocaleString()} hint={`+${newUsers} this week`} />
+        {can("inbox") && <Stat label="Unread email" value={unread} hint={`${s.emails.length} in last 14 days`} />}
+        {can("hosting") && <Stat label="Failed deploys" value={failing} tone={failing ? "critical" : "ok"} hint={`${s.hosting.length} projects`} />}
+        {can("websites") && <Stat label="Sites up" value={`${sitesUp}/${s.websites.length}`} tone={sitesUp === s.websites.length ? "ok" : "high"} />}
+        {can("websites") && <Stat label="Users" value={users.toLocaleString()} hint={`+${newUsers} this week`} />}
       </div>
 
-      <Link href="/money" className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+      {can("money") && <Link href="/money" className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
         <Stat label="Revenue (30d)" value={formatTotals(money.gross30d.slice(0, 1), { compact: true })} hint={s.modes.stripe === "live" ? "all Stripe accounts" : "sample data"} />
         <Stat label="MRR" value={formatTotals(money.mrr.slice(0, 1), { compact: true })} />
         <Stat label="Overdue invoices" value={money.overdueCount} tone={money.overdueCount ? "high" : "ok"} hint={money.overdueCount ? formatTotals(money.overdue, { compact: true }) : "all paid on time"} />
         <Stat label="Monthly spend" value={formatTotals(money.monthlySpend.slice(0, 1), { compact: true })} hint={`${money.spend.length} subscriptions`} />
-      </Link>
+      </Link>}
 
       <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Link href="/analytics"><Stat label="Visitors (7d)" value={visitors7d.toLocaleString()} hint={s.modes.analytics === "live" ? "Google Analytics" : "sample data"} /></Link>
-        <Link href="/clients"><Stat label="Open pipeline" value={formatTotals(pipeline.slice(0, 1), { compact: true })} hint={`${openDeals.length} deal${openDeals.length === 1 ? "" : "s"}`} /></Link>
-        <Link href="/clients"><Stat label="Follow-ups due" value={followUps} tone={followUps ? "high" : "ok"} hint="today or overdue" /></Link>
-        <Link href="/analytics#reviews"><Stat label="Google rating" value={rating ? rating.toFixed(1) : "—"} hint={s.reviews.length ? `${s.reviews.reduce((n, p) => n + p.reviewCount, 0).toLocaleString()} reviews` : "not connected"} /></Link>
+        {can("analytics") && <Link href="/analytics"><Stat label="Visitors (7d)" value={visitors7d.toLocaleString()} hint={s.modes.analytics === "live" ? "Google Analytics" : "sample data"} /></Link>}
+        {can("clients") && <Link href="/clients"><Stat label="Open pipeline" value={formatTotals(pipeline.slice(0, 1), { compact: true })} hint={`${openDeals.length} deal${openDeals.length === 1 ? "" : "s"}`} /></Link>}
+        {can("clients") && <Link href="/clients"><Stat label="Follow-ups due" value={followUps} tone={followUps ? "high" : "ok"} hint="today or overdue" /></Link>}
+        {can("analytics") && <Link href="/analytics#reviews"><Stat label="Google rating" value={rating ? rating.toFixed(1) : "—"} hint={s.reviews.length ? `${s.reviews.reduce((n, p) => n + p.reviewCount, 0).toLocaleString()} reviews` : "not connected"} /></Link>}
       </div>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-5">
@@ -68,7 +72,7 @@ export default async function Overview() {
         </Card>
 
         <div className="grid content-start gap-6 xl:col-span-2">
-          <Card title="Coming up today" action={<Link href="/agenda" className="text-xs text-accent hover:underline">Agenda →</Link>}>
+          {can("agenda") && <Card title="Coming up today" action={<Link href="/agenda" className="text-xs text-accent hover:underline">Agenda →</Link>}>
             {upcoming.length === 0 ? <Empty>No more meetings today.</Empty> : (
               <ul className="-my-2 divide-y divide-line">
                 {upcoming.slice(0, 5).map((e) => (
@@ -79,9 +83,9 @@ export default async function Overview() {
                 ))}
               </ul>
             )}
-          </Card>
+          </Card>}
 
-          <Card title="Latest notifications" action={<Link href="/notifications" className="text-xs text-accent hover:underline">All →</Link>}>
+          <Card title="Latest notifications" action={can("notifications") ? <Link href="/notifications" className="text-xs text-accent hover:underline">All →</Link> : null}>
             <ul className="-my-2 divide-y divide-line">
               {s.notifications.slice(0, 8).map((n) => (
                 <li key={n.id} className="flex items-start gap-3 py-2.5">
@@ -111,7 +115,7 @@ export default async function Overview() {
                 <div><dt>DBs</dt><dd className="text-lg font-semibold text-ink">{s.databases.filter(is).length}</dd></div>
                 <div><dt>Open</dt><dd className={`text-lg font-semibold ${t.some((x) => x.severity === "critical") ? "text-critical" : "text-ink"}`}>{t.length}</dd></div>
               </dl>
-              {byBusiness.get(b) && (
+              {can("money") && byBusiness.get(b) && (
                 <div className="mt-3 flex justify-between border-t border-line pt-3 text-xs text-muted">
                   <span>Revenue 30d <span className="text-ink tabular-nums">{formatTotals(byBusiness.get(b)!.revenue, { compact: true })}</span></span>
                   <span>Spend <span className="text-ink tabular-nums">{formatTotals(byBusiness.get(b)!.spend, { compact: true })}</span>/mo</span>
@@ -133,6 +137,7 @@ export default async function Overview() {
         })}
       </div>
 
+      {isFullOwner(s.user) && <>
       <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wider text-muted">Connections</h2>
       <div className="flex flex-wrap gap-2">
         {s.platforms.filter((p) => p.mode).map((p) => (
@@ -141,6 +146,7 @@ export default async function Overview() {
           </Link>
         ))}
       </div>
+      </>}
     </>
   );
 }

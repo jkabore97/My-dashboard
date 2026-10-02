@@ -18,7 +18,7 @@ interface GraphMessage {
 export const outlookMailbox = (account: string) => `ms:${account}`;
 
 /** Pure: Graph messages → the shared EmailMessage shape. */
-export function toEmails(account: { account: string; label: string }, messages: GraphMessage[]): EmailMessage[] {
+export function toEmails(account: { account: string; label: string; business?: string | null }, messages: GraphMessage[]): EmailMessage[] {
   return messages.map((m) => {
     const from = m.from?.emailAddress ? `${m.from.emailAddress.name ?? ""} <${m.from.emailAddress.address ?? ""}>`.trim() : "";
     const labels = m.importance === "high" ? ["IMPORTANT"] : [];
@@ -31,6 +31,7 @@ export function toEmails(account: { account: string; label: string }, messages: 
       unread: !m.isRead,
       account: account.label,
       mailbox: outlookMailbox(account.account),
+      ...(account.business ? { business: account.business } : {}),
       labels,
       severity: classifyEmail(from, m.subject ?? "", m.bodyPreview, labels),
       url: m.webLink,

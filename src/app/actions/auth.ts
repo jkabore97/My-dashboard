@@ -6,6 +6,7 @@ import { safeEqual } from "@/lib/server/crypto";
 import { attempt, loginLimit, succeeded, twoFactorLimit } from "@/lib/server/limits";
 import { audit } from "@/lib/server/store/audit";
 import { bumpSessionVersion, getUser, resetTotp, setRecoveryCodes } from "@/lib/server/store/users";
+import { acceptInvite, hashPassword, inviteByToken, MIN_PASSWORD, memberPasswordHash, verifyPassword } from "@/lib/server/store/team";
 import { confirmEnrollment, consumeFinishToken, createFinishToken, newRecoveryCodes, verifySecondFactor, verifyTotpOnly } from "@/lib/server/twofactor";
 
 export interface FormState {
@@ -30,7 +31,9 @@ export async function passwordLogin(prev: FormState, form: FormData): Promise<Fo
   return guarded(() => passwordLoginInner(prev, form));
 }
 
-async function passwordLoginInner(_prev: FormState, form: FormData): Promise<FormState> {
+async function passwordLoginInner(prev: FormState, form: FormData): Promise<FormState> {
+  const email = String(form.get("email") ?? "").trim().toLowerCase().slice(0, 200);
+  if (email && email !== ownerIdentity()) return memberLogin(email, String(form.get("password") ?? ""));
   const password = process.env.DASHBOARD_PASSWORD;
   if (!passwordSignInEnabled() || !password) return { error: "Password sign-in is disabled." };
   const ip = await clientIp();
@@ -44,6 +47,39 @@ async function passwordLoginInner(_prev: FormState, form: FormData): Promise<For
   await succeeded(limit);
   await audit(ownerIdentity(), "login.password.first_factor", null, null, ip);
   redirect(await completeFirstFactor(ownerIdentity()));
+}
+
+/** Team members sign in with their email and the password they chose from their invite. */
+async function memberLogin(email: string, given: string): Promise<FormState> {
+  const ip = await clientIp();
+  const limit = loginLimit(ip, email);
+  if (!(await attempt(limit, email, ip))) return { error: "Too many attempts. Wait a while and try again." };
+  const ok = await verifyPassword(given.slice(0, 1000), await memberPasswordHash(email));
+  if (!ok) {
+    await audit(email, "login.password.failed", null, null, ip);
+    return { error: "Wrong email or password." };
+  }
+  await succeeded(limit);
+  await audit(email, "login.password.first_factor", null, null, ip);
+  redirect(await completeFirstFactor(email));
+}
+
+/** Accepting an invite: the member picks a password, then signs in (and sets up 2FA) as usual. */
+export async function acceptInviteAction(_prev: FormState, form: FormData): Promise<FormState> {
+  return guarded(async () => {
+    const token = String(form.get("token") ?? "");
+    const password = String(form.get("password") ?? "");
+    const info = await inviteByToken(token);
+    if (!info || info.status !== "ok") return { error: "This invite link has expired or was already used. Ask for a new one." };
+    if (password.length < MIN_PASSWORD) return { error: `Use at least ${MIN_PASSWORD} characters.` };
+    if (password.length > 200) return { error: "That password is too long." };
+    if (password !== String(form.get("confirm") ?? "")) return { error: "The two passwords don't match." };
+    if (password.toLowerCase().includes(info.email.split("@")[0].toLowerCase())) return { error: "Don't use your email name in the password." };
+    const email = await acceptInvite(token, await hashPassword(password));
+    if (!email) return { error: "This invite link has expired or was already used. Ask for a new one." };
+    await audit(email, "team.invite_accepted", null, null, await clientIp());
+    redirect(await completeFirstFactor(email));
+  });
 }
 
 export async function verifyTwoFactor(prev: FormState, form: FormData): Promise<FormState> {

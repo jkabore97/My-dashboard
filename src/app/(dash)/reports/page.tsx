@@ -1,16 +1,17 @@
 import Link from "next/link";
-import { requireUser } from "@/lib/server/auth";
+import { requireSection } from "@/lib/server/auth";
 import { emailEnabled } from "@/lib/server/notify";
 import { briefHour, knownBusinesses, weeklyReport } from "@/lib/server/reports";
 import { addDays, formatDate, isDate, today } from "@/lib/dates";
 import { formatTotals } from "@/lib/money";
+import { inBusiness, isFullOwner } from "@/lib/access";
 import { Card, Empty, PageHeader, Stat } from "@/components/ui";
 import { ReportButtons } from "@/components/ReportButtons";
 
 export default async function ReportsPage({ searchParams }: { searchParams: Promise<{ business?: string; to?: string }> }) {
-  await requireUser();
+  const user = await requireSection("reports");
   const sp = await searchParams;
-  const businesses = await knownBusinesses();
+  const businesses = (await knownBusinesses()).filter((b) => inBusiness(user, b));
   const business = sp.business && businesses.includes(sp.business) ? sp.business : businesses[0];
   const latest = addDays(today(), -1);
   const to = sp.to && isDate(sp.to) && sp.to <= latest ? sp.to : latest;
@@ -39,7 +40,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
                 <h2 className="text-xl font-semibold">{r.business}</h2>
                 <p className="text-sm text-muted">{formatDate(r.from)} – {formatDate(r.to)}</p>
               </div>
-              <ReportButtons business={r.business} to={r.to} email={emailEnabled()} />
+              <ReportButtons business={r.business} to={r.to} email={emailEnabled()} brief={isFullOwner(user)} />
             </div>
             <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
               <Stat label="Revenue" value={r.revenue.length ? formatTotals(r.revenue) : "—"} hint={change !== null ? `${change > 0 ? "+" : ""}${change}% vs previous week` : r.revenuePrev.length ? `Previous: ${formatTotals(r.revenuePrev)}` : undefined} />

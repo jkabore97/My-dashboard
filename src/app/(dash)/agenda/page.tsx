@@ -1,3 +1,4 @@
+import { requireSection } from "@/lib/server/auth";
 import { Video } from "lucide-react";
 import { getDashboard } from "@/lib/server/dashboard";
 import { businessTimeZone, today } from "@/lib/dates";
@@ -6,6 +7,7 @@ import type { CalendarEvent } from "@/lib/types";
 import { eventDay } from "@/lib/agenda";
 
 export default async function AgendaPage() {
+  await requireSection("agenda");
   const d = await getDashboard();
   const tz = businessTimeZone();
   const now = today(tz);

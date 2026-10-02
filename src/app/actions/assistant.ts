@@ -1,7 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireUser } from "@/lib/server/auth";
+import { requireSection, requireUser } from "@/lib/server/auth";
+import { canSeeTask } from "@/lib/access";
 import { AiRefusal, aiEnabled, askDashboard, draftReply } from "@/lib/server/ai";
 import { buildAskContext } from "@/lib/server/ask-context";
 import { getDashboard } from "@/lib/server/dashboard";
@@ -28,7 +29,7 @@ export interface AskState {
 }
 
 export async function askAction(_prev: AskState, form: FormData): Promise<AskState> {
-  const user = await requireUser();
+  const user = await requireSection("ask");
   const question = String(form.get("question") ?? "").trim().slice(0, 1000);
   if (!question) return { error: "Type a question." };
   if (!aiEnabled()) return { question, error: "Set ANTHROPIC_API_KEY to use Ask." };
@@ -43,7 +44,7 @@ export async function askAction(_prev: AskState, form: FormData): Promise<AskSta
 }
 
 export async function draftReplyAction(emailId: string): Promise<{ draft?: string; error?: string }> {
-  const user = await requireUser();
+  const user = await requireSection("inbox");
   if (!aiEnabled()) return { error: "Set ANTHROPIC_API_KEY to draft replies." };
   const email = (await getDashboard()).emails.find((e) => e.id === emailId);
   if (!email) return { error: "That message is no longer in the inbox." };
@@ -61,7 +62,7 @@ export async function draftReplyAction(emailId: string): Promise<{ draft?: strin
 export async function runFixAction(taskId: string): Promise<{ ok?: string; error?: string }> {
   const user = await requireUser();
   const task = await getTask(taskId);
-  const fix = task && task.status === "open" ? fixForTask(task.sourceKey, task.url ?? null) : null;
+  const fix = task && task.status === "open" && canSeeTask(user, user.email, task) ? fixForTask(task.sourceKey, task.url ?? null) : null;
   if (!task || !fix) return { error: "There's no one-click fix for this task any more." };
   try {
     const ok = await runFix(fix);

@@ -144,9 +144,9 @@ export const collect = cache(async () => {
 
   const live = (m: SourceMode) => m === "live";
   const notifications: (Notification & { live: boolean })[] = [
-    ...emails.data.map((e) => ({ id: `mail:${e.id}`, source: `${e.mailbox.startsWith("ms:") ? "Outlook" : "Email"} · ${e.account}`, title: e.subject, body: e.from, at: e.receivedAt, severity: e.severity, url: e.url, live: live(emails.mode) })),
+    ...emails.data.map((e) => ({ id: `mail:${e.id}`, source: `${e.mailbox.startsWith("ms:") ? "Outlook" : "Email"} · ${e.account}`, title: e.subject, body: e.from, at: e.receivedAt, severity: e.severity, url: e.url, business: e.business, live: live(emails.mode) })),
     ...reviews.data.flatMap((p) =>
-      p.reviews.map((r) => ({ id: `review:${r.id}`, source: `Google reviews · ${p.name}`, title: `New ${r.rating}★ review from ${r.author}`, body: r.text.slice(0, 160), at: r.publishedAt, severity: r.rating <= 3 ? ("high" as const) : ("low" as const), url: p.url ?? undefined, live: live(reviews.mode) })),
+      p.reviews.map((r) => ({ id: `review:${r.id}`, source: `Google reviews · ${p.name}`, title: `New ${r.rating}★ review from ${r.author}`, body: r.text.slice(0, 160), at: r.publishedAt, severity: r.rating <= 3 ? ("high" as const) : ("low" as const), url: p.url ?? undefined, business: p.business, live: live(reviews.mode) })),
     ),
     ...ghNotes.data.map((n) => ({ ...n, live: live(ghNotes.mode) })),
     ...hosting
@@ -158,6 +158,7 @@ export const collect = cache(async () => {
         at: h.lastDeployAt!,
         severity: h.lastDeployState === "error" ? ("critical" as const) : ("low" as const),
         url: h.url ?? undefined,
+        business: h.business,
         live: live(h.provider === "vercel" ? vercel.mode : workers.mode),
       })),
   ].sort((a, b) => b.at.localeCompare(a.at));

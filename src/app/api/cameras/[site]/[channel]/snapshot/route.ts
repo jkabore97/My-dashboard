@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { isapi } from "@/lib/connectors/hikvision";
-import { requireUser } from "@/lib/server/auth";
+import { requireSection } from "@/lib/server/auth";
+import { inBusiness } from "@/lib/access";
 import { hikvisionSite } from "@/lib/server/site-credentials";
 import { errorMessage } from "@/lib/source";
 
@@ -10,12 +11,12 @@ import { errorMessage } from "@/lib/source";
 const SAFE_TYPES = new Set(["image/jpeg", "image/png"]);
 
 export async function GET(_req: Request, ctx: { params: Promise<{ site: string; channel: string }> }) {
-  await requireUser();
+  const user = await requireSection("cameras");
   const { site: siteId, channel } = await ctx.params;
   const ch = Number(channel);
   if (!Number.isInteger(ch) || ch < 1 || ch > 256) return NextResponse.json({ error: "bad channel" }, { status: 400 });
   const site = await hikvisionSite(decodeURIComponent(siteId));
-  if (!site) return NextResponse.json({ error: "unknown site" }, { status: 404 });
+  if (!site || !inBusiness(user, site.business)) return NextResponse.json({ error: "unknown site" }, { status: 404 });
   try {
     // Sub-stream (x02) is smaller and quicker; fall back to the main stream.
     let res = await isapi(site, `/ISAPI/Streaming/channels/${ch}02/picture`, "image/jpeg");

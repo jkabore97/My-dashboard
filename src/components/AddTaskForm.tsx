@@ -7,7 +7,7 @@ import { addTaskAction } from "@/app/actions/tasks";
 
 const input = "rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent";
 
-export function AddTaskForm({ businesses, defaultBusiness }: { businesses: string[]; defaultBusiness?: string }) {
+export function AddTaskForm({ businesses, defaultBusiness, people = [] }: { businesses: string[]; defaultBusiness?: string; people?: { email: string; name: string }[] }) {
   const [state, action, pending] = useFormState(addTaskAction, {});
   const [open, setOpen] = useState(false);
   const form = useRef<HTMLFormElement>(null);
@@ -33,7 +33,13 @@ export function AddTaskForm({ businesses, defaultBusiness }: { businesses: strin
       </select>
       <input name="business" list="add-biz" defaultValue={defaultBusiness} placeholder="Business" maxLength={80} className={`${input} sm:col-span-2`} />
       <datalist id="add-biz">{businesses.map((b) => <option key={b} value={b} />)}</datalist>
-      <input name="url" type="url" placeholder="Link (optional)" className={`${input} sm:col-span-3`} />
+      <input name="url" type="url" placeholder="Link (optional)" className={`${input} ${people.length ? "sm:col-span-2" : "sm:col-span-3"}`} />
+      {people.length > 0 && (
+        <select name="assignee" defaultValue="" className={`${input} sm:col-span-1`} aria-label="Assign to">
+          <option value="">Unassigned</option>
+          {people.map((p) => <option key={p.email} value={p.email}>{p.name}</option>)}
+        </select>
+      )}
       <input name="detail" placeholder="Notes (optional)" maxLength={500} className={`${input} sm:col-span-6`} />
       <div className="flex items-center gap-3 sm:col-span-6">
         <button disabled={pending} className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-bg hover:opacity-90 disabled:opacity-50">{pending ? "Adding…" : "Add task"}</button>

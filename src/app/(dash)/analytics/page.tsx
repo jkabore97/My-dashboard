@@ -1,3 +1,4 @@
+import { requireSection } from "@/lib/server/auth";
 import Link from "next/link";
 import { Star } from "lucide-react";
 import { getDashboard } from "@/lib/server/dashboard";
@@ -26,6 +27,7 @@ function Change({ points }: { points: DailyPoint[] }) {
 }
 
 export default async function AnalyticsPage({ searchParams }: { searchParams: Promise<{ site?: string }> }) {
+  await requireSection("analytics");
   const { site } = await searchParams;
   const d = await getDashboard();
   const { sites } = await getConfig();

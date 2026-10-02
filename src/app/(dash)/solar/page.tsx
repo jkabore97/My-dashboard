@@ -1,3 +1,4 @@
+import { requireSection } from "@/lib/server/auth";
 import Link from "next/link";
 import { BatteryCharging, Home, PlugZap, Sun } from "lucide-react";
 import { getDashboard } from "@/lib/server/dashboard";
@@ -8,6 +9,7 @@ import { LineChart } from "@/components/LineChart";
 const kw = (w: number | null) => (w === null ? "—" : Math.abs(w) >= 1000 ? `${(w / 1000).toFixed(1)} kW` : `${Math.round(w)} W`);
 
 export default async function SolarPage() {
+  await requireSection("solar");
   const d = await getDashboard();
   const tz = businessTimeZone();
   const stations = d.solar;

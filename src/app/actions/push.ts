@@ -2,7 +2,7 @@
 
 import { headers } from "next/headers";
 import { requireUser } from "@/lib/server/auth";
-import { pushAll, pushEnabled, removeSubscription, saveSubscription, validSubscription } from "@/lib/server/notify";
+import { pushTo, pushEnabled, removeSubscription, saveSubscription, validSubscription } from "@/lib/server/notify";
 import { audit } from "@/lib/server/store/audit";
 import { errorMessage } from "@/lib/source";
 
@@ -22,9 +22,9 @@ export async function unsubscribePush(endpoint: string): Promise<void> {
 }
 
 export async function testPush(): Promise<{ ok?: string; error?: string }> {
-  await requireUser();
+  const user = await requireUser();
   try {
-    const r = await pushAll({ title: "Kaj Command Center", body: "Notifications are working. Critical items will show up here.", url: "/", tag: "test" });
+    const r = await pushTo(user.email, { title: "Kaj Command Center", body: "Notifications are working. Critical items will show up here.", url: "/", tag: "test" });
     return r.sent ? { ok: `Sent to ${r.sent} device${r.sent > 1 ? "s" : ""}.` } : { error: r.errors[0] ?? "No device is subscribed yet." };
   } catch (err) {
     return { error: errorMessage(err) };

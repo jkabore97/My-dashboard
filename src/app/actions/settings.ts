@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireUser } from "@/lib/server/auth";
+import { requireOwner } from "@/lib/server/auth";
 import { formatBusinessRules, formatSites, parseBusinessRules, parseSites } from "@/lib/server/config";
 import { encrypt, randomToken, sha256Hex } from "@/lib/server/crypto";
 import { audit } from "@/lib/server/store/audit";
@@ -18,7 +18,7 @@ export interface SettingsState {
 const DOMAIN = /^(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 
 export async function saveBusinessRules(_prev: SettingsState, form: FormData): Promise<SettingsState> {
-  const user = await requireUser();
+  const user = await requireOwner();
   const text = String(form.get("rules") ?? "").slice(0, 10_000);
   const rules = parseBusinessRules(text, /\n/);
   await setSetting("business_rules", rules);
@@ -29,7 +29,7 @@ export async function saveBusinessRules(_prev: SettingsState, form: FormData): P
 }
 
 export async function saveWebsites(_prev: SettingsState, form: FormData): Promise<SettingsState> {
-  const user = await requireUser();
+  const user = await requireOwner();
   const sites = parseSites(String(form.get("sites") ?? "").slice(0, 10_000), /\n/);
   const bad = sites.find((s) => !DOMAIN.test(s.domain));
   if (bad) return { error: `"${bad.domain}" doesn't look like a domain name.` };
@@ -45,7 +45,7 @@ export async function saveWebsites(_prev: SettingsState, form: FormData): Promis
 const PROVIDERS: WebhookProvider[] = ["github", "vercel", "stripe", "supabase", "hikvision"];
 
 export async function saveWebhookSecret(_prev: SettingsState, form: FormData): Promise<SettingsState> {
-  const user = await requireUser();
+  const user = await requireOwner();
   const provider = String(form.get("provider")) as WebhookProvider;
   if (!PROVIDERS.includes(provider)) return { error: "Unknown provider." };
   const generate = form.get("generate") === "1";
@@ -63,7 +63,7 @@ const STATION = /^[a-z0-9][a-z0-9_-]{0,39}$/;
 
 /** Solar rules (daylight window, thresholds) and which business each station belongs to. */
 export async function saveSolarSettings(_prev: SettingsState, form: FormData): Promise<SettingsState> {
-  const user = await requireUser();
+  const user = await requireOwner();
   const int = (name: string, min: number, max: number) => {
     const n = Number(form.get(name));
     return Number.isInteger(n) && n >= min && n <= max ? n : null;
@@ -91,7 +91,7 @@ export async function saveSolarSettings(_prev: SettingsState, form: FormData): P
 
 /** Creates a new ingest token (replacing the old one). Only its hash is stored. */
 export async function generateSolarToken(): Promise<SettingsState> {
-  const user = await requireUser();
+  const user = await requireOwner();
   const token = `sol_${randomToken(24)}`;
   await setSetting("solar_ingest_token_hash", sha256Hex(token));
   await audit(user.email, "settings.solar_token", null, null);

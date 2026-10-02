@@ -5,7 +5,9 @@ import { hourIn } from "../solar";
 import { env, errorMessage } from "../source";
 import { getConfig } from "./config";
 import { getDb } from "./db";
-import { emailEnabled, pushAll, pushEnabled, sendEmail } from "./notify";
+import { emailEnabled, pushEnabled, pushTo, sendEmail } from "./notify";
+import { people } from "./people";
+import { isFullOwner } from "../access";
 import { claimInterval, expireInterval, getSetting, setSetting } from "./store/settings";
 import { snapshotHistory } from "./store/snapshots";
 import { listTasks } from "./store/tasks";
@@ -111,7 +113,7 @@ export async function sendScheduledReports(c: Collected, now = new Date()): Prom
     const done = await sendOnce(`job:brief:${day}`, async () => {
       const brief = await buildMorningBrief(c);
       if (emailEnabled()) await sendEmail(brief.subject, brief.html, brief.text);
-      if (pushEnabled()) await pushAll({ title: "Morning brief", body: brief.subject.replace(/^Morning brief · [^·]+· /, ""), url: "/", tag: "brief" });
+      if (pushEnabled()) await pushTo((await people()).filter(isFullOwner).map((p) => p.email), { title: "Morning brief", body: brief.subject.replace(/^Morning brief · [^·]+· /, ""), url: "/", tag: "brief" });
     });
     if (done) sent.push("brief");
   } catch (err) {

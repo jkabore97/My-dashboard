@@ -3,11 +3,16 @@ import { redirect } from "next/navigation";
 import { env } from "../source";
 import { PENDING_TTL_SECONDS, SESSION_COOKIE, SESSION_TTL_SECONDS, sessionSecret, signSession, verifySession, type SessionPayload } from "../session";
 import { isProduction } from "./db";
-import { ensureUser, getUser } from "./store/users";
+import { ensureUser, getUser, type UserRow } from "./store/users";
+import { canSee, inBusiness, isFullOwner, OWNER_ACCESS, type Access, type Role, type Section } from "../access";
 
-export interface CurrentUser {
+export interface CurrentUser extends Access {
   email: string;
   hasTotp: boolean;
+  /** Display name (team members), else the email. */
+  name: string;
+  /** True for owners configured in the environment (they can't be edited from the Team page). */
+  envOwner: boolean;
 }
 
 /** Identity used for password sign-in. Set OWNER_EMAIL to share 2FA with Google sign-in. */
@@ -19,15 +24,33 @@ export const allowedEmails = () =>
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean);
 
-export function isAllowed(email: string) {
+/** Owners configured in the environment: the password identity and ALLOWED_EMAILS. */
+export function isEnvOwner(email: string) {
   const e = email.toLowerCase();
   return (!!env("DASHBOARD_PASSWORD") && e === ownerIdentity()) || allowedEmails().includes(e);
+}
+
+/** Whether a user row may sign in: an environment owner, or an active team member. */
+export const rowAllowed = (row: Pick<UserRow, "email" | "role" | "disabled_at"> | null, email: string) =>
+  isEnvOwner(email) || (!!row?.role && !row.disabled_at);
+
+/** Environment owner or active team member. */
+export async function isAllowed(email: string): Promise<boolean> {
+  if (isEnvOwner(email)) return true;
+  return rowAllowed(await getUser(email.toLowerCase()), email);
+}
+
+/** Role and businesses for a signed-in row. Environment owners always get everything. */
+export function accessFor(row: Pick<UserRow, "email" | "role" | "businesses">): Access {
+  if (isEnvOwner(row.email)) return OWNER_ACCESS;
+  return { role: (row.role ?? "owner") as Role, businesses: Array.isArray(row.businesses) ? row.businesses : null };
 }
 
 /** 2FA is mandatory unless explicitly disabled with REQUIRE_2FA=false. */
 export const require2fa = () => env("REQUIRE_2FA") !== "false";
 
-export const googleSignInEnabled = () => !!(env("GOOGLE_CLIENT_ID") && env("GOOGLE_CLIENT_SECRET") && allowedEmails().length);
+/** Google sign-in works for ALLOWED_EMAILS and for invited team members. */
+export const googleSignInEnabled = () => !!(env("GOOGLE_CLIENT_ID") && env("GOOGLE_CLIENT_SECRET"));
 export const passwordSignInEnabled = () => !!env("DASHBOARD_PASSWORD");
 
 /** Whether this deployment can know a caller's real IP (see pickClientIp). */
@@ -98,11 +121,11 @@ export async function clearSession() {
  */
 export async function currentUser(): Promise<CurrentUser | null> {
   const s = await readSession();
-  if (!s || s.stage !== "full" || !isAllowed(s.sub)) return null;
+  if (!s || s.stage !== "full") return null;
   const user = await getUser(s.sub);
-  if (!user || user.session_version !== s.sv) return null;
+  if (!user || !rowAllowed(user, s.sub) || user.session_version !== s.sv) return null;
   if (require2fa() && !user.totp_enabled_at) return null;
-  return { email: s.sub, hasTotp: !!user.totp_enabled_at };
+  return { email: s.sub, hasTotp: !!user.totp_enabled_at, name: user.name || s.sub, envOwner: isEnvOwner(s.sub), ...accessFor(user) };
 }
 
 export async function requireUser(): Promise<CurrentUser> {
@@ -111,12 +134,26 @@ export async function requireUser(): Promise<CurrentUser> {
   return u;
 }
 
+/** For pages and actions: the signed-in user, if their role includes this section. Others go to the Overview. */
+export async function requireSection(section: Section): Promise<CurrentUser> {
+  const u = await requireUser();
+  if (!canSee(u, section)) redirect("/?denied=1");
+  return u;
+}
+
+/** Connections, settings and the team: owners who see every business. */
+export async function requireOwner(): Promise<CurrentUser> {
+  const u = await requireUser();
+  if (!isFullOwner(u)) redirect("/?denied=1");
+  return u;
+}
+
 /** The first-factor-passed identity during 2FA (pending session). */
 export async function pendingUser(): Promise<string | null> {
   const s = await readSession();
-  if (!s || s.stage !== "pending" || !isAllowed(s.sub)) return null;
+  if (!s || s.stage !== "pending") return null;
   const user = await getUser(s.sub);
-  return user && user.session_version === s.sv ? s.sub : null;
+  return user && rowAllowed(user, s.sub) && user.session_version === s.sv ? s.sub : null;
 }
 
 /** After password or Google sign-in: decide whether 2FA is owed. Returns where to go next. */
@@ -137,8 +174,22 @@ export async function completeFirstFactor(email: string): Promise<string> {
 /** Who may enroll in 2FA: someone mid-login without it, or a signed-in user turning it on. */
 export async function enrollingUser(): Promise<string | null> {
   const s = await readSession();
-  if (!s || !isAllowed(s.sub)) return null;
+  if (!s) return null;
   const u = await getUser(s.sub);
-  if (!u || u.totp_enabled_at || u.session_version !== s.sv) return null;
+  if (!u || !rowAllowed(u, s.sub) || u.totp_enabled_at || u.session_version !== s.sv) return null;
   return s.sub;
+}
+
+/**
+ * For actions that change a business's records: the user must have the
+ * section, and both the record's current business (when it exists) and the
+ * business it's being saved under must be theirs. Returns an error message,
+ * or null when allowed.
+ */
+export function businessDenied(u: Access, ...businesses: (string | null | undefined)[]): string | null {
+  for (const b of businesses) {
+    if (b === undefined) continue;
+    if (!inBusiness(u, b)) return u.businesses?.length ? `You can only work with ${u.businesses.join(", ")}.` : "You don't have access to that business.";
+  }
+  return null;
 }

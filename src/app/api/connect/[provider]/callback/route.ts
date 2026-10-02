@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { currentUser } from "@/lib/server/auth";
+import { isFullOwner } from "@/lib/access";
 import { auditConnection, isOAuthProvider, oauthConfigured, PROVIDER_NAMES } from "@/lib/server/connect";
 import { appUrl, consumeOAuthState, getAuthed, postForm } from "@/lib/server/oauth";
 import { saveConnection } from "@/lib/server/store/connections";
@@ -13,6 +14,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ provider: strin
   const back = (q: string) => NextResponse.redirect(new URL(`/platforms?${q}`, req.url));
   const user = await currentUser();
   if (!user) return NextResponse.redirect(new URL("/login", req.url));
+  if (!isFullOwner(user)) return NextResponse.redirect(new URL("/?denied=1", req.url));
   if (!isOAuthProvider(provider) || !oauthConfigured(provider)) return back("error=Unknown+provider");
   if (!(await consumeOAuthState(`connect_${provider}`, url.searchParams.get("state")))) return back("error=Sign-in+expired+or+was+tampered+with.+Try+again.");
   const code = url.searchParams.get("code");

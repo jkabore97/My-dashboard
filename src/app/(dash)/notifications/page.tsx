@@ -1,7 +1,9 @@
+import { requireSection } from "@/lib/server/auth";
 import { getDashboard } from "@/lib/server/dashboard";
 import { Card, Empty, PageHeader, SeverityBadge, timeAgo } from "@/components/ui";
 
 export default async function NotificationsPage() {
+  await requireSection("notifications");
   const s = await getDashboard();
   return (
     <>

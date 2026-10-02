@@ -1,3 +1,4 @@
+import { requireSection } from "@/lib/server/auth";
 import { getDashboard } from "@/lib/server/dashboard";
 import { formatDate, relativeDays, today } from "@/lib/dates";
 import { formatMoney, formatTotals, toInputAmount } from "@/lib/money";
@@ -7,6 +8,7 @@ import { RevenueBars } from "@/components/RevenueBars";
 import { InvoiceActions, InvoiceForm, ReopenInvoice, SubscriptionForm, SubscriptionRowActions } from "@/components/records";
 
 export default async function MoneyPage() {
+  await requireSection("money");
   const d = await getDashboard();
   const now = today();
   const samples = { samples: d.modes.stripe !== "live" };

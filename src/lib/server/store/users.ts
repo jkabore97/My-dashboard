@@ -8,6 +8,10 @@ export interface UserRow {
   totp_last_step: string | number | null;
   recovery_codes: string[];
   session_version: number;
+  role: string | null;
+  businesses: string[] | null;
+  name: string | null;
+  disabled_at: Date | string | null;
 }
 
 export async function getUser(email: string): Promise<UserRow | null> {

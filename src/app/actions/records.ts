@@ -1,7 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireUser } from "@/lib/server/auth";
+import { businessDenied, requireOwner, requireSection } from "@/lib/server/auth";
+import { rowBusiness, type OwnedTable } from "@/lib/server/store/ownership";
 import { getConfig, parseDomainList } from "@/lib/server/config";
 import { refreshDomainChecks } from "@/lib/server/domains";
 import { audit } from "@/lib/server/store/audit";
@@ -27,6 +28,12 @@ async function refresh() {
   revalidatePath("/", "layout");
 }
 
+/** May this user change that record? (Its section, and its current business.) */
+async function canChange(section: "money" | "deadlines", table: OwnedTable, id: string) {
+  const user = await requireSection(section);
+  return { user, ok: !businessDenied(user, await rowBusiness(table, id)) };
+}
+
 const decimalsNote = (currency: string) => ` (${currency.toUpperCase()} uses ${decimals(currency) || "no"} decimals)`;
 
 function currencyOf(f: FormData) {
@@ -43,7 +50,9 @@ function urlOf(f: FormData): string | null | false {
 // ─── Invoices ────────────────────────────────────────────────────────────────
 
 export async function addInvoiceAction(_prev: RecordState, f: FormData): Promise<RecordState> {
-  const user = await requireUser();
+  const user = await requireSection("money");
+  const denied = businessDenied(user, optional(f, "business", 80));
+  if (denied) return { error: denied };
   const client = text(f, "client", 120);
   const currency = currencyOf(f);
   const dueOn = text(f, "dueOn", 10);
@@ -61,7 +70,8 @@ export async function addInvoiceAction(_prev: RecordState, f: FormData): Promise
 }
 
 export async function markInvoiceAction(id: string, status: "paid" | "open" | "void") {
-  const user = await requireUser();
+  const { user, ok } = await canChange("money", "invoices", id);
+  if (!ok) return;
   if (!["paid", "open", "void"].includes(status)) return;
   const row = await setInvoiceStatus(id, status, today());
   if (row) await audit(user.email, `invoice.${status}`, row.client, { id });
@@ -69,7 +79,8 @@ export async function markInvoiceAction(id: string, status: "paid" | "open" | "v
 }
 
 export async function deleteInvoiceAction(id: string) {
-  const user = await requireUser();
+  const { user, ok } = await canChange("money", "invoices", id);
+  if (!ok) return;
   const row = await deleteInvoice(id);
   if (row) await audit(user.email, "invoice.delete", row.client, { id });
   await refresh();
@@ -78,8 +89,10 @@ export async function deleteInvoiceAction(id: string) {
 // ─── Subscriptions ───────────────────────────────────────────────────────────
 
 export async function saveSubscriptionAction(_prev: RecordState, f: FormData): Promise<RecordState> {
-  const user = await requireUser();
+  const user = await requireSection("money");
   const id = optional(f, "id", 36);
+  const denied = businessDenied(user, optional(f, "business", 80), id ? await rowBusiness("subscriptions", id) : undefined);
+  if (denied) return { error: denied };
   const vendor = text(f, "vendor", 80);
   const currency = currencyOf(f);
   const interval = text(f, "interval", 5);
@@ -100,14 +113,16 @@ export async function saveSubscriptionAction(_prev: RecordState, f: FormData): P
 }
 
 export async function setSubscriptionActiveAction(id: string, active: boolean) {
-  const user = await requireUser();
+  const { user, ok } = await canChange("money", "subscriptions", id);
+  if (!ok) return;
   const row = await setSubscriptionActive(id, active);
   if (row) await audit(user.email, active ? "subscription.reactivate" : "subscription.deactivate", row.vendor, { id });
   await refresh();
 }
 
 export async function deleteSubscriptionAction(id: string) {
-  const user = await requireUser();
+  const { user, ok } = await canChange("money", "subscriptions", id);
+  if (!ok) return;
   const row = await deleteSubscription(id);
   if (row) await audit(user.email, "subscription.delete", row.vendor, { id });
   await refresh();
@@ -119,8 +134,10 @@ const CATEGORIES: DeadlineCategory[] = ["tax", "filing", "license", "insurance",
 const RECURRENCES: Recurrence[] = ["none", "monthly", "quarterly", "yearly"];
 
 export async function saveDeadlineAction(_prev: RecordState, f: FormData): Promise<RecordState> {
-  const user = await requireUser();
+  const user = await requireSection("deadlines");
   const id = optional(f, "id", 36);
+  const denied = businessDenied(user, optional(f, "business", 80), id ? await rowBusiness("deadlines", id) : undefined);
+  if (denied) return { error: denied };
   const title = text(f, "title", 160);
   const dueOn = text(f, "dueOn", 10);
   const category = text(f, "category", 20) as DeadlineCategory;
@@ -141,21 +158,24 @@ export async function saveDeadlineAction(_prev: RecordState, f: FormData): Promi
 }
 
 export async function completeDeadlineAction(id: string, dueOn: string) {
-  const user = await requireUser();
+  const { user, ok } = await canChange("deadlines", "deadlines", id);
+  if (!ok) return;
   const done = await completeDeadline(id, today(), dueOn);
   if (done) await audit(user.email, "deadline.complete", done.title, { id, dueOn, next: done.next });
   await refresh();
 }
 
 export async function reopenDeadlineAction(id: string) {
-  const user = await requireUser();
+  const { user, ok } = await canChange("deadlines", "deadlines", id);
+  if (!ok) return;
   const row = await reopenDeadline(id);
   if (row) await audit(user.email, "deadline.reopen", row.title, { id });
   await refresh();
 }
 
 export async function deleteDeadlineAction(id: string) {
-  const user = await requireUser();
+  const { user, ok } = await canChange("deadlines", "deadlines", id);
+  if (!ok) return;
   const row = await deleteDeadline(id);
   if (row) await audit(user.email, "deadline.delete", row.title, { id });
   await refresh();
@@ -167,7 +187,7 @@ const DOMAIN = /^(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}
 const SELECTOR = /^[a-z0-9]([a-z0-9._-]{0,62})$/i;
 
 export async function saveDomainSettingsAction(_prev: RecordState, f: FormData): Promise<RecordState> {
-  const user = await requireUser();
+  const user = await requireOwner();
   const domains = parseDomainList(text(f, "domains", 5000));
   const bad = domains.find((d) => !DOMAIN.test(d));
   if (bad) return { error: `"${bad}" doesn't look like a domain name.` };
@@ -183,7 +203,7 @@ export async function saveDomainSettingsAction(_prev: RecordState, f: FormData):
 }
 
 export async function checkDomainsNowAction(): Promise<RecordState> {
-  const user = await requireUser();
+  const user = await requireSection("domains");
   const { domains, dkimSelectors } = await getConfig();
   // Forced checks still wait a minute per domain, so repeated clicks can't hammer registries.
   const n = await refreshDomainChecks(domains, dkimSelectors, { force: true, deadline: Date.now() + 30_000 });
@@ -195,7 +215,7 @@ export async function checkDomainsNowAction(): Promise<RecordState> {
 // ─── Security checklist ──────────────────────────────────────────────────────
 
 export async function confirmChecklistAction(itemId: string, confirmed: boolean) {
-  const user = await requireUser();
+  const user = await requireOwner();
   if (!ACCOUNT_CHECKLIST.some((i) => i.id === itemId)) return;
   const current = await getSetting<Record<string, string>>("security_checklist", {});
   const next = { ...current };

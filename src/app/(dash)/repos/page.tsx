@@ -1,8 +1,10 @@
+import { requireSection } from "@/lib/server/auth";
 import { Lock } from "lucide-react";
 import { getDashboard } from "@/lib/server/dashboard";
 import { Card, PageHeader, Table, td, timeAgo } from "@/components/ui";
 
 export default async function ReposPage() {
+  await requireSection("repos");
   const s = await getDashboard();
   return (
     <>

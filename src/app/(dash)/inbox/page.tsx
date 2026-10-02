@@ -1,3 +1,4 @@
+import { requireSection } from "@/lib/server/auth";
 import Link from "next/link";
 import { getDashboard } from "@/lib/server/dashboard";
 import { Sparkles } from "lucide-react";
@@ -6,6 +7,7 @@ import { DraftReply } from "@/components/ai/DraftReply";
 import { aiEnabled } from "@/lib/server/ai";
 
 export default async function InboxPage({ searchParams }: { searchParams: Promise<{ account?: string }> }) {
+  await requireSection("inbox");
   const { account } = await searchParams;
   const s = await getDashboard();
   const accounts = [...new Set(s.emails.map((e) => e.account))].sort();

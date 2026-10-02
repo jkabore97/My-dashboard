@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { currentUser, googleSignInEnabled, passwordSignInEnabled } from "@/lib/server/auth";
 import { PasswordForm } from "@/components/LoginForms";
+import { anyMemberPasswords } from "@/lib/server/store/team";
 import { AuthShell } from "./shell";
 
 const ERRORS: Record<string, string> = {
@@ -14,7 +15,9 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   const { error } = await searchParams;
   if (await currentUser().catch(() => null)) redirect("/");
   const google = googleSignInEnabled();
-  const password = passwordSignInEnabled();
+  const ownerPassword = passwordSignInEnabled();
+  const members = await anyMemberPasswords().catch(() => false);
+  const password = ownerPassword || members;
   return (
     <AuthShell title="Command Center">
       {error && <p className="mb-4 rounded-lg bg-critical/10 px-3 py-2 text-sm text-critical">{ERRORS[error] ?? "Sign-in failed."}</p>}
@@ -25,7 +28,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
         </a>
       )}
       {google && password && <div className="my-4 text-center text-xs uppercase tracking-wider text-muted">or</div>}
-      {password && <PasswordForm />}
+      {password && <PasswordForm withEmail={members} ownerPassword={ownerPassword} />}
       {!google && !password && (
         <p className="text-sm text-muted">No sign-in method is configured. Set <code>DASHBOARD_PASSWORD</code>, or <code>GOOGLE_CLIENT_ID</code>, <code>GOOGLE_CLIENT_SECRET</code> and <code>ALLOWED_EMAILS</code>.</p>
       )}

@@ -38,7 +38,7 @@ export async function getEmails() {
       // One broken mailbox shouldn't hide the others, but it is reported so
       // its tasks stay open and the UI shows which mailbox needs reconnecting.
       const settled = await Promise.allSettled(
-        list.map(async ({ id: mailbox, label, refreshToken, email }) => {
+        list.map(async ({ id: mailbox, label, refreshToken, email, business }) => {
           const headers = { Authorization: `Bearer ${await googleAccessToken(refreshToken)}` };
           const base = "https://gmail.googleapis.com/gmail/v1/users/me/messages";
           // Access tokens differ on every call, so skip the fetch cache here.
@@ -63,6 +63,7 @@ export async function getEmails() {
                 unread: labels.includes("UNREAD"),
                 account: label,
                 mailbox,
+                ...(business ? { business } : {}),
                 labels,
                 severity: classifyEmail(h("From"), h("Subject"), m.snippet, labels),
                 // authuser picks the right mailbox when several are signed in.

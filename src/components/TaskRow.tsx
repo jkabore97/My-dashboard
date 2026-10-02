@@ -4,10 +4,18 @@ import { SeverityBadge, timeAgo } from "./ui";
 import { TaskActions } from "./TaskActions";
 import { FixButton } from "./FixButton";
 
-export function TaskRow({ task: t, businesses = [], compact = false }: { task: TaskView; businesses?: string[]; compact?: boolean }) {
+export interface Assignable {
+  email: string;
+  name: string;
+  /** null = every business */
+  businesses: string[] | null;
+}
+
+export function TaskRow({ task: t, businesses = [], compact = false, people = [], names }: { task: TaskView; businesses?: string[]; compact?: boolean; people?: Assignable[]; names?: Record<string, string> }) {
   const meta = [
     t.source,
     t.business && !t.source.includes(t.business) ? t.business : null,
+    t.assignee ? `→ ${names?.[t.assignee] ?? t.assignee}` : null,
     timeAgo(t.createdAt),
     t.status === "snoozed" && t.snoozedUntil ? `snoozed until ${new Date(t.snoozedUntil).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" })}` : null,
     t.detail,
@@ -31,7 +39,7 @@ export function TaskRow({ task: t, businesses = [], compact = false }: { task: T
         <div className="truncate text-xs text-muted">{meta.join(" · ")}</div>
         {!compact && t.actionable && t.fix && <div className="mt-1.5"><FixButton taskId={t.id} label={t.fix} title={t.title} /></div>}
       </div>
-      {!compact && t.actionable && <TaskActions id={t.id} status={t.status} manual={t.origin === "manual"} business={t.business} businesses={businesses} />}
+      {!compact && t.actionable && <TaskActions id={t.id} status={t.status} manual={t.origin === "manual"} business={t.business} businesses={businesses} assignee={t.assignee ?? null} people={people.filter((p) => p.businesses === null || (!!t.business && p.businesses.includes(t.business)))} />}
     </li>
   );
 }

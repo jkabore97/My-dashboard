@@ -1,5 +1,7 @@
+import { requireSection } from "@/lib/server/auth";
 import { getDashboard } from "@/lib/server/dashboard";
 import { getConfig } from "@/lib/server/config";
+import { isFullOwner } from "@/lib/access";
 import { businessForDomain } from "@/lib/server/config";
 import { CHAIN_PROBLEM, registrableDomain, type DomainCheck } from "@/lib/server/domains";
 import { certificateSeverity, registrationSeverity } from "@/lib/risk";
@@ -40,6 +42,7 @@ function EmailHealth({ c }: { c: DomainCheck["email"] }) {
 }
 
 export default async function DomainsPage() {
+  const user = await requireSection("domains");
   const d = await getDashboard();
   const { sites, extraDomains, dkimSelectors } = await getConfig();
   const now = today();
@@ -86,9 +89,9 @@ export default async function DomainsPage() {
       </Card>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        <Card title="Domains to watch">
+        {isFullOwner(user) && <Card title="Domains to watch">
           <DomainSettingsForm extra={extraDomains.join("\n")} selectors={dkimSelectors.join(", ")} />
-        </Card>
+        </Card>}
         <Card title="What the checks mean">
           <dl className="space-y-3 text-sm">
             <div><dt className="font-medium">Registration</dt><dd className="text-muted">When the domain itself lapses. Alerts at 30, 14 and 3 days, rising from low to critical. Turn on auto-renew at your registrar.</dd></div>

@@ -1,7 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireUser } from "@/lib/server/auth";
+import { businessDenied, requireOwner, requireSection } from "@/lib/server/auth";
+import { rowBusiness } from "@/lib/server/store/ownership";
 import { audit } from "@/lib/server/store/audit";
 import { deleteDeal, getDeal, saveClient, saveDeal, setClientArchived, setDealStage, STAGES, type DealStage } from "@/lib/server/store/pipeline";
 import { setSetting } from "@/lib/server/store/settings";
@@ -27,8 +28,10 @@ async function refresh() {
 }
 
 export async function saveClientAction(_prev: PipelineState, f: FormData): Promise<PipelineState> {
-  const user = await requireUser();
+  const user = await requireSection("clients");
   const id = optional(f, "id", 36);
+  const denied = businessDenied(user, optional(f, "business", 80), id ? await rowBusiness("clients", id) : undefined);
+  if (denied) return { error: denied };
   const name = text(f, "name", 120);
   const email = optional(f, "email", 160);
   const website = optional(f, "website", 300);
@@ -44,17 +47,19 @@ export async function saveClientAction(_prev: PipelineState, f: FormData): Promi
 }
 
 export async function archiveClientAction(id: string, archived: boolean) {
-  const user = await requireUser();
-  if (!UUID.test(id)) return;
+  const user = await requireSection("clients");
+  if (!UUID.test(id) || businessDenied(user, await rowBusiness("clients", id))) return;
   const row = await setClientArchived(id, archived);
   if (row) await audit(user.email, archived ? "client.archive" : "client.unarchive", row.name, { id });
   await refresh();
 }
 
 export async function saveDealAction(_prev: PipelineState, f: FormData): Promise<PipelineState> {
-  const user = await requireUser();
+  const user = await requireSection("clients");
   const id = optional(f, "id", 36);
   const clientId = optional(f, "clientId", 36);
+  const denied = businessDenied(user, optional(f, "business", 80), id ? await rowBusiness("deals", id) : undefined, clientId ? await rowBusiness("clients", clientId) : undefined);
+  if (denied) return { error: denied };
   const title = text(f, "title", 160);
   const stage = text(f, "stage", 20) as DealStage;
   const currency = (text(f, "currency", 3) || "usd").toLowerCase();
@@ -80,8 +85,8 @@ export async function saveDealAction(_prev: PipelineState, f: FormData): Promise
 }
 
 export async function moveDealAction(id: string, stage: DealStage) {
-  const user = await requireUser();
-  if (!UUID.test(id) || !STAGES.includes(stage)) return;
+  const user = await requireSection("clients");
+  if (!UUID.test(id) || !STAGES.includes(stage) || businessDenied(user, await rowBusiness("deals", id))) return;
   const before = await getDeal(id);
   const row = await setDealStage(id, stage, today());
   if (row) await audit(user.email, "deal.stage", row.title, { id, from: before?.stage, to: stage });
@@ -89,8 +94,8 @@ export async function moveDealAction(id: string, stage: DealStage) {
 }
 
 export async function deleteDealAction(id: string) {
-  const user = await requireUser();
-  if (!UUID.test(id)) return;
+  const user = await requireSection("clients");
+  if (!UUID.test(id) || businessDenied(user, await rowBusiness("deals", id))) return;
   const row = await deleteDeal(id);
   if (row) await audit(user.email, "deal.delete", row.title, { id });
   await refresh();
@@ -98,7 +103,7 @@ export async function deleteDealAction(id: string) {
 
 /** Google place IDs for reviews: "placeId | Business", one per line. */
 export async function savePlacesAction(_prev: PipelineState, f: FormData): Promise<PipelineState> {
-  const user = await requireUser();
+  const user = await requireOwner();
   const places = parsePlaces(text(f, "places", 5000));
   const bad = places.find((p) => !/^[A-Za-z0-9_-]{10,300}$/.test(p.placeId));
   if (bad) return { error: `"${bad.placeId}" doesn't look like a Google place ID (it usually starts with ChIJ).` };

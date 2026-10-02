@@ -1,12 +1,13 @@
 import Link from "next/link";
-import { requireUser } from "@/lib/server/auth";
+import { requireSection } from "@/lib/server/auth";
+import { isFullOwner } from "@/lib/access";
 import { getDashboard } from "@/lib/server/dashboard";
 import { snapshotHistory } from "@/lib/server/store/snapshots";
 import { Card, PageHeader, Stat, StatusDot, Table, td } from "@/components/ui";
 import { UptimeStrip, type UptimePoint } from "@/components/UptimeStrip";
 
 export default async function WebsitesPage() {
-  await requireUser(); // reads the database directly below
+  const user = await requireSection("websites");
   const s = await getDashboard();
   const history = new Map<string, UptimePoint[]>();
   if (!s.dbError) {
@@ -22,7 +23,7 @@ export default async function WebsitesPage() {
   return (
     <>
       <PageHeader mode={s.modes.websites} title="Websites & users" subtitle="Uptime checked every 5 minutes, plus sign-ups from each site's Supabase auth.">
-        <Link href="/settings#websites" className="text-sm text-accent hover:underline">Edit sites →</Link>
+        {isFullOwner(user) && <Link href="/settings#websites" className="text-sm text-accent hover:underline">Edit sites →</Link>}
       </PageHeader>
       <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
         <Stat label="Sites" value={s.websites.length} />

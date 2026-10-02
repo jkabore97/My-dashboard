@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { clientIp, requireUser } from "@/lib/server/auth";
+import { clientIp, requireOwner } from "@/lib/server/auth";
 import { auditConnection } from "@/lib/server/connect";
 import { sha256Hex } from "@/lib/server/crypto";
 import { getAuthed } from "@/lib/server/oauth";
@@ -20,7 +20,7 @@ const field = (form: FormData, name: string) => String(form.get(name) ?? "").tri
 
 /** Saves a pasted API token after checking it actually works. */
 export async function saveTokenConnection(_prev: ConnectState, form: FormData): Promise<ConnectState> {
-  const user = await requireUser();
+  const user = await requireOwner();
   const provider = field(form, "provider") as Provider;
   const token = field(form, "token");
   if (!token || token.length > 500) return { error: "Paste a valid token." };
@@ -104,14 +104,14 @@ export async function saveTokenConnection(_prev: ConnectState, form: FormData): 
 }
 
 export async function disconnect(id: string) {
-  const user = await requireUser();
+  const user = await requireOwner();
   const removed = await deleteConnection(id);
   if (removed) await audit(user.email, "connection.remove", `${removed.provider}:${removed.account}`, null, await clientIp());
   revalidatePath("/", "layout");
 }
 
 export async function relabelConnection(id: string, form: FormData) {
-  const user = await requireUser();
+  const user = await requireOwner();
   const label = field(form, "label").slice(0, 80) || null;
   const business = field(form, "business").slice(0, 80) || null;
   await updateConnectionLabel(id, label, business);

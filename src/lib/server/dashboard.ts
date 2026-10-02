@@ -1,7 +1,10 @@
 import { cache } from "react";
 import { collect, type DerivedTask } from "../aggregate";
 import type { Notification, Task } from "../types";
-import { requireUser } from "./auth";
+import { requireUser, type CurrentUser } from "./auth";
+import { businessForDomain, getConfig } from "./config";
+import { scopeFor } from "../scope";
+import { canSeeTask } from "../access";
 import { listEvents } from "./store/events";
 import { listTasks, sortTasks, type StoredTask, type TaskStatus } from "./store/tasks";
 import { persist } from "./sync";
@@ -15,9 +18,11 @@ export interface TaskView extends Task {
   snoozedUntil: string | null;
   /** Label of the one-click fix for this task, if there is one. */
   fix: string | null;
+  sourceKey?: string | null;
+  assignee?: string | null;
 }
 
-const fromDerived = (t: DerivedTask): TaskView => ({ ...t, status: "open", origin: "demo", actionable: false, snoozedUntil: null, fix: null });
+const fromDerived = (t: DerivedTask): TaskView => ({ ...t, sourceKey: t.id, status: "open", origin: "demo", actionable: false, snoozedUntil: null, fix: null });
 const fromStored = (t: StoredTask): TaskView => ({ ...t, actionable: true, fix: t.status === "open" ? (fixForTask(t.sourceKey, t.url)?.label ?? null) : null });
 
 /**
@@ -29,7 +34,7 @@ const fromStored = (t: StoredTask): TaskView => ({ ...t, actionable: true, fix: 
  * re-renders just the page segment, so the layout's check doesn't run then.
  */
 export const getDashboard = cache(async () => {
-  await requireUser();
+  const user = await requireUser();
   const c = await collect();
   let dbError: string | null = null;
   let openTasks: TaskView[];
@@ -51,12 +56,17 @@ export const getDashboard = cache(async () => {
     openTasks = sortTasks(c.derivedTasks.map(fromDerived));
     notifications = c.notifications;
   }
-  return { ...c, openTasks, notifications, dbError };
+  // Everyone but a full owner gets a copy cut down to their role and businesses.
+  const { sites } = await getConfig();
+  const scoped = scopeFor({ ...c, openTasks, notifications, dbError }, user, user.email, { businessForDomain: (d) => businessForDomain(d, sites) });
+  return { ...scoped, user };
 });
 
 export type Dashboard = Awaited<ReturnType<typeof getDashboard>>;
 
 export async function getTasksByStatus(status: TaskStatus): Promise<TaskView[]> {
-  await requireUser();
-  return (await listTasks(status)).map(fromStored);
+  const user = await requireUser();
+  return (await listTasks(status)).filter((t) => canSeeTask(user, user.email, t)).map(fromStored);
 }
+
+export type { CurrentUser };

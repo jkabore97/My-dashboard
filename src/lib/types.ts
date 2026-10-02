@@ -71,6 +71,8 @@ export interface EmailMessage {
   labels: string[];
   severity: Severity;
   url?: string;
+  /** Business of the mailbox (set on its connection), for team access. */
+  business?: string;
   /** Claude's reading of the message, when AI triage is on and it has run. */
   triage?: EmailTriage;
 }
@@ -101,6 +103,7 @@ export interface Notification {
   at: string;
   severity: Severity;
   url?: string;
+  business?: string;
 }
 
 export interface Website {

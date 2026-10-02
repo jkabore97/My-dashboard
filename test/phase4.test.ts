@@ -10,7 +10,10 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("web-push", () => ({ default: { setVapidDetails: () => {}, sendNotification: mocks.sendNotification } }));
 vi.mock("node:dns/promises", async (orig) => ({ ...(await orig<object>()), lookup: mocks.lookup }));
-vi.mock("@/lib/server/auth", async (orig) => ({ ...(await orig<object>()), requireUser: async () => ({ email: "owner", hasTotp: true }) }));
+vi.mock("@/lib/server/auth", async (orig) => {
+  const owner = { email: "owner", hasTotp: true, name: "owner", envOwner: true, role: "owner", businesses: null };
+  return { ...(await orig<object>()), requireUser: async () => owner, requireSection: async () => owner, requireOwner: async () => owner };
+});
 vi.mock("@/lib/server/site-credentials", async (orig) => ({ ...(await orig<object>()), hikvisionSite: async () => mocks.site }));
 vi.mock("@/lib/connectors/hikvision", async (orig) => ({ ...(await orig<object>()), isapi: (...a: unknown[]) => mocks.isapi(...a) }));
 import { getDb, pgliteDb, useDb } from "@/lib/server/db";
@@ -439,7 +442,7 @@ describe("H1/H2 with a database", () => {
   });
   beforeEach(async () => {
     const db = await getDb();
-    await db.exec("truncate settings, snapshots, tasks, notified, push_subscriptions, rate_limits, audit_log");
+    await db.exec("truncate settings, snapshots, tasks, task_activity, notified, push_subscriptions, rate_limits, audit_log");
     mocks.sendNotification.mockClear();
   });
 
@@ -474,6 +477,8 @@ describe("H1/H2 with a database", () => {
       vi.stubEnv("VAPID_PUBLIC_KEY", "pub");
       vi.stubEnv("VAPID_PRIVATE_KEY", "priv");
       const db = await getDb();
+      // The subscriber must be someone who can see the task: an owner member here.
+      await db.query("insert into users (email, role) values ('owner', 'owner') on conflict (email) do update set role = 'owner', disabled_at = null");
       await db.query("insert into push_subscriptions (endpoint, owner, keys) values ('https://push.example/1', 'owner', '{\"p256dh\":\"a\",\"auth\":\"b\"}')");
     });
     const critical = (id: string, extra: Record<string, unknown> = {}) => ({ id, title: id, severity: "critical" as const, source: "Test", createdAt: new Date().toISOString(), ...extra });

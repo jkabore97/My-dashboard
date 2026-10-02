@@ -1,6 +1,8 @@
 import webpush from "web-push";
 import { env, errorMessage } from "../source";
 import { getDb } from "./db";
+import { people } from "./people";
+import { canSeeTask } from "../access";
 import { claimInterval } from "./store/settings";
 
 // Outbound notifications: email (Resend) for the morning brief and weekly
@@ -63,11 +65,22 @@ export async function countSubscriptions() {
   return Number(r.n);
 }
 
+type PushPayload = { title: string; body: string; url?: string; tag?: string };
+
 /** Sends to every subscribed device; drops subscriptions the push service says are gone. */
-export async function pushAll(payload: { title: string; body: string; url?: string; tag?: string }) {
+export async function pushAll(payload: PushPayload) {
+  return pushTo(null, payload);
+}
+
+/** Sends to the devices of these people (null = everyone). */
+export async function pushTo(emails: string | string[] | null, payload: PushPayload) {
   vapid();
   const db = await getDb();
-  const subs = await db.query<{ endpoint: string; keys: { p256dh: string; auth: string } }>("select endpoint, keys from push_subscriptions");
+  const list = emails === null ? null : Array.isArray(emails) ? emails : [emails];
+  if (list && !list.length) return { sent: 0, errors: [] as string[] };
+  const subs = list
+    ? await db.query<{ endpoint: string; keys: { p256dh: string; auth: string } }>("select endpoint, keys from push_subscriptions where owner = any($1::text[])", [list])
+    : await db.query<{ endpoint: string; keys: { p256dh: string; auth: string } }>("select endpoint, keys from push_subscriptions");
   let sent = 0;
   const errors: string[] = [];
   await Promise.all(
@@ -106,17 +119,20 @@ export function pushText(t: { title: string; detail: string | null; source_key: 
 export async function pushNewCriticalTasks(): Promise<number> {
   if (!pushEnabled()) return 0;
   const db = await getDb();
-  const fresh = await db.query<{ id: string; title: string; detail: string | null; url: string | null; source_key: string | null; origin: string }>(
-    `select t.id, t.title, t.detail, t.url, t.source_key, t.origin from tasks t
+  const fresh = await db.query<{ id: string; title: string; detail: string | null; url: string | null; source_key: string | null; origin: string; business: string | null; assignee: string | null }>(
+    `select t.id, t.title, t.detail, t.url, t.source_key, t.origin, coalesce(t.business_override, t.business) as business, t.assignee from tasks t
      where t.status = 'open' and t.severity = 'critical' and t.occurred_at > now() - interval '1 day'
        and not exists (select 1 from notified n where n.task_id = t.id and n.channel = 'push')
      order by t.occurred_at desc limit 10`,
   );
   if (!fresh.length || (await countSubscriptions()) === 0) return 0;
+  const everyone = await people();
   let sent = 0;
   for (const t of fresh) {
     if (!(await claimInterval(`push:${t.id}`, 120))) continue;
-    await pushAll({ ...pushText(t), url: t.url && t.url.startsWith("/") ? t.url : "/tasks", tag: `task-${t.id}` }).catch((err) => console.error(`[push] ${errorMessage(err)}`));
+    // Only to people who can see this task (its section and business, or it's theirs).
+    const to = everyone.filter((p) => canSeeTask(p, p.email, { business: t.business, sourceKey: t.source_key, assignee: t.assignee })).map((p) => p.email);
+    await pushTo(to, { ...pushText(t), url: t.url && t.url.startsWith("/") ? t.url : "/tasks", tag: `task-${t.id}` }).catch((err) => console.error(`[push] ${errorMessage(err)}`));
     await db.query("insert into notified (task_id, channel) values ($1, 'push') on conflict do nothing", [t.id]);
     await db.query("delete from settings where key = $1", [`push:${t.id}`]); // the lease has done its job
     sent++;

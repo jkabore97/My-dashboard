@@ -11,6 +11,8 @@ export interface StoredTask extends Task {
   snoozedUntil: string | null;
   resolvedBy: "user" | "auto" | null;
   resolvedAt: string | null;
+  /** Team member the task is assigned to (email), if any. */
+  assignee: string | null;
 }
 
 interface TaskRow {
@@ -29,6 +31,7 @@ interface TaskRow {
   resolved_by: "user" | "auto" | null;
   resolved_at: Date | string | null;
   occurred_at: Date | string;
+  assignee: string | null;
 }
 
 const iso = (v: Date | string | null) => (v == null ? null : new Date(v).toISOString());
@@ -49,6 +52,7 @@ function toTask(r: TaskRow): StoredTask {
     snoozedUntil: iso(r.snoozed_until),
     resolvedBy: r.resolved_by,
     resolvedAt: iso(r.resolved_at),
+    assignee: r.assignee ?? null,
   };
 }
 
@@ -177,12 +181,12 @@ export async function resolveEventTask(key: string) {
   );
 }
 
-export async function addManualTask(t: { title: string; detail?: string; severity: Severity; business?: string; url?: string }) {
+export async function addManualTask(t: { title: string; detail?: string; severity: Severity; business?: string; url?: string; assignee?: string | null }) {
   const db = await getDb();
   const [row] = await db.query<TaskRow>(
-    `insert into tasks (origin, title, detail, severity, source, url, business)
-     values ('manual', $1, $2, $3, 'Manual', $4, $5) returning *`,
-    [t.title, t.detail ?? null, t.severity, t.url ?? null, t.business ?? null],
+    `insert into tasks (origin, title, detail, severity, source, url, business, assignee)
+     values ('manual', $1, $2, $3, 'Manual', $4, $5, $6) returning *`,
+    [t.title, t.detail ?? null, t.severity, t.url ?? null, t.business ?? null, t.assignee ?? null],
   );
   return toTask(row);
 }
@@ -219,4 +223,43 @@ export async function setTaskBusiness(id: string, business: string | null) {
 export async function deleteManualTask(id: string) {
   const db = await getDb();
   await db.query("delete from tasks where id = $1 and origin = 'manual'", [id]);
+}
+
+export async function setTaskAssignee(id: string, email: string | null) {
+  const db = await getDb();
+  await db.query("update tasks set assignee = $2, updated_at = now() where id = $1", [id, email]);
+}
+
+// ─── Activity: who did what to a task ────────────────────────────────────────
+
+export interface TaskActivity {
+  id: string;
+  taskId: string;
+  taskTitle: string;
+  actor: string;
+  action: string;
+  detail: Record<string, unknown> | null;
+  at: string;
+  /** The task's business, key and assignee, so callers can check who may see it. */
+  business: string | null;
+  sourceKey: string | null;
+  assignee: string | null;
+}
+
+export async function recordActivity(taskId: string, actor: string, action: string, detail?: Record<string, unknown> | null) {
+  const db = await getDb();
+  await db.query("insert into task_activity (task_id, actor, action, detail) values ($1, $2, $3, $4::text::jsonb)", [taskId, actor, action, detail ? JSON.stringify(detail) : null]);
+}
+
+/** Recent activity, newest first; optionally for one task. */
+export async function listActivity(opts: { taskId?: string; limit?: number } = {}): Promise<TaskActivity[]> {
+  const db = await getDb();
+  const rows = await db.query<{ id: string; task_id: string; title: string; actor: string; action: string; detail: Record<string, unknown> | null; at: Date | string; business: string | null; source_key: string | null; assignee: string | null }>(
+    `select a.id::text, a.task_id, t.title, a.actor, a.action, a.detail, a.at, coalesce(t.business_override, t.business) as business, t.source_key, t.assignee
+     from task_activity a join tasks t on t.id = a.task_id
+     where ($1::uuid is null or a.task_id = $1::uuid)
+     order by a.at desc, a.id desc limit $2`,
+    [opts.taskId ?? null, opts.limit ?? 100],
+  );
+  return rows.map((r) => ({ id: r.id, taskId: r.task_id, taskTitle: r.title, actor: r.actor, action: r.action, detail: r.detail, at: new Date(r.at).toISOString(), business: r.business, sourceKey: r.source_key, assignee: r.assignee }));
 }

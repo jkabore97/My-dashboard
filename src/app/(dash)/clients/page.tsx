@@ -1,15 +1,21 @@
+import { requireSection } from "@/lib/server/auth";
 import { getDashboard } from "@/lib/server/dashboard";
 import { daysBetween, formatDate, relativeDays, today } from "@/lib/dates";
 import { formatMoney, formatTotals, sumByCurrency, toInputAmount } from "@/lib/money";
 import { OPEN_STAGES, type Deal } from "@/lib/server/store/pipeline";
 import { Card, Empty, PageHeader, Stat } from "@/components/ui";
 import { ArchiveClient, ClientForm, DealForm, DealMoves } from "@/components/pipeline";
+import { ShareClient } from "@/components/ShareClient";
+import { listPortals } from "@/lib/server/store/portals";
+import { getConfig } from "@/lib/server/config";
+import { inBusiness } from "@/lib/access";
 import { STAGE_LABEL } from "@/lib/pipeline-labels";
 
 const value = (d: Deal) => (d.valueMinor != null ? formatMoney(d.valueMinor, d.currency) : null);
 const totals = (deals: Deal[]) => sumByCurrency(deals.filter((d) => d.valueMinor != null).map((d) => ({ currency: d.currency, amount: d.valueMinor! })));
 
 export default async function ClientsPage() {
+  const user = await requireSection("clients");
   const d = await getDashboard();
   const now = today();
   const { deals, clients } = d.records;
@@ -20,6 +26,9 @@ export default async function ClientsPage() {
   const activeClients = clients.filter((c) => !c.archived);
   const businesses = [...new Set([...clients.map((c) => c.business), ...deals.map((x) => x.business), ...d.openTasks.map((t) => t.business)].filter(Boolean))].sort() as string[];
   const clientOptions = activeClients.map((c) => ({ id: c.id, name: c.name }));
+  const [portals, { sites }] = d.dbError ? [[], { sites: [] }] : await Promise.all([listPortals().catch(() => []), getConfig()]);
+  const shareable = sites.filter((x) => inBusiness(user, x.business)).map((x) => x.domain);
+  const hostOf = (url: string | null) => { try { return url ? new URL(url).hostname.replace(/^www\./, "") : null; } catch { return null; } };
   const draft = (x: Deal) => ({ id: x.id, clientId: x.clientId, title: x.title, value: x.valueMinor != null ? toInputAmount(x.valueMinor, x.currency) : "", currency: x.currency.toUpperCase(), stage: x.stage, expectedClose: x.expectedClose, nextStep: x.nextStep, nextStepDue: x.nextStepDue, business: x.business, notes: x.notes });
 
   return (
@@ -106,6 +115,11 @@ export default async function ClientsPage() {
                     <ClientForm label="Edit" businesses={businesses} client={{ id: c.id, name: c.name, contactName: c.contactName, email: c.email, phone: c.phone, website: c.website, business: c.business, notes: c.notes }} />
                     <ArchiveClient id={c.id} archived={c.archived} />
                   </div>
+                  {!c.archived && !d.dbError && (() => {
+                    const p = portals.find((x) => x.clientId === c.id);
+                    const host = hostOf(c.website);
+                    return <ShareClient clientId={c.id} clientName={c.name} sites={shareable} suggested={host ? shareable.filter((x) => x === host || x.endsWith(`.${host}`)) : []} active={p ? { id: p.id, sites: p.sites, showProjects: p.showProjects, createdAt: p.createdAt, lastViewedAt: p.lastViewedAt } : null} />;
+                  })()}
                 </li>
               );
             })}

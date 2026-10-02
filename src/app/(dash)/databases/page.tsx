@@ -1,9 +1,11 @@
+import { requireSection } from "@/lib/server/auth";
 import { getDashboard } from "@/lib/server/dashboard";
 import { Card, PageHeader, SeverityBadge, StatusDot, Table, td, timeAgo } from "@/components/ui";
 
 const DOT = { healthy: "ok", degraded: "bad", paused: "idle", unknown: "idle" } as const;
 
 export default async function DatabasesPage() {
+  await requireSection("databases");
   const s = await getDashboard();
   return (
     <>

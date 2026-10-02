@@ -22,7 +22,7 @@ export async function GET(req: Request) {
     const info = await getAuthed<{ email?: string; email_verified?: boolean }>("https://openidconnect.googleapis.com/v1/userinfo", token.access_token);
     const email = info.email?.toLowerCase();
     const ip = await clientIp();
-    if (!email || !info.email_verified || !isAllowed(email)) {
+    if (!email || !info.email_verified || !(await isAllowed(email))) {
       await audit(email ?? "unknown", "login.google.denied", null, null, ip);
       return fail("not_allowed");
     }

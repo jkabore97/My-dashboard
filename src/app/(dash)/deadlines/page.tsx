@@ -1,3 +1,4 @@
+import { requireSection } from "@/lib/server/auth";
 import { getDashboard } from "@/lib/server/dashboard";
 import { daysBetween, formatDate, relativeDays, today } from "@/lib/dates";
 import { deadlineSeverity } from "@/lib/risk";
@@ -8,6 +9,7 @@ const CATEGORY: Record<string, string> = { tax: "Tax", filing: "Filing", license
 const REPEAT: Record<string, string> = { none: "", monthly: "monthly", quarterly: "quarterly", yearly: "yearly" };
 
 export default async function DeadlinesPage() {
+  await requireSection("deadlines");
   const d = await getDashboard();
   const now = today();
   const open = d.records.deadlines.filter((x) => !x.completedOn);
