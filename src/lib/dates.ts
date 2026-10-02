@@ -5,7 +5,17 @@ const DAY = 86_400_000;
 
 export const isDate = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(`${s}T00:00:00Z`)) && new Date(`${s}T00:00:00Z`).toISOString().startsWith(s);
 
-export const businessTimeZone = () => process.env.BUSINESS_TIMEZONE?.trim() || "UTC";
+/** BUSINESS_TIMEZONE, or UTC when it's unset or not a valid IANA zone (a typo must not break pages). */
+export const businessTimeZone = () => {
+  const tz = process.env.BUSINESS_TIMEZONE?.trim();
+  if (!tz) return "UTC";
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return tz;
+  } catch {
+    return "UTC";
+  }
+};
 
 /** The calendar date of a moment in a time zone (today() for a given instant). */
 export function today(timeZone = businessTimeZone(), now = new Date()): string {
