@@ -411,11 +411,20 @@ describe("webhook and polling duplicates", () => {
     expect(await listTasks("open")).toHaveLength(0);
   });
 
+  it("gives the grace window to a platform fix that lands after the user's earlier done", async () => {
+    await webhookTask();
+    const db = await getDb();
+    await db.query("update tasks set status = 'done', resolved_by = 'user', resolved_at = now() - interval '1 hour', updated_at = now() - interval '1 hour' where source_key = 'stripe-invoice:in_1'");
+    await resolveEventTask("stripe-invoice:in_1"); // keeps the user's resolved_at, bumps updated_at
+    await persist(polledInvoice(), { force: true });
+    expect(await listTasks("open")).toHaveLength(0);
+  });
+
   it("brings the polled task back when the platform resolved it over 5 minutes ago but the problem remains", async () => {
     await webhookTask();
     await resolveEventTask("stripe-invoice:in_1");
     const db = await getDb();
-    await db.query("update tasks set resolved_at = now() - interval '6 minutes' where source_key = 'stripe-invoice:in_1'");
+    await db.query("update tasks set resolved_at = now() - interval '6 minutes', updated_at = now() - interval '6 minutes' where source_key = 'stripe-invoice:in_1'");
     await persist(polledInvoice(), { force: true });
     expect((await listTasks("open")).map((x) => x.title)).toEqual(["stripe/acct/invoice:in_1"]);
   });
