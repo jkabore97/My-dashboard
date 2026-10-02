@@ -36,7 +36,7 @@ export function PushToggle({ publicKey }: { publicKey: string | null }) {
       if ((await Notification.requestPermission()) !== "granted") return setMsg({ error: "Notifications are blocked for this site in the browser settings." });
       const reg = await navigator.serviceWorker.ready;
       const s = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(publicKey) });
-      const r = await subscribePush(s.toJSON());
+      const r = await subscribePush(s.toJSON(), Intl.DateTimeFormat().resolvedOptions().timeZone);
       if (r.error) {
         await s.unsubscribe();
         return setMsg({ error: r.error });

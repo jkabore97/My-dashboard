@@ -22,7 +22,8 @@ import { parseChannels, parseDeviceInfo, parseEventAlert, parseStorage, parseVid
 import { assertPublicHost, isPrivateAddress, siteAccount, validateSiteUrl } from "@/lib/server/site-credentials";
 import { fetchSite } from "@/lib/connectors/hikvision";
 import { GET as snapshotGET } from "@/app/api/cameras/[site]/[channel]/snapshot/route";
-import { pushNewCriticalTasks, pushText } from "@/lib/server/notify";
+import { pushText } from "@/lib/server/notify";
+import { runAlerts } from "@/lib/server/alerts/run";
 import { sendOnce, weeklyReport } from "@/lib/server/reports";
 import { combineSeverity } from "@/lib/server/triage";
 import { authorizeIngest } from "@/lib/server/solar-store";
@@ -442,7 +443,7 @@ describe("H1/H2 with a database", () => {
   });
   beforeEach(async () => {
     const db = await getDb();
-    await db.exec("truncate settings, snapshots, tasks, task_activity, notified, push_subscriptions, rate_limits, audit_log");
+    await db.exec("truncate settings, snapshots, tasks, task_activity, notified, push_subscriptions, rate_limits, audit_log, alert_log, alert_incidents");
     mocks.sendNotification.mockClear();
   });
 
@@ -478,35 +479,44 @@ describe("H1/H2 with a database", () => {
       vi.stubEnv("VAPID_PRIVATE_KEY", "priv");
       const db = await getDb();
       // The subscriber must be someone who can see the task: an owner member here.
-      await db.query("insert into users (email, role) values ('owner', 'owner') on conflict (email) do update set role = 'owner', disabled_at = null");
+      // No quiet hours, so "Resolved" messages go out whatever the time of day.
+      await db.query(`insert into users (email, role, notify_prefs) values ('owner', 'owner', '{"quietFrom":0,"quietTo":0}') on conflict (email) do update set role = 'owner', disabled_at = null, notify_prefs = excluded.notify_prefs`);
       await db.query("insert into push_subscriptions (endpoint, owner, keys) values ('https://push.example/1', 'owner', '{\"p256dh\":\"a\",\"auth\":\"b\"}')");
     });
     const critical = (id: string, extra: Record<string, unknown> = {}) => ({ id, title: id, severity: "critical" as const, source: "Test", createdAt: new Date().toISOString(), ...extra });
 
     it("pushes only newly opened tasks, once, and again when a resolved task recurs", async () => {
       const db = await getDb();
+      const at = (min: number) => new Date(Date.now() + min * 60_000);
       await reconcileDerived([critical("websites/down:old.com"), critical("websites/down:new.com")], ["websites"]);
-      // Open for days: the sync bumps updated_at, but it isn't new.
-      await db.query("update tasks set occurred_at = now() - interval '3 days' where source_key = 'websites/down:old.com'");
-      expect(await pushNewCriticalTasks()).toBe(1);
+      // Open for days before alerting existed: tracked, never pushed.
+      await db.query("update tasks set occurred_at = now() - interval '3 days', created_at = now() - interval '3 days' where source_key = 'websites/down:old.com'");
+      await runAlerts({ now: at(0) }); // websites wait for a second check
+      expect(mocks.sendNotification).toHaveBeenCalledTimes(0);
+      expect((await runAlerts({ now: at(5) })).sent).toBe(1);
       expect(mocks.sendNotification).toHaveBeenCalledTimes(1);
-      expect(await pushNewCriticalTasks()).toBe(0);
-      await reconcileDerived([], ["websites"]); // fixed
+      expect((await runAlerts({ now: at(6) })).sent).toBe(0);
+      await reconcileDerived([], ["websites"]); // fixed: one "Resolved" to whoever got the alert
+      expect((await runAlerts({ now: at(7) })).sent).toBe(1);
+      expect(JSON.parse((mocks.sendNotification.mock.calls[1] as unknown[])[1] as string)).toMatchObject({ kind: "resolved", tag: expect.stringMatching(/^task-/) });
       await reconcileDerived([critical("websites/down:new.com")], ["websites"]); // down again
-      expect(await pushNewCriticalTasks()).toBe(1);
-      expect(mocks.sendNotification).toHaveBeenCalledTimes(2);
+      await runAlerts({ now: at(8) });
+      expect((await runAlerts({ now: at(13) })).sent).toBe(1);
+      expect(mocks.sendNotification).toHaveBeenCalledTimes(3);
     });
 
-    it("records a task as notified only after the send was attempted", async () => {
+    it("logs a failed send once and doesn't retry it every run", async () => {
       await upsertEventTask("stripe-dispute:dp_1", { title: "Respond to dispute", severity: "critical", source: "Stripe", createdAt: new Date().toISOString() });
       mocks.sendNotification.mockRejectedValueOnce(Object.assign(new Error("push service 500"), { statusCode: 500 }));
-      expect(await pushNewCriticalTasks()).toBe(1); // attempted
-      expect(await pushNewCriticalTasks()).toBe(0); // and not retried every run
+      expect((await runAlerts()).failed).toBe(1);
+      expect((await runAlerts()).failed).toBe(0);
+      expect(mocks.sendNotification).toHaveBeenCalledTimes(1);
       const db = await getDb();
-      const [{ n }] = await db.query<{ n: number }>("select count(*)::int as n from notified");
-      expect(n).toBe(1);
-      // A user reopening it (status change) clears the mark too.
+      const rows = await db.query<{ status: string; reason: string }>("select status, reason from alert_log");
+      expect(rows).toEqual([{ status: "failed", reason: "push service 500" }]);
+      // The old "notified" marks still clear when a task's status changes (migration 7).
       const [t] = await db.query<{ id: string }>("select id from tasks");
+      await db.query("insert into notified (task_id, channel) values ($1, 'push')", [t.id]);
       await completeTask(t.id);
       await reopenTask(t.id);
       const [{ m }] = await db.query<{ m: number }>("select count(*)::int as m from notified");

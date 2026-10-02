@@ -12,7 +12,7 @@ import { acceptInvite, hashPassword, inviteByToken, inviteMember, memberPassword
 import { createPortal, portalByToken, revokePortal } from "@/lib/server/store/portals";
 import { clientPage, PORTAL_VIEWS_PER_MINUTE } from "@/lib/server/portal";
 import { addManualTask, getTask, listActivity, recordActivity, setTaskAssignee } from "@/lib/server/store/tasks";
-import { pushNewCriticalTasks } from "@/lib/server/notify";
+import { runAlerts } from "@/lib/server/alerts/run";
 import { people } from "@/lib/server/people";
 
 afterEach(() => {
@@ -211,7 +211,7 @@ describe("team, assignments and client pages (PGlite)", () => {
   });
   beforeEach(async () => {
     const db = await getDb();
-    await db.exec("truncate tasks, task_activity, invites, client_portals, clients, deals, users, push_subscriptions, notified, snapshots, rate_limits, settings cascade");
+    await db.exec("truncate tasks, task_activity, invites, client_portals, clients, deals, users, push_subscriptions, notified, snapshots, rate_limits, settings, alert_log, alert_incidents cascade");
     mocks.sendNotification.mockClear();
   });
 
@@ -281,7 +281,7 @@ describe("team, assignments and client pages (PGlite)", () => {
     }
     expect((await people()).map((p) => p.email).sort()).toEqual(["acc@kaj.com", "boss@kaj.com", "dev@kaj.com"]);
     await db.query("insert into tasks (origin, source_key, title, severity, source, business) values ('event', 'stripe-dispute:dp_1', 'Dispute', 'critical', 'Stripe', 'Kaj Store')");
-    expect(await pushNewCriticalTasks()).toBe(1);
+    expect((await runAlerts()).sent).toBe(1);
     // The developer can't see money; the accountant can't see Kaj Store.
     expect(mocks.sendNotification.mock.calls.map(([sub]) => sub.endpoint)).toEqual(["https://push.example/boss@kaj.com"]);
   });

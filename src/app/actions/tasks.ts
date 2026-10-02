@@ -1,6 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
+import { alertsAfter } from "@/lib/server/alerts/after";
 import { businessDenied, requireSection, type CurrentUser } from "@/lib/server/auth";
 import { audit } from "@/lib/server/store/audit";
 import { addManualTask, completeTask, deleteManualTask, getTask, recordActivity, reopenTask, setTaskAssignee, setTaskBusiness, snoozeTask, type StoredTask } from "@/lib/server/store/tasks";
@@ -26,6 +28,8 @@ async function act(id: string, action: string, fn: (task: StoredTask, user: Curr
   if ((await fn(task, user)) === false) return;
   await audit(user.email, action, task.title, detail);
   await recordActivity(id, user.email, action.replace(/^task\./, ""), detail ?? null).catch(() => {});
+  // Reopened or closed: the alert or the "Resolved" message follows at once.
+  if (action === "task.reopen" || action === "task.done") alertsAfter(after);
   done();
 }
 
@@ -92,6 +96,7 @@ export async function addTaskAction(_prev: { error?: string; ok?: number }, form
   await audit(user.email, "task.create", title, { severity, assignee });
   await recordActivity(task.id, user.email, "create", assignee ? { assignee } : null).catch(() => {});
   if (assignee && assignee !== user.email) await pushTo(assignee, { title: `Assigned to you: ${title}`.slice(0, 120), body: `From ${user.name}. ${severity} priority.`, url: "/tasks?view=mine", tag: `assign-${task.id}` }).catch(() => {});
+  alertsAfter(after); // a new critical/high task alerts the others who can see it
   done();
   return { ok: Date.now() };
 }

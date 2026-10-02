@@ -101,7 +101,30 @@ Follow the README section **Cameras (Hikvision)**: Cloudflare Tunnel to the NVR,
 
 ## 13. Notifications on your phone
 
-Already configured on the server. On your phone, open the dashboard, **Share → Add to Home Screen** (iPhone) or **Install app** (Android), open it from there, then **Settings → Notifications → Enable notifications on this device → Send a test**.
+Push is already configured on the server (VAPID keys). On your phone, open the dashboard, **Share → Add to Home Screen** (iPhone) or **Install app** (Android), open it from there, then **Settings → Notifications → Enable on this device → Send a test**. Do the same on your computer's browser if you want alerts there too. Each team member does this on their own devices.
+
+What arrives (only alerts the person is allowed to see: their role's sections and businesses, or tasks assigned to them):
+
+- **Critical**: at once, always, even at night or when paused.
+- **High**: at once; during quiet hours (default 10 PM–7 AM in *your* time zone) or a pause, held until they end.
+- **Medium**: one **noon digest** push at 12:00 your time.
+- **Low**: no push; it's in the morning brief.
+- **Resolved**: when a critical/high alert you got clears, a short "Resolved" replaces it (skipped in quiet hours).
+- Website outages are pushed only if the site is still down on a second check ≥4 minutes later. More than 5 pushes in 10 minutes are combined into one.
+
+**Settings → Notifications** sets your quiet hours and time zone (America/New_York and Africa/Ouagadougou are at the top), turns High alerts / Noon digest / Resolved messages on or off, and pauses non-critical pushes for 1 h, 4 h or until 7 AM. On Android and desktop, a notification has **Acknowledge** and **Snooze 1h** buttons; on iPhone, tap it to open the dashboard. The **bell** at the top of every page lists your latest notifications; **Alerts → Delivery log** shows what was sent, held or skipped and why (the owner sees everyone's).
+
+## 13b. Instant alerts every 5 minutes (free scheduler)
+
+Vercel's free plan runs the dashboard's own check once a day. Without this step, alerts still arrive at once for webhooks (step 9) and whenever someone opens the dashboard, but a website going down at night would wait. To check every 5 minutes, for free:
+
+1. Dashboard → **Settings → Notifications → Instant alerts every 5 minutes → Create scheduler link**. Copy the link now (it's shown once; only a fingerprint of it is stored).
+2. Sign up at **cron-job.org** (free) → **Cronjobs → Create cronjob**.
+3. **URL**: paste the link. **Execution schedule**: every 5 minutes. Method GET.
+4. **Advanced**: timeout 60 seconds. Optionally turn on "notify me when the job fails". **Create**.
+5. After ~10 minutes, the Settings panel shows *Running · last call N minutes ago*.
+
+Keep the link private: it can only trigger a check, nothing else. **Replace scheduler link** makes a new one and stops the old one (update cron-job.org afterwards). Schedulers that can send headers may call `https://kaj-command-center.vercel.app/api/tick` with `Authorization: Bearer <CRON_SECRET>` instead.
 
 ## 14. Morning brief and weekly reports by email — optional
 

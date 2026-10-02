@@ -7,7 +7,7 @@ import { latestSnapshot, recordSnapshot, replaceSnapshot } from "./store/snapsho
 import { existingEventKeys, reconcileDerived } from "./store/tasks";
 import { getConfig } from "./config";
 import { refreshDomainChecks } from "./domains";
-import { pushNewCriticalTasks } from "./notify";
+import { runAlertsSafe } from "./alerts/run";
 import { sendScheduledReports } from "./reports";
 import { triagePending } from "./triage";
 import { errorMessage } from "../source";
@@ -26,7 +26,7 @@ export const requestSync = () => expireInterval("job:sync");
  * website health snapshots. Throttled so concurrent page loads don't repeat
  * the work; cron passes force.
  */
-export async function persist(c: Collected, { force = false } = {}) {
+export async function persist(c: Collected, { force = false, alerts = true } = {}) {
   if (!(await claimInterval("job:sync", force ? 0 : PAGE_SYNC_SECONDS))) return false;
 
   // Only live data is persisted; demo/errored sources would pollute history.
@@ -56,6 +56,9 @@ export async function persist(c: Collected, { force = false } = {}) {
   if (c.modes.cameras === "live") {
     for (const site of c.cameras) await replaceSnapshot("cameras", site.id, site);
   }
+  // New, reopened and resolved tasks → push alerts (never breaks the sync).
+  // Callers that report the alert summary themselves pass alerts: false.
+  if (alerts) await runAlertsSafe();
   return true;
 }
 
@@ -112,10 +115,10 @@ export async function runScheduledChecks() {
   const started = Date.now();
   refetchExternal(); // cron always looks at the platforms afresh, without emptying the shared copy
   const c = await collect();
-  await persist(c, { force: true });
+  await persist(c, { force: true, alerts: false });
   // Alerts and the brief come right after the sync, before anything slow can
   // use up the time limit. They never fail the run.
-  const pushed = await pushNewCriticalTasks().catch((err) => (console.error(`[push] ${errorMessage(err)}`), 0));
+  const alerts = await runAlertsSafe();
   const reports = await sendScheduledReports(c).catch((err) => (console.error(`[reports] ${errorMessage(err)}`), [] as string[]));
   // Domain checks hit RDAP/DNS/TLS within the remaining budget; whatever is
   // left waits for the next run.
@@ -133,7 +136,7 @@ export async function runScheduledChecks() {
     tasks: c.derivedTasks.filter((t) => t.live).length,
     domainsChecked,
     triaged,
-    pushed,
+    alerts,
     reports,
   };
 }

@@ -17,6 +17,20 @@ import { emailEnabled, vapidPublicKey } from "@/lib/server/notify";
 import { briefHour } from "@/lib/server/reports";
 import { env } from "@/lib/source";
 import { HeadPanel } from "@/components/admin/bits";
+import { NotifyPrefsForm, PauseButtons, SchedulerLinkForm } from "@/components/settings/NotifyPrefs";
+import { getPrefs } from "@/lib/server/alerts/store";
+import { lastTick, tickConfigured } from "@/lib/server/alerts/tick";
+import { businessTimeZone } from "@/lib/dates";
+
+function timeZones(...extra: (string | null)[]): string[] {
+  let all: string[] = [];
+  try {
+    all = Intl.supportedValuesOf("timeZone");
+  } catch {
+    all = [];
+  }
+  return [...new Set([...all, ...extra.filter((z): z is string => !!z), "UTC"])].sort();
+}
 
 const RECOVERY_TOTAL = 10;
 
@@ -36,7 +50,9 @@ function Sub({ title, children, className = "" }: { title: ReactNode; children: 
 export default async function SettingsPage() {
   const me = await requireUser();
   const owner = isFullOwner(me);
-  const [{ businessRules, sites }, user, log, places, solar, solarTokenHash] = await Promise.all([getConfig(), getUser(me.email), owner ? listAudit(50) : Promise.resolve([]), getSetting<PlaceConfig[]>("places", []), solarConfig(), getSetting<string | null>("solar_ingest_token_hash", null)]);
+  const [{ businessRules, sites }, user, log, places, solar, solarTokenHash, prefs, tickOn, tickAt] = await Promise.all([getConfig(), getUser(me.email), owner ? listAudit(50) : Promise.resolve([]), getSetting<PlaceConfig[]>("places", []), solarConfig(), getSetting<string | null>("solar_ingest_token_hash", null), getPrefs(me.email), owner ? tickConfigured() : false, owner ? lastTick() : null]);
+  const homeZone = businessTimeZone();
+  const myZone = prefs.timeZone ?? homeZone;
   const codesLeft = user?.recovery_codes.length ?? 0;
   const rules = formatBusinessRules(businessRules);
   const businessCount = new Set(businessRules.map((r) => r.business)).size;
@@ -92,16 +108,50 @@ export default async function SettingsPage() {
     </HeadPanel>
   );
 
+  const tickFresh = tickAt && Date.now() - Date.parse(tickAt) < 15 * 60_000;
   const notifications = (
-    <HeadPanel id="notifications" accent="#ff5fd7" title="Notifications" status={<span className="hud-label text-[11px] tracking-[0.12em] text-muted">push{owner ? " · email" : ""}</span>} bodyClassName="!p-0">
+    <HeadPanel id="notifications" accent="#ff5fd7" title="Notifications" status={<span className="hud-label text-[11px] tracking-[0.12em] text-muted">app push{owner ? " · email brief" : ""}</span>} bodyClassName="!p-0">
       <div className="px-4 py-4 sm:px-5">
-        <p className="mb-3 text-[13px] text-muted">Push notifications reach this phone or computer for new critical items you can see and tasks assigned to you{owner ? ", plus the morning brief" : ""}. Install the dashboard (Add to Home Screen) for the best experience.</p>
+        <p className="mb-3 text-[13px] text-muted">Alerts arrive as push notifications on this phone or computer, only for items you can see and tasks assigned to you. Install the dashboard (Add to Home Screen) for the best experience.</p>
         <PushToggle publicKey={vapidPublicKey()} />
       </div>
+      <Sub title="When to alert you">
+        <NotifyPrefsForm prefs={prefs} zones={timeZones(prefs.timeZone, homeZone)} businessZone={homeZone} />
+      </Sub>
+      <Sub title="Pause non-critical">
+        <p className="mb-2.5 text-[13px] text-muted">High alerts wait until the pause ends; critical ones still come through.</p>
+        <PauseButtons pausedUntil={prefs.pausedUntil} timeZone={myZone} />
+      </Sub>
+      <Sub title="What you get">
+        <ul className="grid gap-1.5 text-[13px]">
+          <li className="flex items-center gap-2"><SeverityIcon severity="critical" size={15} /><span className="hud-label text-[11px] text-critical">Critical</span><span className="text-muted">at once, always</span></li>
+          <li className="flex items-center gap-2"><SeverityIcon severity="high" size={15} /><span className="hud-label text-[11px] text-high">High</span><span className="text-muted">at once, held during quiet hours</span></li>
+          <li className="flex items-center gap-2"><SeverityIcon severity="medium" size={15} /><span className="hud-label text-[11px] text-cyan">Medium</span><span className="text-muted">one noon digest</span></li>
+          <li className="flex items-center gap-2"><SeverityIcon severity="low" size={15} /><span className="hud-label text-[11px] text-muted">Low</span><span className="text-muted">no push; in the morning brief</span></li>
+        </ul>
+        <p className="mt-2 text-[12px] text-muted">Website outages are confirmed by a second check a few minutes later. More than 5 pushes in 10 minutes are combined into one. History: the bell, and the <Link href="/notifications#delivery" className="text-cyan hover:underline">delivery log</Link>.</p>
+      </Sub>
+      {owner && (
+        <Sub title={<>Instant alerts every 5 minutes · scheduler link</>}>
+          <p className="mb-2 text-[13px] text-muted">
+            Vercel&apos;s free plan checks the platforms once a day. A free scheduler calling this link every 5 minutes makes alerts (and website checks) near-instant.{" "}
+            {tickOn ? (tickFresh ? <span className="text-emerald">Running · last call {timeAgo(tickAt)}.</span> : <span className="text-high">Link created, {tickAt ? `last call ${timeAgo(tickAt)}` : "never called yet"}.</span>) : <span>Not set up yet.</span>}
+          </p>
+          <SchedulerLinkForm exists={tickOn} />
+          <ol className="mt-3 grid list-decimal gap-1 pl-5 text-[13px] text-muted marker:text-cyan">
+            <li>Click <span className="text-ink">Create scheduler link</span> and copy the link (it is shown once).</li>
+            <li>Sign up free at <a href="https://cron-job.org" target="_blank" rel="noreferrer" className="text-cyan hover:underline">cron-job.org</a> → <span className="text-ink">Create cronjob</span>.</li>
+            <li>Paste the link as the URL; schedule <span className="text-ink">Every 5 minutes</span>; request method GET.</li>
+            <li>Under Advanced, set the timeout to 60 seconds; turn on failure notifications if you like. Save.</li>
+            <li>Come back here in 10 minutes: this panel shows when it was last called.</li>
+          </ol>
+          <p className="mt-2 text-[12px] text-muted">Keep the link private: anyone with it can trigger a check (nothing else). Replacing it stops the old one. Schedulers that send headers can call <C>/api/tick</C> with <C>Authorization: Bearer CRON_SECRET</C> instead.</p>
+        </Sub>
+      )}
       {owner && (
         <Sub title={<>Morning brief by email · {briefHour()}:00 ({env("BUSINESS_TIMEZONE") ?? "UTC"})</>}>
           <p className="text-[13px] text-muted">
-            {emailEnabled() ? <><span className="text-emerald">On</span>, to {env("BRIEF_EMAIL_TO")}.</> : <>Off. Set <C>RESEND_API_KEY</C>, <C>BRIEF_EMAIL_FROM</C> and <C>BRIEF_EMAIL_TO</C>.</>} Weekly reports go out on Mondays; see <Link href="/reports" className="text-cyan hover:underline">Reports</Link>.
+            {emailEnabled() ? <><span className="text-emerald">On</span>, to {env("BRIEF_EMAIL_TO")}.</> : <>Off. Set <C>RESEND_API_KEY</C>, <C>BRIEF_EMAIL_FROM</C> and <C>BRIEF_EMAIL_TO</C>.</>} Weekly reports go out on Mondays; see <Link href="/reports" className="text-cyan hover:underline">Reports</Link>. Alerts never go by email.
           </p>
           <div className="mt-2.5 flex flex-wrap gap-2">
             <Link href="/platforms#resend"><Tag color={emailEnabled() ? "#3df5a0" : "#7f97ab"}>Resend · {emailEnabled() ? "on" : "off"}</Tag></Link>

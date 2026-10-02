@@ -3,7 +3,9 @@ import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
 import { getDashboard } from "@/lib/server/dashboard";
 import { businessTimeZone, today } from "@/lib/dates";
-import { canSee } from "@/lib/access";
+import { canSee, isFullOwner } from "@/lib/access";
+import { deliveryLog } from "@/lib/server/alerts/store";
+import { DeliveryLog } from "@/components/alerts/DeliveryLog";
 import { SEVERITY_ORDER, type Severity } from "@/lib/types";
 import { BizLabel, Card, Empty, PageHeader, SeverityIcon, businessColor, timeAgo } from "@/components/ui";
 import { Chip, ChipRow, KpiStrip, SEV_COLOR, SEV_WORD } from "@/components/command/hud";
@@ -26,6 +28,8 @@ export default async function NotificationsPage({ searchParams }: { searchParams
   const user = await requireSection("notifications");
   const params = await searchParams;
   const s = await getDashboard();
+  const everyone = isFullOwner(user);
+  const deliveries = await deliveryLog(user, everyone, everyone ? 100 : 50).catch(() => []);
   const tz = businessTimeZone();
   const nowMs = Date.now();
   const sev = SEVERITY_ORDER.includes(params.severity as Severity) ? (params.severity as Severity) : null;
@@ -194,6 +198,8 @@ export default async function NotificationsPage({ searchParams }: { searchParams
           </Card>
         )}
       </div>
+
+      <DeliveryLog rows={deliveries} everyone={everyone} timeZone={tz} />
     </>
   );
 }

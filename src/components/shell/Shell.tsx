@@ -8,6 +8,7 @@ import { groupFor, pageActive, visibleNav } from "@/lib/nav";
 import { signOut } from "@/app/actions/auth";
 import { setBusinessFilter } from "@/app/actions/view";
 import type { ClockZone } from "../Clocks";
+import { Bell, type BellData } from "./Bell";
 
 const GROUP_ICON: Record<string, LucideIcon> = { core: Crosshair, money: DollarSign, web: Globe, build: Code2, sites: Cctv, admin: Settings2 };
 
@@ -21,6 +22,7 @@ export interface ShellProps {
   businesses: string[];
   business: string | null;
   externalAt: number;
+  bell: BellData;
   children: ReactNode;
 }
 
@@ -50,7 +52,7 @@ function ago(ms: number) {
   return m < 60 ? `${m}m ago` : `${Math.round(m / 60)}h ago`;
 }
 
-export function Shell({ allowed, counts, clocks, email, name, role, businesses, business, externalAt, children }: ShellProps) {
+export function Shell({ allowed, counts, clocks, email, name, role, businesses, business, externalAt, bell, children }: ShellProps) {
   const path = usePathname();
   const groups = useMemo(() => visibleNav(allowed), [allowed]);
   const group = groupFor(path);
@@ -59,6 +61,22 @@ export function Shell({ allowed, counts, clocks, email, name, role, businesses, 
   const [palette, setPalette] = useState(false);
   const [more, setMore] = useState(false);
   const [userMenu, setUserMenu] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+
+  // The account menu closes on a click elsewhere or Escape.
+  useEffect(() => {
+    if (!userMenu) return;
+    const onDown = (e: MouseEvent) => {
+      if (!userMenuRef.current?.contains(e.target as Node)) setUserMenu(false);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setUserMenu(false);
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [userMenu]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -77,7 +95,7 @@ export function Shell({ allowed, counts, clocks, email, name, role, businesses, 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[76px_minmax(0,1fr)]" style={{ "--ga": group.color } as CSSProperties}>
       {/* Rail (desktop) */}
-      <aside className="sticky top-0 hidden h-screen flex-col items-center gap-2 border-r border-line/60 bg-gradient-to-b from-[#081420]/90 to-[#04080e]/90 py-4 print:!hidden lg:flex">
+      <aside className="sticky top-0 z-40 hidden h-screen flex-col items-center gap-2 border-r border-line/60 bg-gradient-to-b from-[#081420]/90 to-[#04080e]/90 py-4 print:!hidden lg:flex">
         <Link href="/" aria-label="Overview" className="mb-3 grid h-11 w-11 place-items-center rounded-full border-[1.5px] border-violet font-display font-bold text-cyan shadow-[0_0_16px_rgba(169,139,255,.45),inset_0_0_10px_rgba(63,208,255,.3)]">K</Link>
         {groups.map((g) => {
           const Icon = GROUP_ICON[g.id] ?? Crosshair;
@@ -92,8 +110,8 @@ export function Shell({ allowed, counts, clocks, email, name, role, businesses, 
             </Link>
           );
         })}
-        <div className="relative mt-auto">
-          <button onClick={() => setUserMenu((v) => !v)} aria-label="Account" className="hud-cut grid h-12 w-12 place-items-center text-muted hover:text-ink"><UserRound size={20} strokeWidth={1.8} /></button>
+        <div ref={userMenuRef} className="relative mt-auto">
+          <button onClick={() => setUserMenu((v) => !v)} aria-label="Account" aria-expanded={userMenu} className="hud-cut grid h-12 w-12 place-items-center text-muted hover:text-ink"><UserRound size={20} strokeWidth={1.8} /></button>
           {userMenu && (
             <div className="absolute bottom-0 left-14 z-50 w-64 border border-line bg-panel p-4 shadow-2xl">
               <div className="truncate text-sm" title={email}>{name !== email ? name : email}</div>
@@ -108,7 +126,7 @@ export function Shell({ allowed, counts, clocks, email, name, role, businesses, 
       <div className="min-w-0">
         {/* Top bar */}
         <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-line/60 bg-bg/80 px-4 backdrop-blur print:hidden sm:h-16 sm:gap-5 sm:px-6">
-          <Link href="/" className="bg-gradient-to-r from-cyan via-violet to-pink bg-clip-text font-display text-sm font-bold tracking-[0.22em] text-transparent sm:text-base">
+          <Link href="/" className="shrink-0 whitespace-nowrap bg-gradient-to-r from-cyan via-violet to-pink bg-clip-text font-display text-sm font-bold tracking-[0.22em] text-transparent sm:text-base">
             KAJ <span className="hidden sm:inline">// COMMAND</span><span className="sm:hidden">// CMD</span>
           </Link>
           {(businesses.length > 1 || business) && <BusinessSelect businesses={businesses} business={business} />}
@@ -117,7 +135,7 @@ export function Shell({ allowed, counts, clocks, email, name, role, businesses, 
             <span className="font-display font-bold text-cyan">&gt;</span> Jump to anything…
             <span className="ml-auto border border-line px-1.5 font-mono text-[10px]">⌘K</span>
           </button>
-          <div className="ml-auto flex items-center gap-4 sm:gap-6">
+          <div className="ml-auto flex items-center gap-3 sm:gap-6">
             {clocks.map((z) => (
               <div key={z.timeZone} className="leading-tight">
                 <div className="hud-label text-[9px] text-muted sm:text-[10px]">{z.label}</div>
@@ -127,6 +145,7 @@ export function Shell({ allowed, counts, clocks, email, name, role, businesses, 
             <div className="hidden items-center gap-2 font-display text-[11px] tracking-[0.14em] text-cyan sm:flex" title="When the platform data on screen was fetched">
               <span className="h-2 w-2 rounded-full bg-cyan shadow-[0_0_10px_#3fd0ff]" />LIVE · {fresh === null ? "…" : ago(fresh)}
             </div>
+            <Bell data={bell} />
           </div>
         </header>
 

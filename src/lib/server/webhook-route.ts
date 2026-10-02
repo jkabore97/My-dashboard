@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
+import { alertsAfter } from "./alerts/after";
 import { apply } from "./webhook-handlers";
 import { webhookSecret, type WebhookProvider } from "./webhooks";
 
@@ -26,5 +27,6 @@ export async function receiveWebhook(
     return NextResponse.json({ error: "invalid JSON" }, { status: 400 });
   }
   const result = await apply(handle(raw, payload));
+  if (result.tasks || result.resolved) alertsAfter(after);
   return NextResponse.json({ ok: true, ...result });
 }

@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
+import { alertsAfter } from "@/lib/server/alerts/after";
 import { parseEventAlert } from "@/lib/connectors/hikvision";
 import { safeEqual } from "@/lib/server/crypto";
 import { latestSnapshot } from "@/lib/server/store/snapshots";
@@ -32,5 +33,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ secret: string
   const status = await latestSnapshot<CameraSiteStatus>("cameras", site.id).catch(() => null);
   const channelName = event.channel ? status?.channels.find((c) => c.id === event.channel)?.name : null;
   const result = await apply(handleHikvision(site, event, channelName));
+  if (result.tasks || result.resolved) alertsAfter(after);
   return NextResponse.json({ ok: true, ...result });
 }

@@ -1,12 +1,10 @@
 import webpush from "web-push";
 import { env, errorMessage } from "../source";
 import { getDb } from "./db";
-import { people } from "./people";
-import { canSeeTask } from "../access";
-import { claimInterval } from "./store/settings";
 
 // Outbound notifications: email (Resend) for the morning brief and weekly
-// report, and Web Push to the installed dashboard app for critical items.
+// report, and Web Push to the installed dashboard app. Which alerts go to
+// whom, and when, is decided in ./alerts.
 
 export const emailEnabled = () => !!(env("RESEND_API_KEY") && env("BRIEF_EMAIL_TO") && env("BRIEF_EMAIL_FROM"));
 
@@ -65,7 +63,22 @@ export async function countSubscriptions() {
   return Number(r.n);
 }
 
-type PushPayload = { title: string; body: string; url?: string; tag?: string };
+/**
+ * What the service worker shows. `id` is the delivery-log row (for the
+ * Acknowledge / Snooze actions), `tag` replaces an earlier notification with
+ * the same tag (a "Resolved" push replaces the alert). Never put secrets here.
+ */
+export type PushPayload = {
+  title: string;
+  body: string;
+  url?: string;
+  tag?: string;
+  id?: string;
+  kind?: string;
+  severity?: string;
+  actions?: { action: string; title: string }[];
+  requireInteraction?: boolean;
+};
 
 /** Sends to every subscribed device; drops subscriptions the push service says are gone. */
 export async function pushAll(payload: PushPayload) {
@@ -98,44 +111,18 @@ export async function pushTo(emails: string | string[] | null, payload: PushPayl
   return { sent, errors };
 }
 
-/** Push text for a task. Email subjects are written by outside senders, so the sender is named and the text kept short. */
-export function pushText(t: { title: string; detail: string | null; source_key: string | null; origin: string }) {
+const SEVERITY_WORD: Record<string, string> = { critical: "Critical", high: "High", medium: "Medium", low: "Low" };
+
+/**
+ * Push text for a task. Email subjects are written by outside senders, so the
+ * sender is named and the text kept short.
+ */
+export function pushText(t: { title: string; detail: string | null; source_key: string | null; origin: string }, severity = "critical") {
+  const word = SEVERITY_WORD[severity] ?? "Alert";
   const email = t.origin === "derived" && /^(gmail|outlook)\//.test(t.source_key ?? "");
   if (email) {
     const from = (t.detail ?? "").replace(/^From\s+/, "").slice(0, 80) || "unknown sender";
-    return { title: "Critical email", body: `${from}: ${t.title.slice(0, 80)}` };
+    return { title: `${word} email`, body: `${from}: ${t.title.slice(0, 80)}` };
   }
-  return { title: `Critical: ${t.title}`.slice(0, 120), body: (t.detail ?? "Open the dashboard for details.").slice(0, 200) };
-}
-
-/**
- * Pushes each newly opened critical task once. Returns how many were sent.
- * "New" means opened (or reopened) in the last day, so turning push on
- * doesn't replay older problems. A short lease stops two cron runs sending
- * the same task; the task counts as notified only once the send was tried.
- * Resolving or reopening a task clears it (migration 7), so a recurrence is
- * pushed again.
- */
-export async function pushNewCriticalTasks(): Promise<number> {
-  if (!pushEnabled()) return 0;
-  const db = await getDb();
-  const fresh = await db.query<{ id: string; title: string; detail: string | null; url: string | null; source_key: string | null; origin: string; business: string | null; assignee: string | null }>(
-    `select t.id, t.title, t.detail, t.url, t.source_key, t.origin, coalesce(t.business_override, t.business) as business, t.assignee from tasks t
-     where t.status = 'open' and t.severity = 'critical' and t.occurred_at > now() - interval '1 day'
-       and not exists (select 1 from notified n where n.task_id = t.id and n.channel = 'push')
-     order by t.occurred_at desc limit 10`,
-  );
-  if (!fresh.length || (await countSubscriptions()) === 0) return 0;
-  const everyone = await people();
-  let sent = 0;
-  for (const t of fresh) {
-    if (!(await claimInterval(`push:${t.id}`, 120))) continue;
-    // Only to people who can see this task (its section and business, or it's theirs).
-    const to = everyone.filter((p) => canSeeTask(p, p.email, { business: t.business, sourceKey: t.source_key, assignee: t.assignee })).map((p) => p.email);
-    await pushTo(to, { ...pushText(t), url: t.url && t.url.startsWith("/") ? t.url : "/tasks", tag: `task-${t.id}` }).catch((err) => console.error(`[push] ${errorMessage(err)}`));
-    await db.query("insert into notified (task_id, channel) values ($1, 'push') on conflict do nothing", [t.id]);
-    await db.query("delete from settings where key = $1", [`push:${t.id}`]); // the lease has done its job
-    sent++;
-  }
-  return sent;
+  return { title: `${word}: ${t.title}`.slice(0, 120), body: (t.detail ?? "Open the dashboard for details.").slice(0, 200) };
 }

@@ -89,7 +89,7 @@ npm run typecheck
    - `ALLOWED_EMAILS=` the address you sign in to Microsoft with (you become the owner)
    - `MS_CLIENT_ID`, `MS_CLIENT_SECRET`, `MS_TENANT_ID` (the tenant ID for a single-organization app; leave it empty for the multi-account option)
    - `APP_URL`, `DATABASE_URL`, `SESSION_SECRET` (`openssl rand -base64 48`), `ENCRYPTION_KEY` (`openssl rand -base64 32`, keep it safe), `CRON_SECRET` (`openssl rand -hex 32`). Production refuses to start without the secrets.
-   - `vercel.json` runs `/api/cron/check` once a day at 12:00 UTC (7–8 a.m. in New York), which the free Hobby plan allows; it also sends the morning brief, any time from `BRIEF_HOUR` to six hours later. Opening the dashboard always syncs fresh data. For checks every 5 minutes (uptime alerts, push for new critical items), either switch to Pro and set the schedule to `*/5 * * * *`, or have a free scheduler such as cron-job.org call `GET APP_URL/api/cron/check` every 5 minutes with the header `Authorization: Bearer <CRON_SECRET>`.
+   - `vercel.json` runs `/api/cron/check` once a day at 12:00 UTC (7–8 a.m. in New York), which the free Hobby plan allows; it also sends the morning brief, any time from `BRIEF_HOUR` to six hours later. Opening the dashboard always syncs fresh data. For checks every 5 minutes (uptime alerts, push for new critical items), either switch to Pro and set the schedule to `*/5 * * * *`, or have a free scheduler such as cron-job.org call the scheduler link from Settings → Notifications (`/api/tick/<token>`) every 5 minutes (docs/CONNECT.md step 13b); `/api/tick` with `Authorization: Bearer <CRON_SECRET>` works too.
 5. **Sign in** at your `APP_URL` with Microsoft, scan the 2FA QR code, and save your recovery codes.
 6. **Team page:** invite people by the address they sign in to Microsoft with (usually their work email). They open the link (or just the dashboard) and choose *Sign in with Microsoft*.
 
@@ -175,7 +175,7 @@ curl -X POST https://YOUR-DASHBOARD-DOMAIN/api/ingest/solar \
 
 ## Notifications, brief and AI
 
-- **Push to your phone:** generate keys once with `npx web-push generate-vapid-keys`, set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT` (`mailto:you@…`), then Settings → Notifications → *Enable notifications on this device*. On iPhone, first add the dashboard to the Home Screen (Share → Add to Home Screen) and open it from there. Only **new critical** tasks are pushed, once each.
+- **Push to your phone:** generate keys once with `npx web-push generate-vapid-keys`, set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT` (`mailto:you@…`), then Settings → Notifications → *Enable notifications on this device*. On iPhone, first add the dashboard to the Home Screen (Share → Add to Home Screen) and open it from there. Alerts follow each person's access, quiet hours (10 PM–7 AM in their zone; critical always comes through), a noon digest for medium items, and a 5-per-10-minutes limit; see docs/CONNECT.md step 13. For checks every 5 minutes on the free plan, create the scheduler link in Settings → Notifications and add it to cron-job.org (step 13b).
 - **Morning brief and weekly reports by email:** create a [Resend](https://resend.com) API key, verify your sending domain, and set `RESEND_API_KEY`, `BRIEF_EMAIL_FROM` and `BRIEF_EMAIL_TO` (comma-separated for several people). The brief goes out daily at `BRIEF_HOUR` (default 7) in `BUSINESS_TIMEZONE`. Each business's weekly report goes out on Mondays. The Reports page can also print a report as a PDF or send it now.
 - **AI (Claude):** set `ANTHROPIC_API_KEY` to turn on email triage (new unread mail, read once and cached), reply drafts in the Inbox, and the Ask page. `OWNER_NAME` sets the name drafts are signed with.
 
@@ -191,7 +191,7 @@ NVR (tunnel) ◄─ ISAPI (status, snapshots) · NVR alarm server ─► /api/we
 
 - `src/lib/connectors/*`: one file per platform, normalized into `src/lib/types.ts`.
 - `src/lib/aggregate.ts`: fetches everything and derives tasks (`deriveTasks`, plus `risk.ts`, `growth.ts` and `devices.ts` rules).
-- `src/lib/server/ai.ts`, `triage.ts`, `ask-context.ts`: Claude features. `notify.ts`, `reports.ts`, `brief.ts`: push, email brief and weekly reports. `fixes.ts`: one-click fixes.
+- `src/lib/server/ai.ts`, `triage.ts`, `ask-context.ts`: Claude features. `notify.ts`, `reports.ts`, `brief.ts`: push, email brief and weekly reports. `alerts/`: who gets which push and when (pure rules in `decide.ts`, routing and delivery log in `run.ts`, the 5-minute tick in `tick.ts`). `fixes.ts`: one-click fixes.
 - `src/lib/server/sync.ts`: persists signals; `store/*` holds the database access; `migrations.ts` holds the schema.
 - `src/lib/server/auth.ts`, `twofactor.ts`, `session.ts`: sign-in, 2FA, sessions. `src/proxy.ts` guards every route.
 

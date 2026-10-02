@@ -340,5 +340,62 @@ alter table client_portals enable row level security;
 alter table users add column ms_subject text unique;
 `,
   },
+  {
+    version: 10,
+    name: "alert_routing",
+    sql: `
+-- Per-person alert preferences (time zone, quiet hours, toggles, pause).
+-- Environment owners get a users row when they first sign in, so this covers them too.
+alter table users add column notify_prefs jsonb not null default '{}'::jsonb;
+
+-- One row per task: its current open period. A task alerts once per period;
+-- when it closes and later reopens or recurs, period goes up and it may alert
+-- again. Unlike "notified", nothing here is cleared by a trigger.
+create table alert_incidents (
+  task_id uuid primary key references tasks(id) on delete cascade,
+  period integer not null default 1,
+  state text not null default 'open' check (state in ('open', 'closed')),
+  opened_at timestamptz not null default now(),
+  -- Not routed before this (website checks wait for a second look; 'infinity' = pre-existing, never routed).
+  route_after timestamptz not null default now(),
+  -- Highest severity routed in this period (null = not routed yet).
+  routed_severity text check (routed_severity in ('critical', 'high', 'medium', 'low')),
+  closed_at timestamptz,
+  updated_at timestamptz not null default now()
+);
+create index alert_incidents_open_idx on alert_incidents (state, route_after);
+
+-- Delivery log: one row per recipient per message.
+create table alert_log (
+  id uuid primary key default gen_random_uuid(),
+  user_email text not null,
+  task_id uuid references tasks(id) on delete set null,
+  period integer,
+  kind text not null check (kind in ('alert', 'resolved', 'digest', 'test')),
+  severity text not null check (severity in ('critical', 'high', 'medium', 'low')),
+  title text not null,
+  body text,
+  url text,
+  status text not null check (status in ('queued', 'sent', 'failed', 'suppressed', 'folded')),
+  reason text,
+  dedupe_key text not null,
+  deliver_after timestamptz not null default now(),
+  lease_until timestamptz,
+  created_at timestamptz not null default now(),
+  sent_at timestamptz,
+  read_at timestamptz,
+  acked_at timestamptz,
+  unique (user_email, dedupe_key)
+);
+create index alert_log_user_idx on alert_log (user_email, created_at desc);
+create index alert_log_due_idx on alert_log (deliver_after) where status = 'queued';
+create index alert_log_task_idx on alert_log (task_id, user_email) where task_id is not null;
+create index alert_log_sent_idx on alert_log (user_email, sent_at) where status = 'sent';
+create index alert_log_created_idx on alert_log (created_at desc);
+
+alter table alert_incidents enable row level security;
+alter table alert_log enable row level security;
+`,
+  },
 ];
 

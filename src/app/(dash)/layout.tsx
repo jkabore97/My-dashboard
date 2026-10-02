@@ -7,6 +7,8 @@ import { requireUser } from "@/lib/server/auth";
 import { getDashboard } from "@/lib/server/dashboard";
 import { samplesEnabled } from "@/lib/source";
 import { isFullOwner, PATH_SECTION, ROLE_LABEL, canSee } from "@/lib/access";
+import { bellFor } from "@/lib/server/alerts/store";
+import type { BellData } from "@/components/shell/Bell";
 
 export default async function DashLayout({ children }: { children: React.ReactNode }) {
   // Render per request; connector fetches are still cached for 2 minutes.
@@ -23,10 +25,14 @@ export default async function DashLayout({ children }: { children: React.ReactNo
   const errors = !owner ? [] : d.sources.flatMap((s) => (s.mode === "error" ? [`${s.source} (${s.error})`] : (s.partial ?? []).map((p) => `${s.source} (${p.error})`)));
 
   const all = await knownBusinesses().catch(() => [] as string[]);
+  // The bell: one small query; an unreachable database just shows it empty.
+  const bell: BellData = await bellFor(user)
+    .then(({ unread, items }) => ({ unread, items: items.map((i) => ({ id: i.id, taskId: i.taskId, kind: i.kind, severity: i.severity, title: i.title, body: i.body, url: i.url, status: i.status, reason: i.reason, deliverAfter: i.deliverAfter, createdAt: i.createdAt, read: !!i.readAt, acked: !!i.ackedAt })) }))
+    .catch(() => ({ unread: 0, items: [] }));
   const businesses = user.businesses === null ? all : all.filter((b) => user.businesses!.includes(b));
 
   return (
-    <Shell counts={counts} email={user.email} name={user.name} role={user.envOwner ? null : ROLE_LABEL[user.role]} allowed={allowed} clocks={clockZones()} businesses={businesses} business={d.business} externalAt={d.externalAt}>
+    <Shell counts={counts} email={user.email} name={user.name} role={user.envOwner ? null : ROLE_LABEL[user.role]} allowed={allowed} clocks={clockZones()} businesses={businesses} business={d.business} externalAt={d.externalAt} bell={bell}>
         {d.dbError && (
           <div className="hud-cut mb-5 border border-critical/40 bg-critical/10 px-4 py-3 text-sm">
             <strong className="text-critical">Database unavailable.</strong>{" "}
