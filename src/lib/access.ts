@@ -38,11 +38,64 @@ export interface Access {
   role: Role;
   /** Businesses this person sees; null means all of them. */
   businesses: string[] | null;
+  /**
+   * Sections picked for this person, replacing the role's; null or missing
+   * means the role's own. Owner-only sections are never granted this way.
+   */
+  sections?: Section[] | null;
 }
 
-export const OWNER_ACCESS: Access = { role: "owner", businesses: null };
+export const OWNER_ACCESS: Access = { role: "owner", businesses: null, sections: null };
 
-export const canSee = (a: Access, section: Section) => ROLE_SECTIONS[a.role].includes(section);
+/** Sections only a full owner opens (connections and the team). A custom list can't include them. */
+export const OWNER_ONLY: readonly Section[] = ["platforms", "team"];
+/** Personal pages everyone keeps, whatever is picked. */
+export const ALWAYS: readonly Section[] = EVERYONE;
+/** Every section, in navigation order. */
+export const ALL_SECTIONS: readonly Section[] = ROLE_SECTIONS.owner;
+/** Sections that can be ticked for a person. */
+export const GRANTABLE: readonly Section[] = ALL_SECTIONS.filter((s) => !OWNER_ONLY.includes(s) && !ALWAYS.includes(s));
+
+/** Cleans a picked list: only grantable sections, once each, in a fixed order. */
+export function normalizeSections(values: readonly string[]): Section[] {
+  const set = new Set(values.map((v) => v.trim()));
+  return GRANTABLE.filter((s) => set.has(s));
+}
+
+/** The grantable part of a role's sections (what the checkboxes start from). */
+export const roleDefaultSections = (role: Role): Section[] => GRANTABLE.filter((s) => ROLE_SECTIONS[role].includes(s));
+
+/**
+ * The custom list to store for a form's picks: null when it matches the role
+ * (so the person follows the role), and always null for owners, whose role
+ * is everything.
+ */
+export function customSections(role: Role, picked: readonly string[]): Section[] | null {
+  if (role === "owner") return null;
+  const list = normalizeSections(picked);
+  const def = roleDefaultSections(role);
+  return list.length === def.length && list.every((s, i) => s === def[i]) ? null : list;
+}
+
+/**
+ * What this person may open. Full owners: everything. A custom list replaces
+ * the role's sections, plus the personal pages; it never adds owner-only ones.
+ * The one place access is decided: canSee, the sidebar, alerts and pushes all
+ * come through here.
+ */
+export function sectionsFor(a: Access): readonly Section[] {
+  if (isFullOwner(a)) return ROLE_SECTIONS.owner;
+  if (a.role !== "owner" && Array.isArray(a.sections)) {
+    const picked = normalizeSections(a.sections);
+    return ALL_SECTIONS.filter((s) => ALWAYS.includes(s) || picked.includes(s));
+  }
+  return ROLE_SECTIONS[a.role];
+}
+
+export const canSee = (a: Access, section: Section) => sectionsFor(a).includes(section);
+
+/** Whether the person may connect their own mailbox / calendar. */
+export const canConnectPersonal = (a: Access) => canSee(a, "inbox") || canSee(a, "agenda");
 
 export const allBusinesses = (a: Access) => a.businesses === null;
 
@@ -50,7 +103,9 @@ export const allBusinesses = (a: Access) => a.businesses === null;
 export const inBusiness = (a: Access, business: string | null | undefined) => a.businesses === null || (!!business && a.businesses.includes(business));
 
 /** Owners with every business: the only people who manage connections, settings and the team. */
-export const isFullOwner = (a: Access) => a.role === "owner" && a.businesses === null;
+export function isFullOwner(a: Access) {
+  return a.role === "owner" && a.businesses === null;
+}
 
 /** The page a path belongs to, for the sidebar. */
 export const PATH_SECTION: Record<string, Section> = {
@@ -63,7 +118,7 @@ export const PATH_SECTION: Record<string, Section> = {
 // Task scopes (derived "scope/key") and webhook key prefixes → the section they belong to.
 const SCOPE_SECTION: Record<string, Section> = {
   connector: "platforms", github: "repos", vercel: "hosting", workers: "hosting", supabase: "databases", d1: "databases",
-  gmail: "inbox", outlook: "inbox", websites: "websites", stripe: "money", invoices: "money", subscriptions: "money",
+  gmail: "inbox", outlook: "inbox", mymail: "inbox", websites: "websites", stripe: "money", invoices: "money", subscriptions: "money",
   deadlines: "deadlines", checklist: "security", domains: "domains", security: "security", pipeline: "clients",
   reviews: "analytics", analytics: "analytics", cameras: "cameras", solar: "solar",
 };
@@ -80,14 +135,27 @@ export function taskSection(sourceKey: string | null | undefined): Section {
   return EVENT_PREFIX.find(([p]) => sourceKey.startsWith(p))?.[1] ?? "tasks";
 }
 
+export interface TaskVisibility {
+  business?: string | null;
+  sourceKey?: string | null;
+  assignee?: string | null;
+  /** Personal tasks (from someone's own mailbox): only that person, never anyone else, owners included. */
+  privateTo?: string | null;
+}
+
 /**
- * A task is visible when it's assigned to you, or when you can open its
- * section and see its business.
+ * A personal task is visible to its owner only (while they can open its
+ * section; a "reconnect your mailbox" task always). Any other task is visible
+ * when it's assigned to you, or when you can open its section and see its business.
  */
-export function canSeeTask(a: Access, email: string, t: { business?: string | null; sourceKey?: string | null; assignee?: string | null }) {
+export function canSeeTask(a: Access, email: string, t: TaskVisibility) {
+  if (t.privateTo) return t.privateTo === email && (canSee(a, taskSection(t.sourceKey)) || !!t.sourceKey?.endsWith("/reconnect"));
   if (t.assignee && t.assignee === email) return true;
   return canSee(a, taskSection(t.sourceKey)) && inBusiness(a, t.business);
 }
+
+/** Items carrying an owner (personal mail, calendar events, their notifications) are for that person alone. */
+export const ownItem = (email: string) => (x: { owner?: string | null }) => !x.owner || x.owner === email;
 
 /** Section an event (notification) belongs to, from its source label. */
 export function eventSection(source: string): Section {

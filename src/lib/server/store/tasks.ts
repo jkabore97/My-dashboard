@@ -13,6 +13,8 @@ export interface StoredTask extends Task {
   resolvedAt: string | null;
   /** Team member the task is assigned to (email), if any. */
   assignee: string | null;
+  /** Personal task (from someone's own mailbox): only this person sees it. */
+  privateTo?: string;
 }
 
 interface TaskRow {
@@ -32,6 +34,7 @@ interface TaskRow {
   resolved_at: Date | string | null;
   occurred_at: Date | string;
   assignee: string | null;
+  private_to?: string | null;
 }
 
 const iso = (v: Date | string | null) => (v == null ? null : new Date(v).toISOString());
@@ -53,6 +56,7 @@ function toTask(r: TaskRow): StoredTask {
     resolvedBy: r.resolved_by,
     resolvedAt: iso(r.resolved_at),
     assignee: r.assignee ?? null,
+    ...(r.private_to ? { privateTo: r.private_to } : {}),
   };
 }
 
@@ -102,17 +106,17 @@ export async function reconcileDerived(derived: Task[], scopes: string[], unobse
       const prev = byKey.get(t.id);
       const reopen = prev?.status === "done" && prev.resolved_by === "auto";
       await tx.query(
-        `insert into tasks (origin, source_key, title, detail, severity, source, url, business, occurred_at)
-         values ('derived', $1, $2, $3, $4, $5, $6, $7, $8::timestamptz)
+        `insert into tasks (origin, source_key, title, detail, severity, source, url, business, occurred_at, private_to)
+         values ('derived', $1, $2, $3, $4, $5, $6, $7, $8::timestamptz, $10)
          on conflict (source_key) do update set
            title = excluded.title, detail = excluded.detail, severity = excluded.severity,
-           source = excluded.source, url = excluded.url, business = excluded.business,
+           source = excluded.source, url = excluded.url, business = excluded.business, private_to = excluded.private_to,
            status = case when $9 then 'open' else tasks.status end,
            resolved_by = case when $9 then null else tasks.resolved_by end,
            resolved_at = case when $9 then null else tasks.resolved_at end,
            occurred_at = case when $9 then excluded.occurred_at else tasks.occurred_at end,
            updated_at = now()`,
-        [t.id, t.title, t.detail ?? null, t.severity, t.source, t.url ?? null, t.business ?? null, t.createdAt, reopen],
+        [t.id, t.title, t.detail ?? null, t.severity, t.source, t.url ?? null, t.privateTo ? null : (t.business ?? null), t.createdAt, reopen, t.privateTo ?? null],
       );
     }
     const inScope = (key: string) => scopes.some((sc) => key.startsWith(`${sc}/`)) && !unobserved.some((p) => key.startsWith(p));
@@ -240,10 +244,11 @@ export interface TaskActivity {
   action: string;
   detail: Record<string, unknown> | null;
   at: string;
-  /** The task's business, key and assignee, so callers can check who may see it. */
+  /** The task's business, key, assignee and owner (personal tasks), so callers can check who may see it. */
   business: string | null;
   sourceKey: string | null;
   assignee: string | null;
+  privateTo: string | null;
 }
 
 export async function recordActivity(taskId: string, actor: string, action: string, detail?: Record<string, unknown> | null) {
@@ -254,12 +259,12 @@ export async function recordActivity(taskId: string, actor: string, action: stri
 /** Recent activity, newest first; optionally for one task. */
 export async function listActivity(opts: { taskId?: string; limit?: number } = {}): Promise<TaskActivity[]> {
   const db = await getDb();
-  const rows = await db.query<{ id: string; task_id: string; title: string; actor: string; action: string; detail: Record<string, unknown> | null; at: Date | string; business: string | null; source_key: string | null; assignee: string | null }>(
-    `select a.id::text, a.task_id, t.title, a.actor, a.action, a.detail, a.at, coalesce(t.business_override, t.business) as business, t.source_key, t.assignee
+  const rows = await db.query<{ id: string; task_id: string; title: string; actor: string; action: string; detail: Record<string, unknown> | null; at: Date | string; business: string | null; source_key: string | null; assignee: string | null; private_to: string | null }>(
+    `select a.id::text, a.task_id, t.title, a.actor, a.action, a.detail, a.at, coalesce(t.business_override, t.business) as business, t.source_key, t.assignee, t.private_to
      from task_activity a join tasks t on t.id = a.task_id
      where ($1::uuid is null or a.task_id = $1::uuid)
      order by a.at desc, a.id desc limit $2`,
     [opts.taskId ?? null, opts.limit ?? 100],
   );
-  return rows.map((r) => ({ id: r.id, taskId: r.task_id, taskTitle: r.title, actor: r.actor, action: r.action, detail: r.detail, at: new Date(r.at).toISOString(), business: r.business, sourceKey: r.source_key, assignee: r.assignee }));
+  return rows.map((r) => ({ id: r.id, taskId: r.task_id, taskTitle: r.title, actor: r.actor, action: r.action, detail: r.detail, at: new Date(r.at).toISOString(), business: r.business, sourceKey: r.source_key, assignee: r.assignee, privateTo: r.private_to ?? null }));
 }

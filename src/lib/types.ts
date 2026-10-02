@@ -84,6 +84,8 @@ export interface EmailMessage {
   business?: string;
   /** Claude's reading of the message, when AI triage is on and it has run. */
   triage?: EmailTriage;
+  /** Set for someone's own (personal) mailbox: only this person ever sees the message. */
+  owner?: string;
 }
 
 export interface EmailTriage {
@@ -102,6 +104,8 @@ export interface Task {
   url?: string;
   createdAt: string;
   business?: string;
+  /** Personal task (from someone's own mailbox): visible to and alerting only this person. */
+  privateTo?: string;
 }
 
 export interface Notification {
@@ -113,6 +117,8 @@ export interface Notification {
   severity: Severity;
   url?: string;
   business?: string;
+  /** From someone's own mailbox: only this person sees it. */
+  owner?: string;
 }
 
 export interface Website {
@@ -194,6 +200,8 @@ export interface SecurityAlert {
   title: string;
   url: string;
   createdAt: string;
+  /** Secret scanning: where it was first found ("path:line"), when GitHub says. */
+  location?: string;
 }
 
 export interface RepoSecurity {
@@ -222,6 +230,8 @@ export interface CalendarEvent {
   location: string | null;
   meetingUrl: string | null;
   url: string | null;
+  /** Set for someone's own (personal) calendar: only this person ever sees the event. */
+  owner?: string;
 }
 
 export interface DailyPoint {

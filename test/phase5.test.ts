@@ -89,8 +89,8 @@ describe("roles", () => {
 
   it("gives environment owners full access whatever their row says", () => {
     vi.stubEnv("ALLOWED_EMAILS", "boss@kaj.com");
-    expect(accessFor({ email: "boss@kaj.com", role: "accountant", businesses: ["X"] })).toEqual({ role: "owner", businesses: null });
-    expect(accessFor({ email: "amy@kaj.com", role: "accountant", businesses: ["X"] })).toEqual({ role: "accountant", businesses: ["X"] });
+    expect(accessFor({ email: "boss@kaj.com", role: "accountant", businesses: ["X"] })).toEqual({ role: "owner", businesses: null, sections: null });
+    expect(accessFor({ email: "amy@kaj.com", role: "accountant", businesses: ["X"] })).toEqual({ role: "accountant", businesses: ["X"], sections: null });
   });
 });
 
@@ -130,9 +130,9 @@ function sample(): Scopable {
 const ctx = { businessForDomain: (d: string) => (d.endsWith("store.com") ? "Kaj Store" : d === "kaj.com" ? "Kaj Consulting" : undefined) };
 
 describe("dashboard scoping", () => {
-  it("leaves a full owner's view untouched", () => {
+  it("leaves a full owner's view untouched (nobody's personal items in it)", () => {
     const d = sample();
-    expect(scopeFor(d, { role: "owner", businesses: null }, "boss", ctx)).toBe(d);
+    expect(scopeFor(d, { role: "owner", businesses: null }, "boss", ctx)).toEqual(d);
   });
 
   it("cuts a developer for one business down to their sections and business", () => {
@@ -226,7 +226,7 @@ describe("team, assignments and client pages (PGlite)", () => {
   it("invites a member who sets a password once, and refuses repeat or duplicate invites", async () => {
     const res = await inviteMember({ email: "amy@kaj.com", name: "Amy", role: "assistant", businesses: ["Kaj Store"], by: "boss" });
     if (!("token" in res)) throw new Error(res.error);
-    expect(await inviteByToken(res.token)).toEqual({ email: "amy@kaj.com", name: "Amy", role: "assistant", status: "ok" });
+    expect(await inviteByToken(res.token)).toEqual({ email: "amy@kaj.com", name: "Amy", role: "assistant", sections: null, status: "ok" });
     expect(await isAllowed("amy@kaj.com")).toBe(true);
     expect(await acceptInvite(res.token, await hashPassword("a long password!"))).toBe("amy@kaj.com");
     expect(await acceptInvite(res.token, await hashPassword("another password"))).toBeNull();

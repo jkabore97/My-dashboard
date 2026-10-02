@@ -27,7 +27,8 @@ async function act(id: string, action: string, fn: (task: StoredTask, user: Curr
   const task = await getTask(id);
   if (!task || !canSeeTask(user, user.email, task)) return;
   if ((await fn(task, user)) === false) return;
-  await audit(user.email, action, task.title, detail);
+  // The audit log is read by owners: a personal task's title (an email subject) stays out of it.
+  await audit(user.email, action, task.privateTo ? "personal task" : task.title, detail);
   await recordActivity(id, user.email, action.replace(/^task\./, ""), detail ?? null).catch(() => {});
   // Reopened or closed: the alert or the "Resolved" message follows at once.
   if (action === "task.reopen" || action === "task.done") alertsAfter(after);
@@ -60,7 +61,9 @@ export async function snoozeTaskAction(id: string, preset: SnoozePreset) {
 
 export async function setTaskBusinessAction(id: string, business: string) {
   const value = business.trim().slice(0, 80) || null;
-  await act(id, "task.business", async (_t, user) => {
+  await act(id, "task.business", async (t, user) => {
+    // Personal tasks belong to a person, not a business.
+    if (t.privateTo) return false;
     // A scoped teammate can only move tasks between their own businesses.
     if (businessDenied(user, value)) return false;
     await setTaskBusiness(id, value);
@@ -71,6 +74,8 @@ export async function setTaskBusinessAction(id: string, business: string) {
 export async function assignTaskAction(id: string, email: string) {
   const to = email.trim().toLowerCase() || null;
   await act(id, "task.assign", async (task, user) => {
+    // A personal task is its owner's alone: it can't be handed to anyone else.
+    if (task.privateTo && to && to !== task.privateTo) return false;
     if (to && !(await assignableFor(task.business)).some((p) => p.email === to)) return false;
     await setTaskAssignee(id, to);
     if (to && to !== user.email) {

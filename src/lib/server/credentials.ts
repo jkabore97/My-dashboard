@@ -10,9 +10,12 @@ const loadConnections = cache(async () => {
     const { list, undecryptable } = await readConnections<Record<string, string>>();
     return { ok: undecryptable.length === 0, list, undecryptable };
   } catch {
-    return { ok: false, list: [], undecryptable: [] as { provider: Provider; account: string }[] };
+    return { ok: false, list: [], undecryptable: [] as { provider: Provider; account: string; ownerEmail: string | null }[] };
   }
 });
+
+/** Shared connections only: personal mailboxes never feed the shared sources. */
+const sharedConnections = async () => (await loadConnections()).list.filter((c) => !c.ownerEmail);
 
 /**
  * `readable` is false when stored connections couldn't all be read (database
@@ -27,7 +30,7 @@ export const connectionHealth = async () => {
 // One connection per provider except Gmail (connecting another replaces it);
 // the newest wins should older duplicates exist.
 async function first<S>(provider: Provider) {
-  const mine = (await loadConnections()).list.filter((c) => c.provider === provider);
+  const mine = (await sharedConnections()).filter((c) => c.provider === provider);
   return (mine.at(-1) as Connection<S> | undefined) ?? null;
 }
 
@@ -59,12 +62,14 @@ export interface GoogleAccount {
   email?: string;
   /** Granted OAuth scopes; null when unknown (older connections, env accounts). */
   scopes: string[] | null;
+  /** Set for a personal account: whose it is. */
+  owner?: string;
 }
 
-/** Every connected Google account (mail, calendar, Analytics, Search Console). */
+/** Every shared Google account (mail, calendar, Analytics, Search Console). */
 export const googleAccounts = cache(async (): Promise<GoogleAccount[]> => {
   const out: GoogleAccount[] = [];
-  for (const c of (await loadConnections()).list) {
+  for (const c of await sharedConnections()) {
     if (c.provider !== "gmail") continue;
     const scopes = Array.isArray(c.meta?.scopes) ? (c.meta.scopes as string[]) : null;
     out.push({ id: c.account, label: c.label || c.business || c.account, business: c.business, refreshToken: c.secret.refreshToken, email: c.account, scopes });
@@ -89,13 +94,27 @@ export interface MicrosoftAccount {
   label: string;
   business: string | null;
   refreshToken: string;
+  /** Set for a personal account: whose it is. */
+  owner?: string;
 }
 
+/** Shared Microsoft 365 accounts (Outlook mail + calendar). */
 export const microsoftAccounts = cache(async (): Promise<MicrosoftAccount[]> =>
-  (await loadConnections()).list
+  (await sharedConnections())
     .filter((c) => c.provider === "microsoft")
     .map((c) => ({ account: c.account, label: c.label || c.business || c.account, business: c.business, refreshToken: c.secret.refreshToken })),
 );
+
+/** People's own Microsoft and Google accounts (mail + calendar), each with its owner. Never business-tagged. */
+export const personalAccounts = cache(async (): Promise<{ microsoft: MicrosoftAccount[]; google: GoogleAccount[] }> => {
+  const mine = (await loadConnections()).list.filter((c) => !!c.ownerEmail);
+  return {
+    microsoft: mine.filter((c) => c.provider === "microsoft").map((c) => ({ account: c.account, label: c.account, business: null, refreshToken: c.secret.refreshToken, owner: c.ownerEmail! })),
+    google: mine
+      .filter((c) => c.provider === "gmail")
+      .map((c) => ({ id: c.account, label: c.account, business: null, refreshToken: c.secret.refreshToken, email: c.account, scopes: Array.isArray(c.meta?.scopes) ? (c.meta.scopes as string[]) : null, owner: c.ownerEmail! })),
+  };
+});
 
 export interface StripeAccount {
   /** Stable id: the Stripe account (or key fingerprint), or env:<business>. */
@@ -107,7 +126,7 @@ export interface StripeAccount {
 // STRIPE_SECRET_KEYS="Kaj Consulting:rk_live_…,Kaj Store:rk_live_…"
 export const stripeAccounts = cache(async (): Promise<StripeAccount[]> => {
   const out: StripeAccount[] = [];
-  for (const c of (await loadConnections()).list) {
+  for (const c of await sharedConnections()) {
     if (c.provider === "stripe") out.push({ id: c.account, business: c.business || c.label || c.account, key: c.secret.token });
   }
   for (const pair of (env("STRIPE_SECRET_KEYS") ?? "").split(",")) {

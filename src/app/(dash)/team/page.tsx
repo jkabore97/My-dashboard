@@ -3,10 +3,12 @@ import { requireOwner, allowedEmails, ownerIdentity, passwordSignInEnabled, memb
 import { listMembers, type Member } from "@/lib/server/store/team";
 import { listActivity } from "@/lib/server/store/tasks";
 import { knownBusinesses } from "@/lib/server/reports";
-import { ROLE_LABEL, ROLES } from "@/lib/access";
+import { PATH_SECTION, ROLE_LABEL, ROLES } from "@/lib/access";
+import { NAV_GROUPS } from "@/lib/nav";
+import { listPersonalSummaries } from "@/lib/server/store/connections";
 import { BizLabel, Card, PageHeader, Tag, timeAgo } from "@/components/ui";
 import { InviteForm, MemberControls } from "@/components/team";
-import { initials, ROLE_COLOR, ROLE_MATRIX_ROWS, roleCoverage } from "@/components/admin/roles";
+import { initials, ROLE_COLOR, ROLE_MATRIX_ROWS, roleCoverage, sectionChoices, sectionLabels } from "@/components/admin/roles";
 
 const ACTION: Record<string, string> = { done: "marked done", reopen: "reopened", snooze: "snoozed", business: "moved", assign: "assigned", delete: "deleted", create: "created" };
 
@@ -22,8 +24,13 @@ const ABBR: Record<string, string> = { developer: "Dev", assistant: "Asst", acco
 const pending = (m: Member) => !m.lastLoginAt && !!m.inviteExpiresAt;
 
 export default async function TeamPage() {
-  await requireOwner();
-  const [members, businesses, activity] = await Promise.all([listMembers(), knownBusinesses(), listActivity({ limit: 40 })]);
+  const me = await requireOwner();
+  const [members, businesses, allActivity, personal] = await Promise.all([listMembers(), knownBusinesses(), listActivity({ limit: 60 }), listPersonalSummaries().catch(() => [])]);
+  // Someone's personal tasks (from their own mailbox) are theirs alone, owners included.
+  const activity = allActivity.filter((a) => !a.privateTo || a.privateTo === me.email).slice(0, 40);
+  const groups = sectionChoices(NAV_GROUPS, PATH_SECTION);
+  const mailboxes = new Map<string, number>();
+  for (const c of personal) mailboxes.set(c.ownerEmail, (mailboxes.get(c.ownerEmail) ?? 0) + 1);
   const envOwners = [...new Set([...(passwordSignInEnabled() ? [ownerIdentity()] : []), ...allowedEmails()])];
   const names = new Map(members.map((m) => [m.email, m.name ?? m.email]));
   const who = (email: string) => names.get(email) ?? email;
@@ -34,7 +41,7 @@ export default async function TeamPage() {
 
   return (
     <>
-      <PageHeader title="Team" subtitle={`Each person sees only the sections of their role and the businesses you pick. Everyone signs in with their own ${methods} plus an authenticator app.`}>
+      <PageHeader title="Team" subtitle={`Each person sees only the pages you pick (their role is the starting point) and the businesses you pick. Everyone signs in with their own ${methods} plus an authenticator app.`}>
         <Tag color="#3df5a0">{active} active</Tag>
         {invites > 0 && <Tag color="#3fd0ff">{invites} invite{invites === 1 ? "" : "s"} pending</Tag>}
       </PageHeader>
@@ -75,7 +82,7 @@ export default async function TeamPage() {
                         <div className="flex flex-wrap gap-1.5">
                           {m.disabled && <Tag color="#ff3d6e">Disabled</Tag>}
                           {isPending && <Tag color="#3fd0ff">Invite pending</Tag>}
-                          <Tag color={ROLE_COLOR[m.role]}>{ROLE_LABEL[m.role]}</Tag>
+                          <Tag color={ROLE_COLOR[m.role]}>{ROLE_LABEL[m.role]}{m.sections ? " · custom" : ""}</Tag>
                         </div>
                       </div>
                     </div>
@@ -84,14 +91,16 @@ export default async function TeamPage() {
                     <div className="flex flex-wrap gap-x-4 gap-y-1">
                       {m.businesses ? m.businesses.map((b) => <BizLabel key={b} name={b} className="text-[13px]" />) : <span className="inline-flex items-center gap-1.5 text-[13px] text-[#c5d3de]"><span className="h-1.5 w-1.5 bg-ink" />All businesses</span>}
                     </div>
+                    {m.sections && <p className="mt-2 text-[13px] text-muted">Sees <span className="text-[#c5d3de]">{sectionLabels(m, NAV_GROUPS, PATH_SECTION).join(" · ")}</span></p>}
                     <p className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[13px] text-muted">
                       <span>{m.lastLoginAt ? <>Last signed in <b className="font-normal text-ink">{timeAgo(m.lastLoginAt)}</b></> : m.inviteExpiresAt ? <>Invite link expires <b className="font-normal text-ink">{new Date(m.inviteExpiresAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</b></> : m.hasPassword ? "Hasn't signed in yet" : <span className="text-high">Invite expired or not accepted</span>}</span>
                       <span>2FA <b className={`font-normal ${m.totpEnabled ? "text-emerald" : "text-ink"}`}>{m.totpEnabled ? "on" : "not set up yet"}</b></span>
                       {m.microsoftLinked && <span>Microsoft <b className="font-normal text-ink">linked</b></span>}
+                      {mailboxes.has(m.email) && <span>Personal mailbox <b className="font-normal text-ink">connected</b></span>}
                       {m.invitedBy && <span>invited by {who(m.invitedBy)}</span>}
                     </p>
                   </div>
-                  <MemberControls email={m.email} name={m.name} role={m.role} selected={m.businesses} businesses={businesses} disabled={m.disabled} needsInvite={!m.hasPassword || !!m.inviteExpiresAt} hasTotp={m.totpEnabled} msLinked={m.microsoftLinked} />
+                  <MemberControls email={m.email} name={m.name} role={m.role} selected={m.businesses} sections={m.sections} businesses={businesses} groups={groups} disabled={m.disabled} needsInvite={!m.hasPassword || !!m.inviteExpiresAt} hasTotp={m.totpEnabled} msLinked={m.microsoftLinked} />
                 </section>
               );
             })
@@ -100,7 +109,7 @@ export default async function TeamPage() {
 
         <div className="grid content-start gap-5">
           <Card title="Invite someone" action="one-time link">
-            <InviteForm businesses={businesses} />
+            <InviteForm businesses={businesses} groups={groups} />
           </Card>
           <Card title="What each role sees" flush>
             <table className="w-full text-[13px]">
@@ -127,7 +136,7 @@ export default async function TeamPage() {
                 ))}
               </tbody>
             </table>
-            <p className="px-4 pb-4 pt-1 text-xs text-muted sm:px-5">Owners see everything. Everyone has Overview, To-do and their own Settings. ○ = some of the row.</p>
+            <p className="px-4 pb-4 pt-1 text-xs text-muted sm:px-5">The defaults; tick other pages for one person when inviting or editing them. Owners see everything. Everyone has Overview, To-do and their own Settings, and can connect their own mailbox and calendar when they have Inbox or Agenda: those stay private to them. ○ = some of the row.</p>
           </Card>
           <Card title="Recent task activity" action={`last ${activity.length}`} flush>
             {activity.length === 0 ? <p className="px-4 py-6 text-center text-sm text-muted sm:px-5">Nothing yet.</p> : (

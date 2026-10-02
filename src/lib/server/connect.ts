@@ -17,7 +17,16 @@ export function oauthConfigured(p: OAuthProvider): boolean {
 
 export const isOAuthProvider = (p: string): p is OAuthProvider => p === "github" || p === "gmail" || p === "vercel" || p === "microsoft";
 
-export function authorizeUrl(p: OAuthProvider, redirectUri: string, state: string): string {
+/** Providers a person can connect as their own mailbox and calendar. */
+export type PersonalProvider = "microsoft" | "gmail";
+export const isPersonalProvider = (p: string): p is PersonalProvider => p === "microsoft" || p === "gmail";
+
+/**
+ * `personal` is someone connecting their own mailbox: Microsoft is also asked
+ * for an ID token (who signed in), and both are hinted to the person's address.
+ */
+export function authorizeUrl(p: OAuthProvider, redirectUri: string, state: string, personal?: { email: string }): string {
+  const hint: Record<string, string> = personal && /^[^\s@]{1,64}@[^\s@]{1,190}$/.test(personal.email) ? { login_hint: personal.email } : {};
   if (p === "github") {
     return `https://github.com/login/oauth/authorize?${new URLSearchParams({
       client_id: env("GITHUB_OAUTH_CLIENT_ID")!,
@@ -38,6 +47,7 @@ export function authorizeUrl(p: OAuthProvider, redirectUri: string, state: strin
       prompt: "consent select_account",
       include_granted_scopes: "true",
       state,
+      ...hint,
     })}`;
   }
   if (p === "microsoft") {
@@ -46,9 +56,10 @@ export function authorizeUrl(p: OAuthProvider, redirectUri: string, state: strin
       response_type: "code",
       redirect_uri: redirectUri,
       response_mode: "query",
-      scope: MS_SCOPES,
+      scope: personal ? `openid profile ${MS_SCOPES}` : MS_SCOPES,
       prompt: "select_account",
       state,
+      ...hint,
     })}`;
   }
   return `https://vercel.com/integrations/${encodeURIComponent(env("VERCEL_INTEGRATION_SLUG")!)}/new?${new URLSearchParams({ state })}`;

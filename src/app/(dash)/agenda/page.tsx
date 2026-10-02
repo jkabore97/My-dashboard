@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requireSection } from "@/lib/server/auth";
 import type { CSSProperties } from "react";
 import { Video } from "lucide-react";
@@ -74,10 +75,12 @@ export default async function AgendaPage() {
 
   return (
     <>
-      <PageHeader mode={d.modes.calendar} title="Agenda" subtitle={`The next 7 days from every connected Google and Outlook calendar. Times in ${tz}${other ? `, with ${other.label} alongside` : ""}.`} />
+      <PageHeader mode={d.modes.calendar} title="Agenda" subtitle={`The next 7 days from the shared Google and Outlook calendars${d.calendar.some((e) => e.owner) ? " and your own (private to you)" : ""}. Times in ${tz}${other ? `, with ${other.label} alongside` : ""}.`}>
+        <Link href="/settings#my-mail" className="text-xs text-cyan hover:underline">My calendar ›</Link>
+      </PageHeader>
 
       {sorted.length === 0 ? (
-        <Card><Empty>Nothing scheduled. Connect Google or Microsoft 365 on the Platforms page to see your meetings.</Empty></Card>
+        <Card><Empty>Nothing scheduled. Connect your own Microsoft 365 or Google calendar in Settings → My mail &amp; calendar to see your meetings.</Empty></Card>
       ) : (
         <>
           <div className={`mb-4 grid gap-4 lg:mb-[22px] lg:gap-[22px] ${other ? "xl:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]" : ""}`}>

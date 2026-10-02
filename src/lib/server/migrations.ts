@@ -412,5 +412,27 @@ alter table alert_incidents enable row level security;
 alter table alert_log enable row level security;
 `,
   },
+  {
+    version: 11,
+    name: "personal_access",
+    sql: `
+-- Sections picked for a person, replacing their role's (null = the role's own).
+alter table users add column sections jsonb;
+
+-- Personal connections: a member's (or owner's) own mailbox and calendar.
+-- Null = shared, as before. Removing the person removes their connection.
+alter table connections add column owner_email text references users(email) on delete cascade;
+create index connections_owner_idx on connections (owner_email) where owner_email is not null;
+
+-- Tasks and events from someone's own mailbox are theirs alone; they go
+-- when the person is removed.
+alter table tasks add column private_to text references users(email) on delete cascade;
+create index tasks_private_idx on tasks (private_to) where private_to is not null;
+alter table events add column private_to text references users(email) on delete cascade;
+
+-- Delivery-log rows about personal items, kept out of the owner's view of everyone's log.
+alter table alert_log add column private boolean not null default false;
+`,
+  },
 ];
 

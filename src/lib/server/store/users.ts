@@ -10,6 +10,8 @@ export interface UserRow {
   session_version: number;
   role: string | null;
   businesses: string[] | null;
+  /** Picked sections replacing the role's (null = the role's). */
+  sections: string[] | null;
   name: string | null;
   disabled_at: Date | string | null;
   ms_subject: string | null;

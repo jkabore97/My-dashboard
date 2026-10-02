@@ -1,6 +1,10 @@
 import type { CSSProperties, ReactNode } from "react";
 import Link from "next/link";
-import { isFullOwner, ROLE_LABEL } from "@/lib/access";
+import { canConnectPersonal, canSee, isFullOwner, ROLE_LABEL } from "@/lib/access";
+import { getDashboard } from "@/lib/server/dashboard";
+import { listPersonalSummaries } from "@/lib/server/store/connections";
+import { oauthConfigured } from "@/lib/server/connect";
+import { DisconnectMineButton } from "@/components/settings/MyMail";
 import { signOutEverywhere } from "@/app/actions/auth";
 import { requireUser, require2fa, sharedLoginLimitWarning } from "@/lib/server/auth";
 import { formatBusinessRules, formatSites, getConfig } from "@/lib/server/config";
@@ -47,16 +51,68 @@ function Sub({ title, children, className = "" }: { title: ReactNode; children: 
   );
 }
 
-export default async function SettingsPage() {
+export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ error?: string; connected?: string }> }) {
   const me = await requireUser();
   const owner = isFullOwner(me);
+  const { error: connectError, connected } = await searchParams;
+  const personalOn = canConnectPersonal(me);
+  // Only this person's own items: getDashboard hands everyone their own personal mail alone.
+  const [mine, dash] = personalOn ? await Promise.all([listPersonalSummaries(me.email).catch(() => []), getDashboard()]) : [[], null];
   const [{ businessRules, sites }, user, log, places, solar, solarTokenHash, prefs, tickOn, tickAt] = await Promise.all([getConfig(), getUser(me.email), owner ? listAudit(50) : Promise.resolve([]), getSetting<PlaceConfig[]>("places", []), solarConfig(), getSetting<string | null>("solar_ingest_token_hash", null), getPrefs(me.email), owner ? tickConfigured() : false, owner ? lastTick() : null]);
   const homeZone = businessTimeZone();
   const myZone = prefs.timeZone ?? homeZone;
   const codesLeft = user?.recovery_codes.length ?? 0;
   const rules = formatBusinessRules(businessRules);
   const businessCount = new Set(businessRules.map((r) => r.business)).size;
-  const tabs = owner ? [["businesses", "Businesses"], ["security", "Security"], ["notifications", "Notifications"], ["solar", "Solar"], ["audit", "Audit"]] : [["security", "Security"], ["notifications", "Notifications"]];
+  const tabs = [...(owner ? [["businesses", "Businesses"]] : []), ...(personalOn ? [["my-mail", "My mail"]] : []), ["security", "Security"], ["notifications", "Notifications"], ...(owner ? [["solar", "Solar"], ["audit", "Audit"]] : [])];
+
+  const msOn = oauthConfigured("microsoft");
+  const googleOn = oauthConfigured("gmail");
+  const myEmails = dash ? dash.emails.filter((e) => e.owner === me.email) : [];
+  const myEvents = dash ? dash.calendar.filter((e) => e.owner === me.email) : [];
+  const myProblems = dash?.personalProblems ?? [];
+  const myMail = personalOn ? (
+    <HeadPanel id="my-mail" accent="#3fd0ff" title="My mail & calendar" status={<span className="hud-label text-[11px] tracking-[0.12em] text-muted">{mine.length ? `${mine.length} connected · private to you` : "private to you"}</span>} bodyClassName="!p-0">
+      <div className="px-4 py-4 sm:px-5">
+        <p className="text-[13px] text-muted">
+          Connect your own mailbox and calendar. Its messages, events and the to-dos made from them are shown to <span className="text-ink">you alone</span>: not to other members and not to the dashboard owner, who only sees that you have one connected.
+          {canSee(me, "inbox") ? " Mail shows in your Inbox" : ""}{canSee(me, "inbox") && canSee(me, "agenda") ? " and" : ""}{canSee(me, "agenda") ? " events in your Agenda" : ""}.
+        </p>
+        {connectError && <p className="mt-3 flex items-start gap-2 text-[13px]"><SeverityIcon severity="critical" size={16} /><span><span className="hud-label mr-1.5 text-[11px] text-critical">Couldn&apos;t connect</span>{connectError}</span></p>}
+        {connected && <p className="mt-3 text-[13px] text-emerald">✓ Connected {connected}. Your mail and events show up within a minute.</p>}
+      </div>
+      {mine.length > 0 && (
+        <ul className="border-t border-line/60">
+          {mine.map((c) => {
+            const problem = myProblems.find((p) => p.account === c.account);
+            return (
+              <li key={c.id} className="flex items-center gap-3 border-b border-line/40 px-4 py-3 last:border-0 sm:px-5">
+                <span className="grid h-8 w-8 shrink-0 place-items-center border border-cyan/60 font-display text-[11px] font-bold text-cyan">{c.provider === "microsoft" ? "M" : "G"}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm">{c.account}</div>
+                  <div className="text-xs text-muted">{c.provider === "microsoft" ? "Microsoft 365" : "Google"} · connected {timeAgo(c.createdAt)}</div>
+                  {problem && <div className="mt-1 flex items-start gap-1.5 break-words text-xs"><SeverityIcon severity="high" size={13} /><span><span className="hud-label mr-1 text-[10.5px] text-high">High</span>{problem.error} Reconnect below.</span></div>}
+                </div>
+                <DisconnectMineButton id={c.id} name={c.account} />
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {mine.length > 0 && (
+        <div className="flex flex-wrap gap-x-5 gap-y-1 border-t border-line/60 px-4 py-3 text-[13px] text-muted sm:px-5">
+          <span><b className="font-normal text-ink">{myEmails.filter((e) => e.unread).length}</b> unread · last 14 days</span>
+          <span><b className="font-normal text-ink">{myEvents.length}</b> event{myEvents.length === 1 ? "" : "s"} · next 7 days</span>
+        </div>
+      )}
+      <div className="flex flex-wrap gap-2 border-t border-line/60 px-4 py-4 sm:px-5">
+        {msOn && <a href="/api/connect/microsoft?mine=1" className={`${btn(mine.some((c) => c.provider === "microsoft") ? "outline" : "solid")} min-h-10 sm:min-h-0`} style={{ "--b": "#3fd0ff" } as CSSProperties}>{mine.some((c) => c.provider === "microsoft") ? "Reconnect Microsoft" : "Connect my Microsoft 365"}</a>}
+        {googleOn && <a href="/api/connect/gmail?mine=1" className={`${btn(mine.some((c) => c.provider === "gmail") ? "outline" : "solid")} min-h-10 sm:min-h-0`} style={{ "--b": "#3fd0ff" } as CSSProperties}>{mine.some((c) => c.provider === "gmail") ? "Reconnect Google" : "Connect my Google"}</a>}
+        {!msOn && !googleOn && <p className="text-[13px] text-muted">Mailbox sign-in isn&apos;t set up on this dashboard yet. Ask the owner.</p>}
+      </div>
+      <p className="border-t border-line/60 px-4 py-3 text-xs text-muted sm:px-5">Sign in with your own account ({me.email}): read-only access to mail and calendar. Disconnecting deletes the stored sign-in.</p>
+    </HeadPanel>
+  ) : null;
 
   const security = (
     <HeadPanel id="security" accent="#3fd0ff" title="Security" status={<span className="hud-label text-[11px] tracking-[0.12em] text-muted">your account</span>} bodyClassName="!p-0">
@@ -172,7 +228,10 @@ export default async function SettingsPage() {
 
       {!owner ? (
         <div className="grid gap-5 xl:grid-cols-2">
-          {security}
+          <div className="grid content-start gap-5">
+            {myMail}
+            {security}
+          </div>
           {notifications}
         </div>
       ) : (
@@ -203,6 +262,7 @@ export default async function SettingsPage() {
             </HeadPanel>
           </div>
           <div className="grid content-start gap-5">
+            {myMail}
             {security}
             {notifications}
             <HeadPanel id="audit" accent="#a98bff" title="Audit log" status={<span className="hud-label text-[11px] tracking-[0.12em] text-muted">last {log.length}</span>} bodyClassName="!p-0">

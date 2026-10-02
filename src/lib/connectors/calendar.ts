@@ -1,5 +1,5 @@
 import { demoCalendar } from "../demo";
-import { googleAccounts, microsoftAccounts } from "../server/credentials";
+import { googleAccounts, microsoftAccounts, type GoogleAccount, type MicrosoftAccount } from "../server/credentials";
 import { googleAccessToken, googleApi, hasGoogleScope, notGrantedAsEmpty } from "../server/google";
 import { graph, msAccessToken } from "../server/microsoft";
 import { errorMessage, fromSource } from "../source";
@@ -71,7 +71,34 @@ export function fromGraph(calendar: string, items: GraphEvent[]): CalendarEvent[
 /** By start time; an all-day date ("2026-10-02") sorts as that day's UTC midnight. */
 export const sortEvents = (events: CalendarEvent[]) => events.sort((a, b) => Date.parse(a.start) - Date.parse(b.start) || a.title.localeCompare(b.title));
 
-/** Today and the next 7 days from every connected Google and Microsoft calendar. */
+/** Yesterday (UTC) through 8 days ahead: covers "today" in any timezone and the next 7 days. */
+export function calendarWindow() {
+  const from = new Date();
+  from.setUTCHours(0, 0, 0, 0);
+  from.setUTCDate(from.getUTCDate() - 1);
+  return { from, to: new Date(Date.now() + (DAYS_AHEAD + 1) * 86_400_000) };
+}
+
+const withOwner = (events: CalendarEvent[], owner?: string) => (owner ? events.map((e) => ({ ...e, owner })) : events);
+
+/** One Google account's primary calendar in the window; an account without the calendar scope has none. */
+export async function fetchGoogleEvents(a: GoogleAccount, { from, to } = calendarWindow()): Promise<CalendarEvent[]> {
+  const token = await googleAccessToken(a.refreshToken);
+  const q = new URLSearchParams({ timeMin: from.toISOString(), timeMax: to.toISOString(), singleEvents: "true", orderBy: "startTime", maxResults: "100" });
+  // Accounts connected before Calendar was requested (or from env) may lack the scope.
+  const res = await googleApi<{ items?: GoogleEvent[] }>(token, `https://www.googleapis.com/calendar/v3/calendars/primary/events?${q}`).catch(notGrantedAsEmpty(a));
+  return withOwner(fromGoogle(a.label, Array.isArray(res) ? [] : (res.items ?? [])), a.owner);
+}
+
+/** One Microsoft account's calendar view in the window. */
+export async function fetchMicrosoftEvents(a: MicrosoftAccount, { from, to } = calendarWindow()): Promise<CalendarEvent[]> {
+  const token = await msAccessToken(a);
+  const q = new URLSearchParams({ startDateTime: from.toISOString(), endDateTime: to.toISOString(), $top: "100", $orderby: "start/dateTime", $select: "id,subject,isAllDay,isCancelled,webLink,location,onlineMeeting,start,end" });
+  const res = await graph<{ value: GraphEvent[] }>(token, `/me/calendarView?${q}`, { Prefer: 'outlook.timezone="UTC"' });
+  return withOwner(fromGraph(a.label, res.value), a.owner);
+}
+
+/** Today and the next 7 days from every shared Google and Microsoft calendar. */
 export async function getCalendar() {
   const [google, microsoft] = await Promise.all([googleAccounts(), microsoftAccounts()]);
   const googleCal = google.filter((a) => hasGoogleScope(a.scopes, "calendar") !== false);
@@ -79,32 +106,10 @@ export async function getCalendar() {
     "Calendar",
     googleCal.length + microsoft.length > 0,
     async (fail) => {
-      const from = new Date();
-      from.setUTCHours(0, 0, 0, 0);
-      from.setUTCDate(from.getUTCDate() - 1); // covers "today" in any timezone
-      const to = new Date(Date.now() + (DAYS_AHEAD + 1) * 86_400_000);
+      const window = calendarWindow();
       const jobs = [
-        ...googleCal.map((a) => ({
-          key: `google:${a.id}`,
-          label: a.label,
-          run: async () => {
-            const token = await googleAccessToken(a.refreshToken);
-            const q = new URLSearchParams({ timeMin: from.toISOString(), timeMax: to.toISOString(), singleEvents: "true", orderBy: "startTime", maxResults: "100" });
-            // Accounts connected before Calendar was requested (or from env) may lack the scope.
-            const res = await googleApi<{ items?: GoogleEvent[] }>(token, `https://www.googleapis.com/calendar/v3/calendars/primary/events?${q}`).catch(notGrantedAsEmpty(a));
-            return fromGoogle(a.label, Array.isArray(res) ? [] : (res.items ?? []));
-          },
-        })),
-        ...microsoft.map((a) => ({
-          key: `microsoft:${a.account}`,
-          label: a.label,
-          run: async () => {
-            const token = await msAccessToken(a);
-            const q = new URLSearchParams({ startDateTime: from.toISOString(), endDateTime: to.toISOString(), $top: "100", $orderby: "start/dateTime", $select: "id,subject,isAllDay,isCancelled,webLink,location,onlineMeeting,start,end" });
-            const res = await graph<{ value: GraphEvent[] }>(token, `/me/calendarView?${q}`, { Prefer: 'outlook.timezone="UTC"' });
-            return fromGraph(a.label, res.value);
-          },
-        })),
+        ...googleCal.map((a) => ({ key: `google:${a.id}`, label: a.label, run: () => fetchGoogleEvents(a, window) })),
+        ...microsoft.map((a) => ({ key: `microsoft:${a.account}`, label: a.label, run: () => fetchMicrosoftEvents(a, window) })),
       ];
       const settled = await Promise.allSettled(jobs.map((j) => j.run()));
       settled.forEach((r, i) => r.status === "rejected" && fail(jobs[i].key, `${jobs[i].label}: ${errorMessage(r.reason)}`));

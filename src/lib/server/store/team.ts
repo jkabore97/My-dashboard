@@ -1,6 +1,6 @@
 import { randomBytes, scrypt as scryptCb, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
-import type { Role } from "../../access";
+import { normalizeSections, type Role, type Section } from "../../access";
 import { sha256Hex } from "../crypto";
 import { getDb } from "../db";
 
@@ -34,6 +34,8 @@ export interface Member {
   name: string | null;
   role: Role;
   businesses: string[] | null;
+  /** Picked sections replacing the role's; null = the role's own. */
+  sections: Section[] | null;
   disabled: boolean;
   totpEnabled: boolean;
   hasPassword: boolean;
@@ -51,6 +53,7 @@ interface MemberRow {
   name: string | null;
   role: Role;
   businesses: string[] | null;
+  sections: string[] | null;
   disabled_at: Date | string | null;
   totp_enabled_at: Date | string | null;
   password_hash: string | null;
@@ -68,6 +71,7 @@ const toMember = (r: MemberRow): Member => ({
   name: r.name,
   role: r.role,
   businesses: Array.isArray(r.businesses) ? r.businesses : null,
+  sections: r.role !== "owner" && Array.isArray(r.sections) ? normalizeSections(r.sections.map(String)) : null,
   disabled: !!r.disabled_at,
   totpEnabled: !!r.totp_enabled_at,
   hasPassword: !!r.password_hash,
@@ -78,7 +82,7 @@ const toMember = (r: MemberRow): Member => ({
   microsoftLinked: !!r.ms_linked,
 });
 
-const SELECT = `select u.email, u.name, u.role, u.businesses, u.disabled_at, u.totp_enabled_at, u.password_hash, u.invited_by, u.last_login_at, u.created_at, u.ms_subject is not null as ms_linked,
+const SELECT = `select u.email, u.name, u.role, u.businesses, u.sections, u.disabled_at, u.totp_enabled_at, u.password_hash, u.invited_by, u.last_login_at, u.created_at, u.ms_subject is not null as ms_linked,
   (select max(i.expires_at) from invites i where i.email = u.email and i.used_at is null and i.expires_at > now()) as invite_expires_at
   from users u`;
 
@@ -121,16 +125,18 @@ async function newInvite(email: string, by: string): Promise<string> {
  * Adds a member (or re-adds a removed one) and returns their invite token.
  * Fails for an address that is already a member or an environment owner.
  */
-export async function inviteMember(m: { email: string; name: string | null; role: Role; businesses: string[] | null; by: string }): Promise<{ token: string } | { error: string }> {
+const sectionsJson = (role: Role, sections: Section[] | null | undefined) => (role !== "owner" && sections ? JSON.stringify(normalizeSections(sections)) : null);
+
+export async function inviteMember(m: { email: string; name: string | null; role: Role; businesses: string[] | null; sections?: Section[] | null; by: string }): Promise<{ token: string } | { error: string }> {
   const db = await getDb();
   const rows = await db.query<{ email: string }>(
     // A fresh, unguessable session version, so a cookie from an earlier account with this address never fits.
-    `insert into users (email, name, role, businesses, invited_by, session_version) values ($1, $2, $3, $4::text::jsonb, $5, 2 + floor(random() * 1000000000)::int)
-     on conflict (email) do update set name = excluded.name, role = excluded.role, businesses = excluded.businesses, invited_by = excluded.invited_by, disabled_at = null,
+    `insert into users (email, name, role, businesses, sections, invited_by, session_version) values ($1, $2, $3, $4::text::jsonb, $6::text::jsonb, $5, 2 + floor(random() * 1000000000)::int)
+     on conflict (email) do update set name = excluded.name, role = excluded.role, businesses = excluded.businesses, sections = excluded.sections, invited_by = excluded.invited_by, disabled_at = null,
        session_version = users.session_version + 1 + floor(random() * 1000000)::int
        where users.role is null and users.totp_enabled_at is null and users.last_login_at is null
      returning email`,
-    [m.email, m.name, m.role, m.businesses ? JSON.stringify(m.businesses) : null, m.by],
+    [m.email, m.name, m.role, m.businesses ? JSON.stringify(m.businesses) : null, m.by, sectionsJson(m.role, m.sections)],
   );
   if (!rows.length) return { error: "That address already has an account here." };
   return { token: await newInvite(m.email, m.by) };
@@ -145,19 +151,21 @@ export interface InviteInfo {
   email: string;
   name: string | null;
   role: Role;
+  sections: Section[] | null;
   status: "ok" | "expired" | "used";
 }
 
 export async function inviteByToken(token: string): Promise<InviteInfo | null> {
   if (!/^[A-Za-z0-9_-]{40,60}$/.test(token)) return null;
   const db = await getDb();
-  const [row] = await db.query<{ email: string; name: string | null; role: Role; expired: boolean; used: boolean; disabled: boolean }>(
-    `select u.email, u.name, u.role, i.expires_at <= now() as expired, i.used_at is not null as used, u.disabled_at is not null as disabled
+  const [row] = await db.query<{ email: string; name: string | null; role: Role; sections: string[] | null; expired: boolean; used: boolean; disabled: boolean }>(
+    `select u.email, u.name, u.role, u.sections, i.expires_at <= now() as expired, i.used_at is not null as used, u.disabled_at is not null as disabled
      from invites i join users u on u.email = i.email where i.token_hash = $1 and u.role is not null`,
     [sha256Hex(token)],
   );
   if (!row || row.disabled) return null;
-  return { email: row.email, name: row.name, role: row.role, status: row.used ? "used" : row.expired ? "expired" : "ok" };
+  const sections = row.role !== "owner" && Array.isArray(row.sections) ? normalizeSections(row.sections.map(String)) : null;
+  return { email: row.email, name: row.name, role: row.role, sections, status: row.used ? "used" : row.expired ? "expired" : "ok" };
 }
 
 /** Sets the member's password and uses up the invite. Returns the email, or null if the link isn't valid any more. */
@@ -176,10 +184,14 @@ export async function acceptInvite(token: string, passwordHash: string): Promise
   });
 }
 
-export async function updateMember(email: string, m: { name: string | null; role: Role; businesses: string[] | null }) {
+export async function updateMember(email: string, m: { name: string | null; role: Role; businesses: string[] | null; sections?: Section[] | null }) {
   const db = await getDb();
-  // Access changes take effect on the next request (it's read per request), so sessions stay.
-  const rows = await db.query("update users set name = $2, role = $3, businesses = $4::text::jsonb where email = $1 and role is not null returning email", [email, m.name, m.role, m.businesses ? JSON.stringify(m.businesses) : null]);
+  // Access is read from this row on every request, so a change applies on the
+  // person's next page load or action; their sessions stay signed in.
+  const rows = await db.query(
+    "update users set name = $2, role = $3, businesses = $4::text::jsonb, sections = $5::text::jsonb where email = $1 and role is not null returning email",
+    [email, m.name, m.role, m.businesses ? JSON.stringify(m.businesses) : null, sectionsJson(m.role, m.sections)],
+  );
   return rows.length > 0;
 }
 

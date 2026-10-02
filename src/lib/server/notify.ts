@@ -78,6 +78,8 @@ export type PushPayload = {
   severity?: string;
   actions?: { action: string; title: string }[];
   requireInteraction?: boolean;
+  /** The app icon badge to show (unread critical/high alerts); the service worker sets it where supported. */
+  appBadge?: number;
 };
 
 /** Sends to every subscribed device; drops subscriptions the push service says are gone. */
@@ -119,7 +121,7 @@ const SEVERITY_WORD: Record<string, string> = { critical: "Critical", high: "Hig
  */
 export function pushText(t: { title: string; detail: string | null; source_key: string | null; origin: string }, severity = "critical") {
   const word = SEVERITY_WORD[severity] ?? "Alert";
-  const email = t.origin === "derived" && /^(gmail|outlook)\//.test(t.source_key ?? "");
+  const email = t.origin === "derived" && /^(gmail|outlook|mymail)\/(?!.*\/reconnect$)/.test(t.source_key ?? "");
   if (email) {
     const from = (t.detail ?? "").replace(/^From\s+/, "").slice(0, 80) || "unknown sender";
     return { title: `${word} email`, body: `${from}: ${t.title.slice(0, 80)}` };

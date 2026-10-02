@@ -17,6 +17,15 @@ export async function createOAuthState(flow: string) {
   return state;
 }
 
+/** Like consumeOAuthState, but leaves the cookie alone when it doesn't match (a callback shared by two flows). */
+export async function consumeOAuthStateIfMatches(flow: string, state: string | null) {
+  const jar = await cookies();
+  const expected = jar.get(stateCookie(flow))?.value;
+  if (!expected || !state || !safeEqual(expected, state)) return false;
+  jar.delete(stateCookie(flow));
+  return true;
+}
+
 export async function consumeOAuthState(flow: string, state: string | null) {
   const jar = await cookies();
   const expected = jar.get(stateCookie(flow))?.value;

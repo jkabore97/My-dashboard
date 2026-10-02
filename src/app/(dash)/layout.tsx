@@ -27,8 +27,8 @@ export default async function DashLayout({ children }: { children: React.ReactNo
   const all = await knownBusinesses().catch(() => [] as string[]);
   // The bell: one small query; an unreachable database just shows it empty.
   const bell: BellData = await bellFor(user)
-    .then(({ unread, items }) => ({ unread, items: items.map((i) => ({ id: i.id, taskId: i.taskId, kind: i.kind, severity: i.severity, title: i.title, body: i.body, url: i.url, status: i.status, reason: i.reason, deliverAfter: i.deliverAfter, createdAt: i.createdAt, read: !!i.readAt, acked: !!i.ackedAt })) }))
-    .catch(() => ({ unread: 0, items: [] }));
+    .then(({ unread, urgent, items }) => ({ unread, urgent, items: items.map((i) => ({ id: i.id, taskId: i.taskId, kind: i.kind, severity: i.severity, title: i.title, body: i.body, url: i.url, status: i.status, reason: i.reason, deliverAfter: i.deliverAfter, createdAt: i.createdAt, read: !!i.readAt, acked: !!i.ackedAt })) }))
+    .catch(() => ({ unread: 0, urgent: 0, items: [] }));
   const businesses = user.businesses === null ? all : all.filter((b) => user.businesses!.includes(b));
 
   return (

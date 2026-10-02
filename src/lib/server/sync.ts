@@ -52,7 +52,7 @@ export async function persist(c: Collected, { force = false, alerts = true } = {
 
   for (const n of c.notifications) {
     if (!n.live) continue;
-    await recordEvent({ dedupeKey: n.id, source: n.source, kind: n.id.split(":")[0], title: n.title, body: n.body, severity: n.severity, url: n.url, business: n.business, occurredAt: n.at });
+    await recordEvent({ dedupeKey: n.id, source: n.source, kind: n.id.split(":")[0], title: n.title, body: n.body, severity: n.severity, url: n.url, business: n.business, occurredAt: n.at, owner: n.owner });
   }
 
   if (c.modes.websites === "live") {

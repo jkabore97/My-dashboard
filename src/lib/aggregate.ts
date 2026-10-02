@@ -19,6 +19,7 @@ import { businessTimeZone } from "./dates";
 import { getAnalytics, lastDays } from "./connectors/analytics";
 import { getCalendar } from "./connectors/calendar";
 import { getOutlook } from "./connectors/outlook";
+import { getPersonal, type PersonalProblem } from "./connectors/personal";
 import { getReviews } from "./connectors/reviews";
 import { businessForDomain } from "./server/config";
 import { getPlatforms } from "./platforms";
@@ -27,11 +28,11 @@ import { getConfig } from "./server/config";
 import { connectionHealth } from "./server/credentials";
 import { claimInterval, deleteSetting, getSetting, setSetting } from "./server/store/settings";
 import { decryptJson, encryptJson } from "./server/crypto";
-import type { Database, EmailMessage, HostingProject, Notification, Repo, SourceMode, SourceResult, Task, Website } from "./types";
+import type { CalendarEvent, Database, EmailMessage, HostingProject, Notification, Repo, SourceMode, SourceResult, Task, Website } from "./types";
 
 const DAY = 86_400_000;
 
-export type Scope = "connector" | "github" | "vercel" | "workers" | "supabase" | "d1" | "gmail" | "outlook" | "websites" | RiskScope | GrowthScope | DeviceScope;
+export type Scope = "connector" | "github" | "vercel" | "workers" | "supabase" | "d1" | "gmail" | "outlook" | "mymail" | "websites" | RiskScope | GrowthScope | DeviceScope;
 
 /**
  * A task generated from platform data. `scope` is the source it came from;
@@ -43,7 +44,7 @@ type Config = Awaited<ReturnType<typeof getConfig>>;
 
 /** Everything that comes from other platforms (APIs, uptime probes, recorders). */
 async function fetchExternal({ businessRules, sites }: Config) {
-  const [repos, ghNotes, vercel, workers, supabase, d1, gmail, stripe, outlook, calendar, analytics, reviews, cameras] = await Promise.all([
+  const [repos, ghNotes, vercel, workers, supabase, d1, gmail, stripe, outlook, calendar, analytics, reviews, cameras, personal] = await Promise.all([
     getRepos(businessRules),
     getGithubNotifications(),
     getVercelProjects(businessRules),
@@ -57,10 +58,13 @@ async function fetchExternal({ businessRules, sites }: Config) {
     getAnalytics(sites.map((x) => x.domain)),
     getReviews(),
     getCameras(),
+    // People's own mailboxes and calendars: cached here with the rest (encrypted),
+    // every item tagged with its owner; scope.ts gives each to its owner alone.
+    getPersonal(),
   ]);
   const hosting = mergeSources([vercel, workers]).data;
   const [security, websiteResult] = await Promise.all([getSecurity(repos.data, repos.mode === "live"), getWebsites(sites, hosting)]);
-  return { repos, ghNotes, vercel, workers, supabase, d1, gmail, stripe, outlook, calendar, analytics, reviews, cameras, security, websiteResult };
+  return { repos, ghNotes, vercel, workers, supabase, d1, gmail, stripe, outlook, calendar, analytics, reviews, cameras, security, websiteResult, personal };
 }
 
 // Other platforms are slow (uptime probes wait up to 5 s, mail and calendars
@@ -156,10 +160,15 @@ export const collect = cache(async () => {
   const { sites, domains: watchedDomains } = config;
   // Your own records come straight from the database, so edits show at once.
   const [{ at: externalAt, value: ext }, records, domains, solarAll] = await Promise.all([externalData(config), getRecords(), getDomains(watchedDomains), getSolar()]);
-  const { repos, ghNotes, vercel, workers, supabase, d1, gmail, stripe, outlook, calendar, analytics, reviews, cameras, security, websiteResult } = ext;
+  const { repos, ghNotes, vercel, workers, supabase, d1, gmail, stripe, outlook, calendar: sharedCalendar, analytics, reviews, cameras, security, websiteResult } = ext;
+  // A snapshot saved before personal mailboxes existed has none.
+  const personal = ext.personal ?? { source: "My mail", mode: "demo" as SourceMode, data: { emails: [], calendar: [], problems: [] }, fetchedAt: new Date().toISOString() };
   const solar = solarAll.result;
-  // Gmail and Outlook share one inbox; each message keeps its mailbox id.
-  const merged = mergeSources([gmail, outlook]);
+  // Gmail, Outlook and people's own mailboxes share one inbox; each message
+  // keeps its mailbox id, and personal ones their owner.
+  const merged = mergeSources<EmailMessage>([gmail, outlook, { mode: personal.mode, data: personal.data.emails }]);
+  const calendar = { ...sharedCalendar, ...mergeSources<CalendarEvent>([sharedCalendar, { mode: personal.mode, data: personal.data.calendar }]) };
+  if (calendar.mode === "live") calendar.data.sort((a, b) => Date.parse(a.start) - Date.parse(b.start) || a.title.localeCompare(b.title));
   // Claude's triage (when enabled) replaces the keyword severity for messages it has read.
   const emails = { ...merged, data: merged.mode === "live" ? await withTriage(merged.data) : merged.data };
   emails.data.sort((a, b) => b.receivedAt.localeCompare(a.receivedAt));
@@ -178,7 +187,8 @@ export const collect = cache(async () => {
   const { readable: credentialsKnown, undecryptable } = await connectionHealth();
   const guards = undecryptableGuards(undecryptable);
 
-  const sources: SourceResult<unknown>[] = [repos, vercel, workers, supabase, d1, gmail, outlook, websites, stripe, domains, security, records, calendar, analytics, reviews, cameras, solar];
+  // Shared sources only: a personal mailbox's trouble goes to its owner (personalProblems), never into these.
+  const sources: SourceResult<unknown>[] = [repos, vercel, workers, supabase, d1, gmail, outlook, websites, stripe, domains, security, records, sharedCalendar, analytics, reviews, cameras, solar];
   const modes = {
     github: repos.mode,
     githubNotes: ghNotes.mode,
@@ -190,6 +200,7 @@ export const collect = cache(async () => {
     outlook: outlook.mode,
     inbox: emails.mode,
     calendar: calendar.mode,
+    mymail: personal.mode,
     analytics: analytics.mode,
     reviews: reviews.mode,
     pipeline: records.mode,
@@ -238,11 +249,11 @@ export const collect = cache(async () => {
     partial: { cameras: (cameras.partial ?? []).map((p) => p.key) },
   });
 
-  const tasks: DerivedTask[] = [...deriveTasks({ repos: repos.data, hosting, databases, emails: emails.data, websites: websites.data, sources, modes }), ...risk.tasks, ...growth.tasks, ...devices.tasks];
+  const tasks: DerivedTask[] = [...deriveTasks({ repos: repos.data, hosting, databases, emails: emails.data, websites: websites.data, sources, modes, personalProblems: personal.data.problems }), ...risk.tasks, ...growth.tasks, ...devices.tasks];
 
   const live = (m: SourceMode) => m === "live";
   const notifications: (Notification & { live: boolean })[] = [
-    ...emails.data.map((e) => ({ id: `mail:${e.id}`, source: `${e.mailbox.startsWith("ms:") ? "Outlook" : "Email"} · ${e.account}`, title: e.subject, body: e.from, at: e.receivedAt, severity: e.severity, url: e.url, business: e.business, live: live(emails.mode) })),
+    ...emails.data.map((e) => ({ id: `mail:${e.id}`, source: `${e.mailbox.startsWith("ms:") ? "Outlook" : "Email"} · ${e.account}`, title: e.subject, body: e.from, at: e.receivedAt, severity: e.severity, url: e.url, business: e.business, ...(e.owner ? { owner: e.owner } : {}), live: live(emails.mode) })),
     ...reviews.data.flatMap((p) =>
       p.reviews.map((r) => ({ id: `review:${r.id}`, source: `Google reviews · ${p.name}`, title: `New ${r.rating}★ review from ${r.author}`, body: r.text.slice(0, 160), at: r.publishedAt, severity: r.rating <= 3 ? ("high" as const) : ("low" as const), url: p.url ?? undefined, business: p.business, live: live(reviews.mode) })),
     ),
@@ -295,7 +306,9 @@ export const collect = cache(async () => {
       solar: solar.mode,
     }),
     sources: sources.map(({ source, mode, error, partial, fetchedAt }) => ({ source, mode, error, partial, fetchedAt })),
-    unobserved: [...unobservedKeys({ gmail: gmail.partial, supabase: supabase.partial, github: repos.partial }), ...guards.unobserved, ...risk.unobserved, ...growth.unobserved, ...devices.unobserved, ...(outlook.partial ?? []).map((p) => `outlook/${encodeURIComponent(p.key)}/`)],
+    unobserved: [...unobservedKeys({ gmail: gmail.partial, supabase: supabase.partial, github: repos.partial, mymail: personal.partial }), ...guards.unobserved, ...risk.unobserved, ...growth.unobserved, ...devices.unobserved, ...(outlook.partial ?? []).map((p) => `outlook/${encodeURIComponent(p.key)}/`)],
+    /** Personal accounts that couldn't be read; each is shown to its owner only. */
+    personalProblems: personal.data.problems,
     skipScopes: guards.skipScopes,
     credentialsKnown,
     undecryptableConnections: undecryptable.length,
@@ -325,7 +338,9 @@ interface DeriveInput {
   emails: EmailMessage[];
   websites: Website[];
   sources: Pick<SourceResult<unknown>, "source" | "mode" | "error" | "partial">[];
-  modes: Record<"github" | "vercel" | "workers" | "supabase" | "d1" | "gmail" | "websites", SourceMode> & { outlook?: SourceMode };
+  modes: Record<"github" | "vercel" | "workers" | "supabase" | "d1" | "gmail" | "websites", SourceMode> & { outlook?: SourceMode; mymail?: SourceMode };
+  /** People's own accounts that couldn't be read: a private "reconnect" task for each owner. */
+  personalProblems?: PersonalProblem[];
 }
 
 /**
@@ -373,9 +388,16 @@ export function deriveTasks(s: DeriveInput): DerivedTask[] {
   }
 
   for (const e of s.emails) {
-    if (e.unread && e.severity !== "low") {
+    if (!e.unread || e.severity === "low") continue;
+    if (e.owner) {
+      // Someone's own mailbox: a personal task, theirs alone (no business).
+      add("mymail", `${encodeURIComponent(e.mailbox)}/${e.id}`, { title: e.subject, detail: `From ${e.from}`, severity: e.severity, source: "Email · my mailbox", url: e.url, createdAt: e.receivedAt, privateTo: e.owner });
+    } else {
       add(e.mailbox.startsWith("ms:") ? "outlook" : "gmail", `${encodeURIComponent(e.mailbox)}/${e.id}`, { title: e.subject, detail: `From ${e.from}`, severity: e.severity, source: `Email · ${e.account}`, url: e.url, createdAt: e.receivedAt, business: e.account });
     }
+  }
+  for (const p of s.personalProblems ?? []) {
+    add("mymail", `${encodeURIComponent(p.mailbox)}/reconnect`, { title: `Reconnect your ${p.provider === "microsoft" ? "Microsoft" : "Google"} mailbox (${p.account})`, detail: p.error, severity: "high", source: "My mail & calendar", url: "/settings#my-mail", createdAt: now, privateTo: p.owner });
   }
 
   for (const r of s.repos) {
@@ -397,9 +419,10 @@ export function deriveTasks(s: DeriveInput): DerivedTask[] {
  * also cover a sibling (e.g. repo "a/site" covers "a/site-2"), which only
  * delays that sibling's auto-resolve by a round.
  */
-export function unobservedKeys(p: { gmail?: { key: string }[]; supabase?: { key: string }[]; github?: { key: string }[] }): string[] {
+export function unobservedKeys(p: { gmail?: { key: string }[]; supabase?: { key: string }[]; github?: { key: string }[]; mymail?: { key: string }[] }): string[] {
   return [
     ...(p.gmail ?? []).map(({ key }) => `gmail/${encodeURIComponent(key)}/`),
+    ...(p.mymail ?? []).map(({ key }) => `mymail/${encodeURIComponent(key)}/`),
     ...(p.supabase ?? []).map(({ key }) => `supabase/advisor:${key}:`),
     ...(p.github ?? []).flatMap(({ key }) => ["prs", "issues", "stale"].map((k) => `github/${k}:${key}`)),
   ];
@@ -413,14 +436,16 @@ const PROVIDER_SCOPES: Record<string, Scope[]> = { github: ["github"], vercel: [
  * must not auto-close. Gmail is protected per mailbox (keyed by address, as in
  * deriveTasks); single-account providers lose reconciliation entirely.
  */
-export function undecryptableGuards(rows: { provider: string; account: string }[]): { unobserved: string[]; skipScopes: string[] } {
+export function undecryptableGuards(rows: { provider: string; account: string; ownerEmail?: string | null }[]): { unobserved: string[]; skipScopes: string[] } {
   return {
     unobserved: rows.flatMap((r) =>
-      r.provider === "gmail" ? [`gmail/${encodeURIComponent(r.account)}/`]
+      // Someone's own mailbox: its personal tasks stay as they are.
+      r.ownerEmail ? [`mymail/${encodeURIComponent(r.provider === "microsoft" ? `ms:${r.account}` : r.account)}/`]
+      : r.provider === "gmail" ? [`gmail/${encodeURIComponent(r.account)}/`]
       : r.provider === "stripe" ? [`stripe/${encodeURIComponent(r.account)}/`]
       : r.provider === "microsoft" ? [`outlook/${encodeURIComponent(`ms:${r.account}`)}/`]
       : [],
     ),
-    skipScopes: [...new Set(rows.flatMap((r) => PROVIDER_SCOPES[r.provider] ?? []))],
+    skipScopes: [...new Set(rows.flatMap((r) => (r.ownerEmail ? [] : (PROVIDER_SCOPES[r.provider] ?? []))))],
   };
 }

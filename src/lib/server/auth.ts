@@ -4,7 +4,7 @@ import { env } from "../source";
 import { PENDING_TTL_SECONDS, SESSION_COOKIE, SESSION_TTL_SECONDS, sessionSecret, signSession, verifySession, type SessionPayload } from "../session";
 import { isProduction } from "./db";
 import { ensureUser, getUser, type UserRow } from "./store/users";
-import { canSee, inBusiness, isFullOwner, OWNER_ACCESS, type Access, type Role, type Section } from "../access";
+import { canSee, inBusiness, isFullOwner, normalizeSections, OWNER_ACCESS, type Access, type Role, type Section } from "../access";
 
 export interface CurrentUser extends Access {
   email: string;
@@ -41,9 +41,12 @@ export async function isAllowed(email: string): Promise<boolean> {
 }
 
 /** Role and businesses for a signed-in row. Environment owners always get everything. */
-export function accessFor(row: Pick<UserRow, "email" | "role" | "businesses">): Access {
+export function accessFor(row: Pick<UserRow, "email" | "role" | "businesses"> & { sections?: unknown }): Access {
   if (isEnvOwner(row.email)) return OWNER_ACCESS;
-  return { role: (row.role ?? "owner") as Role, businesses: Array.isArray(row.businesses) ? row.businesses : null };
+  const role = (row.role ?? "owner") as Role;
+  // A custom section list only ever narrows or picks among non-owner sections (see sectionsFor).
+  const sections = role !== "owner" && Array.isArray(row.sections) ? normalizeSections(row.sections.map(String)) : null;
+  return { role, businesses: Array.isArray(row.businesses) ? row.businesses : null, sections };
 }
 
 /** 2FA is mandatory unless explicitly disabled with REQUIRE_2FA=false. */
@@ -159,7 +162,7 @@ export async function requireUser(): Promise<CurrentUser> {
   return u;
 }
 
-/** For pages and actions: the signed-in user, if their role includes this section. Others go to the Overview. */
+/** For pages and actions: the signed-in user, if their access includes this section. Others go to the Overview. */
 export async function requireSection(section: Section): Promise<CurrentUser> {
   const u = await requireUser();
   if (!canSee(u, section)) redirect("/?denied=1");

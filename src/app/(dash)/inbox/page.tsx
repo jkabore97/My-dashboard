@@ -41,7 +41,9 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
 
   return (
     <>
-      <PageHeader mode={s.modes.inbox} title="Inbox" subtitle={`Every business mailbox in one list, triaged by urgency${ai ? " (read by Claude)" : ""}. Replies open in Gmail or Outlook.`} />
+      <PageHeader mode={s.modes.inbox} title="Inbox" subtitle={`Every business mailbox you can see${s.emails.some((e) => e.owner) ? ", plus your own (private to you)," : ""} in one list, triaged by urgency${ai ? " (read by Claude)" : ""}. Replies open in Gmail or Outlook.`}>
+        <Link href="/settings#my-mail" className="text-xs text-cyan hover:underline">My mailbox ›</Link>
+      </PageHeader>
       <KpiStrip items={kpis} accent="#ff5fd7" className="mb-5" />
 
       {stats.mailboxes.length > 1 && (
@@ -71,7 +73,7 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
                       <a href={e.url} target="_blank" rel="noreferrer" className={`min-w-0 text-[14.5px] hover:text-cyan sm:truncate ${e.unread ? "font-medium text-[#f2faff]" : "text-[#b7c7d4]"}`}>{e.subject}</a>
                       <span className="shrink-0 font-mono text-[11.5px] tabular-nums text-muted">{timeAgo(e.receivedAt)}</span>
                     </div>
-                    <div className="truncate text-[12.5px] text-muted"><span className="text-[#c5d3de]">{e.from}</span> · {e.account}</div>
+                    <div className="truncate text-[12.5px] text-muted"><span className="text-[#c5d3de]">{e.from}</span> · {e.account}{e.owner ? <span className="ml-1.5 border border-cyan/40 px-1 font-display text-[10px] uppercase tracking-[0.12em] text-cyan" title="Your own mailbox: only you see it">Mine</span> : null}</div>
                     {e.triage ? (
                       <div className="mt-2 border-l-2 border-violet bg-violet/[0.07] px-2.5 py-1.5 text-[13px] leading-relaxed text-[#c9d8e4]">
                         <span className="mr-1.5 text-violet">✦</span>{e.triage.summary}

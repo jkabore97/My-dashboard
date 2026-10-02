@@ -7,7 +7,7 @@ import { inviteByToken } from "@/lib/server/store/team";
 import { PATH_SECTION, ROLE_DESCRIPTION, ROLE_LABEL } from "@/lib/access";
 import { NAV_GROUPS } from "@/lib/nav";
 import { Tag } from "@/components/ui";
-import { ROLE_COLOR, roleSectionLabels } from "@/components/admin/roles";
+import { ROLE_COLOR, sectionLabels } from "@/components/admin/roles";
 import { AuthPanel, AuthShell, msLogo } from "../../login/shell";
 
 export const metadata: Metadata = { referrer: "no-referrer", robots: { index: false, follow: false } };
@@ -41,7 +41,7 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
   }
   const microsoft = microsoftSignInEnabled();
   const passwords = memberPasswordsEnabled();
-  const pages = roleSectionLabels(invite.role, NAV_GROUPS, PATH_SECTION);
+  const pages = sectionLabels({ role: invite.role, businesses: null, sections: invite.sections }, NAV_GROUPS, PATH_SECTION);
   const color = ROLE_COLOR[invite.role];
   return (
     <AuthShell brand="compact" footer={false}>
@@ -58,7 +58,7 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
           <div className="px-5 py-6 sm:px-10">
             <div className="flex flex-col items-start gap-3 border p-4 sm:flex-row" style={{ borderColor: `color-mix(in srgb, ${color} 45%, transparent)`, background: `color-mix(in srgb, ${color} 5%, transparent)` }}>
               <Tag color={color}>{ROLE_LABEL[invite.role]}</Tag>
-              <p className="text-sm text-muted">{ROLE_DESCRIPTION[invite.role]}</p>
+              <p className="text-sm text-muted">{invite.sections ? "With the pages picked for you below." : ROLE_DESCRIPTION[invite.role]}</p>
             </div>
             <div className="hud-label mb-2 mt-5 text-[11px] text-muted">You&apos;ll see</div>
             <ul className="flex flex-wrap gap-2">

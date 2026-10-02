@@ -48,6 +48,7 @@ export function TaskRow({ task: t, businesses = [], compact = false, people = []
           ) : null}
           <span className="tabular-nums">{timeAgo(t.createdAt)}</span>
           {t.origin === "manual" && <span className={`${mini} border-violet/45 text-violet`}>Manual</span>}
+          {t.privateTo && <span className={`${mini} border-cyan/40 text-cyan`} title="From your own mailbox: only you see it">Personal</span>}
           {t.origin === "demo" && <span className={`${mini} border-line text-muted`}>Demo</span>}
           {t.status === "snoozed" && t.snoozedUntil && <span className="text-violet">snoozed until {new Date(t.snoozedUntil).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" })}</span>}
         </div>
@@ -56,7 +57,7 @@ export function TaskRow({ task: t, businesses = [], compact = false, people = []
       </div>
       {!compact && t.actionable && (
         <div className="col-start-2 sm:col-start-3">
-          <TaskActions id={t.id} status={t.status} manual={t.origin === "manual"} business={t.business} businesses={businesses} assignee={t.assignee ?? null} people={people.filter((p) => p.businesses === null || (!!t.business && p.businesses.includes(t.business)))} />
+          <TaskActions id={t.id} status={t.status} manual={t.origin === "manual"} personal={!!t.privateTo} business={t.business} businesses={businesses} assignee={t.assignee ?? null} people={t.privateTo ? [] : people.filter((p) => p.businesses === null || (!!t.business && p.businesses.includes(t.business)))} />
         </div>
       )}
     </li>

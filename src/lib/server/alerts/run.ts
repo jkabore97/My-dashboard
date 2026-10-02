@@ -6,7 +6,7 @@ import { getDb, type Db } from "../db";
 import { pushEnabled, pushText, pushTo, type PushPayload } from "../notify";
 import { people, type Person } from "../people";
 import { decide, splitForRateLimit, DIGEST_REASON, FRESH_MS, RATE_WINDOW_MS, WEBSITE_CONFIRM_MS } from "./decide";
-import { prefsFor } from "./store";
+import { prefsFor, urgentUnread } from "./store";
 
 // Alert routing. Tasks are the incidents: each task has one row in
 // alert_incidents tracking its current open period.
@@ -56,6 +56,8 @@ interface TaskInfo {
   status: string;
   business: string | null;
   assignee: string | null;
+  /** Personal task: only this person is ever alerted. */
+  private_to: string | null;
 }
 
 interface QueuedRow {
@@ -69,13 +71,14 @@ interface QueuedRow {
   body: string | null;
   url: string | null;
   reason: string | null;
+  private?: boolean;
 }
 
 type Final = "sent" | "failed" | "suppressed" | "folded";
 
 const ts = (d: Date) => d.toISOString();
-const sees = (p: Person, t: Pick<TaskInfo, "business" | "source_key" | "assignee">) => canSeeTask(p, p.email, { business: t.business, sourceKey: t.source_key, assignee: t.assignee });
-const TASK_COLS = "t.title, t.detail, t.source_key, t.origin, t.severity, t.status, coalesce(t.business_override, t.business) as business, t.assignee";
+const sees = (p: Person, t: Pick<TaskInfo, "business" | "source_key" | "assignee" | "private_to">) => canSeeTask(p, p.email, { business: t.business, sourceKey: t.source_key, assignee: t.assignee, privateTo: t.private_to });
+const TASK_COLS = "t.title, t.detail, t.source_key, t.origin, t.severity, t.status, coalesce(t.business_override, t.business) as business, t.assignee, t.private_to";
 
 export function resolvedText(t: Pick<TaskInfo, "title" | "detail" | "source_key" | "origin">, severity: Severity) {
   const p = pushText(t, severity);
@@ -151,6 +154,7 @@ export async function runAlerts(opts: { now?: Date } = {}): Promise<AlertRunSumm
         return {
           user: user_email, taskId: inc.id, period: inc.period, kind: "resolved", severity: sev, ...resolvedText(inc, sev), url: "/tasks",
           status: d.action === "now" ? "queued" : "suppressed", reason: d.action === "skip" ? d.reason : null, deliverAfter: now, dedupe: `resolved:${inc.id}:${inc.period}`,
+          private: !!inc.private_to,
         };
       });
       await insertLogs(db, rows);
@@ -180,6 +184,7 @@ export async function runAlerts(opts: { now?: Date } = {}): Promise<AlertRunSumm
             reason: d.action === "now" ? null : d.reason,
             deliverAfter: d.action === "queue" ? d.until : now,
             dedupe: `alert:${t.id}:${t.period}:${t.severity}`,
+            private: !!t.private_to,
           };
         });
         const marked = await db.tx(async (tx) => {
@@ -250,6 +255,8 @@ interface NewLog {
   deliverAfter: Date;
   dedupe: string;
   lease?: Date;
+  /** About a personal item: hidden from the owner's view of everyone's log. */
+  private?: boolean;
 }
 
 /** One multi-row insert; rows that already exist (same person + message) are skipped. */
@@ -257,13 +264,13 @@ async function insertLogs(db: Db, rows: NewLog[]): Promise<{ id: string; dedupe_
   if (!rows.length) return [];
   const data = rows.map((l) => ({
     user_email: l.user, task_id: l.taskId, period: l.period, kind: l.kind, severity: l.severity, title: l.title.slice(0, 200), body: l.body?.slice(0, 300) ?? null,
-    url: l.url, status: l.status, reason: l.reason, deliver_after: ts(l.deliverAfter), dedupe_key: l.dedupe, lease_until: l.lease ? ts(l.lease) : null,
+    url: l.url, status: l.status, reason: l.reason, deliver_after: ts(l.deliverAfter), dedupe_key: l.dedupe, lease_until: l.lease ? ts(l.lease) : null, private: !!l.private,
   }));
   return db.query(
-    `insert into alert_log (user_email, task_id, period, kind, severity, title, body, url, status, reason, deliver_after, dedupe_key, lease_until)
-     select x.user_email, x.task_id, x.period, x.kind, x.severity, x.title, x.body, x.url, x.status, x.reason, x.deliver_after, x.dedupe_key, x.lease_until
+    `insert into alert_log (user_email, task_id, period, kind, severity, title, body, url, status, reason, deliver_after, dedupe_key, lease_until, private)
+     select x.user_email, x.task_id, x.period, x.kind, x.severity, x.title, x.body, x.url, x.status, x.reason, x.deliver_after, x.dedupe_key, x.lease_until, coalesce(x.private, false)
      from jsonb_to_recordset($1::text::jsonb) as x(user_email text, task_id uuid, period int, kind text, severity text, title text, body text, url text,
-       status text, reason text, deliver_after timestamptz, dedupe_key text, lease_until timestamptz)
+       status text, reason text, deliver_after timestamptz, dedupe_key text, lease_until timestamptz, private boolean)
      on conflict (user_email, dedupe_key) do nothing returning id, dedupe_key, user_email`,
     [JSON.stringify(data)],
   );
@@ -319,7 +326,7 @@ async function flush(db: Db, now: Date, team: () => Promise<Person[]>): Promise<
        select id from alert_log where status = 'queued' and deliver_after <= $1::timestamptz and (lease_until is null or lease_until < $1::timestamptz)
        order by deliver_after limit ${FLUSH_BATCH} for update skip locked)
        and status = 'queued' and (lease_until is null or lease_until < $1::timestamptz)
-     returning id, user_email, task_id, period, kind, severity, title, body, url, reason`,
+     returning id, user_email, task_id, period, kind, severity, title, body, url, reason, private`,
     [ts(now)],
   );
   if (!claimed.length) return out;
@@ -363,16 +370,19 @@ async function flush(db: Db, now: Date, team: () => Promise<Person[]>): Promise<
   const byPerson = new Map<string, QueuedRow[]>();
   for (const r of keep) if (still.has(r.id)) byPerson.set(r.user_email, [...(byPerson.get(r.user_email) ?? []), r]);
 
+  // The app icon badge each push carries: what's unread now plus this batch's urgent alerts.
+  const badges = await urgentUnread([...byPerson.keys()]).catch(() => new Map<string, number>());
   // Each send is recorded as soon as it's made, so a run cut off midway
   // (time limit, background budget) can repeat at most the push in flight.
   await Promise.all(
     [...byPerson].map(async ([email, rows]) => {
+      const appBadge = (badges.get(email) ?? 0) + rows.filter((r) => r.kind === "alert" && (r.severity === "critical" || r.severity === "high")).length;
       const digest = rows.filter((r) => r.kind === "alert" && r.reason === DIGEST_REASON);
       const instant = rows.filter((r) => !digest.includes(r)).sort((a, b) => RANK[a.severity] - RANK[b.severity]);
       const { individual, folded } = splitForRateLimit(instant, recent.get(email) ?? 0, (r) => r.severity === "critical" && r.kind === "alert");
       await Promise.all(
         individual.map(async (r) => {
-          const d = await deliver(email, payloadFor(r));
+          const d = await deliver(email, { ...payloadFor(r), appBadge });
           await settle(db, [{ id: r.id, ...d }], now);
           out[d.status]++;
         }),
@@ -383,7 +393,7 @@ async function flush(db: Db, now: Date, team: () => Promise<Person[]>): Promise<
       ] as const) {
         if (!items.length) continue;
         const settled: { id: string; status: Final; reason: string | null }[] = [];
-        await summarize(db, email, [...items], now, title, reason, out, settled);
+        await summarize(db, email, [...items], now, title, reason, out, settled, appBadge);
         await settle(db, settled, now);
       }
     }),
@@ -392,11 +402,12 @@ async function flush(db: Db, now: Date, team: () => Promise<Person[]>): Promise<
 }
 
 /** One push standing for several items; the items are marked folded into it. */
-async function summarize(db: Db, email: string, items: QueuedRow[], now: Date, title: string, reason: string, out: Counts, results: { id: string; status: Final; reason: string | null }[]) {
+async function summarize(db: Db, email: string, items: QueuedRow[], now: Date, title: string, reason: string, out: Counts, results: { id: string; status: Final; reason: string | null }[], appBadge?: number) {
   const top = items.reduce((a, r) => (RANK[r.severity] < RANK[a] ? r.severity : a), "low" as Severity);
   const body = listTitles(items);
   const dedupe = `digest:${items.map((i) => i.id).sort().join(",")}`.slice(0, 400);
-  const [row] = await insertLogs(db, [{ user: email, taskId: null, period: null, kind: "digest", severity: top, title, body, url: "/tasks", status: "queued", reason, deliverAfter: now, dedupe, lease: new Date(now.getTime() + 120_000) }]);
+  // A summary naming someone's personal items is as private as they are.
+  const [row] = await insertLogs(db, [{ user: email, taskId: null, period: null, kind: "digest", severity: top, title, body, url: "/tasks", status: "queued", reason, deliverAfter: now, dedupe, lease: new Date(now.getTime() + 120_000), private: items.some((i) => i.private) }]);
   if (!row) {
     // An earlier attempt made this summary (and was cut short): settle the
     // items to its outcome instead of leaving them queued forever.
@@ -406,7 +417,7 @@ async function summarize(db: Db, email: string, items: QueuedRow[], now: Date, t
     // still queued: its sender holds the lease; these items come back after theirs expires
     return;
   }
-  const d = await deliver(email, payloadFor({ id: row.id, user_email: email, task_id: null, period: null, kind: "digest", severity: top, title, body, url: "/tasks", reason }));
+  const d = await deliver(email, { ...payloadFor({ id: row.id, user_email: email, task_id: null, period: null, kind: "digest", severity: top, title, body, url: "/tasks", reason }), ...(appBadge !== undefined ? { appBadge } : {}) });
   results.push({ id: row.id, ...d });
   out[d.status]++;
   for (const r of items) results.push({ id: r.id, status: d.status === "sent" ? "folded" : "failed", reason: d.status === "sent" ? reason : d.reason });

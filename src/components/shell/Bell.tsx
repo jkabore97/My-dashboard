@@ -28,7 +28,22 @@ export interface BellItem {
 
 export interface BellData {
   unread: number;
+  /** Unread critical and high alerts: the app icon badge. */
+  urgent?: number;
   items: BellItem[];
+}
+
+const urgentItem = (i: BellItem) => i.kind === "alert" && (i.severity === "critical" || i.severity === "high") && !i.read && i.status !== "queued";
+
+/** Sets the installed app's icon badge where the Badging API exists (Android/desktop PWAs); silent elsewhere. */
+function setAppBadge(n: number) {
+  try {
+    const nav = navigator as Navigator & { setAppBadge?: (n?: number) => Promise<void>; clearAppBadge?: () => Promise<void> };
+    if (n > 0) nav.setAppBadge?.(Math.min(n, 99)).catch(() => {});
+    else nav.clearAppBadge?.().catch(() => {});
+  } catch {
+    // not supported
+  }
 }
 
 const when = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
@@ -38,6 +53,7 @@ export function Bell({ data }: { data: BellData }) {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState(data.items);
   const [unread, setUnread] = useState(data.unread);
+  const [urgent, setUrgent] = useState(data.urgent ?? 0);
   const [pending, start] = useTransition();
   const router = useRouter();
   const ref = useRef<HTMLDivElement>(null);
@@ -46,7 +62,10 @@ export function Bell({ data }: { data: BellData }) {
   useEffect(() => {
     setItems(data.items);
     setUnread(data.unread);
+    setUrgent(data.urgent ?? 0);
   }, [data]);
+
+  useEffect(() => setAppBadge(urgent), [urgent]);
 
   useEffect(() => {
     if (!open) return;
@@ -69,6 +88,7 @@ export function Bell({ data }: { data: BellData }) {
   const openItem = (i: BellItem) => {
     if (!i.read && i.status !== "queued") {
       setUnread((n) => Math.max(0, n - 1));
+      if (urgentItem(i)) setUrgent((n) => Math.max(0, n - 1));
       markLocal(i.id, { read: true });
       start(async () => void (await alertEntryAction(i.id, "read")));
     }
@@ -79,14 +99,16 @@ export function Bell({ data }: { data: BellData }) {
     start(async () => {
       const r = await alertEntryAction(i.id, "ack");
       if (r.error) return;
-      const sameTask = items.filter((x) => x.taskId === i.taskId && !x.read && x.status !== "queued").length;
-      setUnread((n) => Math.max(0, n - sameTask));
+      const sameTask = items.filter((x) => x.taskId === i.taskId && !x.read && x.status !== "queued");
+      setUnread((n) => Math.max(0, n - sameTask.length));
+      setUrgent((n) => Math.max(0, n - sameTask.filter(urgentItem).length));
       markLocal(i.id, { acked: true, read: true });
     });
   const readAll = () =>
     start(async () => {
       await markAllReadAction();
       setUnread(0);
+      setUrgent(0);
       markLocal(null, { read: true });
     });
 

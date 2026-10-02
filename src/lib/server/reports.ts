@@ -44,7 +44,8 @@ export async function buildMorningBrief(given?: Collected) {
   const day = today(tz);
   const yesterday = addDays(day, -1);
   const c = given ?? (await collect());
-  const open = await listTasks("open");
+  // The brief goes to the business owner: never anyone's personal mail, calendar or tasks.
+  const open = (await listTasks("open")).filter((t) => !t.privateTo);
   const db = await getDb();
   const [signups] = await db.query<{ n: number }>("select count(*)::int as n from events where kind = 'signup' and occurred_at > now() - interval '24 hours'");
   return renderBrief({
@@ -53,7 +54,7 @@ export async function buildMorningBrief(given?: Collected) {
     tasks: open,
     revenueYesterday: revenueOn(reportableStripe(c), yesterday),
     signups24h: Number(signups?.n ?? 0),
-    meetingsToday: c.modes.calendar === "live" ? c.calendar.filter((e) => (e.allDay ? e.start : today(tz, new Date(e.start))) === day) : [],
+    meetingsToday: c.modes.calendar === "live" ? c.calendar.filter((e) => !e.owner && (e.allDay ? e.start : today(tz, new Date(e.start))) === day) : [],
     solarYesterdayKWh: c.modes.solar === "live" ? solarOn(c.solar, yesterday) : null,
     camerasOffline: c.modes.cameras === "live" ? c.cameras.reduce((n, s) => n + s.channels.filter((ch) => ch.online === false).length, 0) : 0,
     timeZone: tz,
@@ -67,10 +68,10 @@ export async function weeklyReport(business: string, to = addDays(today(), -1), 
   const history = await snapshotHistory<{ status: string; totalUsers: number | null }>("website", 24 * 8);
   const db = await getDb();
   const [closed] = await db.query<{ n: number }>(
-    "select count(*)::int as n from tasks where status = 'done' and resolved_at > now() - interval '7 days' and coalesce(business_override, business) = $1",
+    "select count(*)::int as n from tasks where status = 'done' and resolved_at > now() - interval '7 days' and coalesce(business_override, business) = $1 and private_to is null",
     [business],
   );
-  const open = (await listTasks("open")).filter((t) => t.business === business);
+  const open = (await listTasks("open")).filter((t) => t.business === business && !t.privateTo);
   return buildWeeklyReport({
     business,
     to,

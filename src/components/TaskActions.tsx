@@ -6,7 +6,7 @@ import { assignTaskAction, completeTaskAction, deleteTaskAction, reopenTaskActio
 import type { TaskStatus } from "@/lib/server/store/tasks";
 import { ab } from "./command/hud";
 
-export function TaskActions({ id, status, manual, business, businesses, assignee = null, people = [] }: { id: string; status: TaskStatus; manual: boolean; business?: string; businesses: string[]; assignee?: string | null; people?: { email: string; name: string }[] }) {
+export function TaskActions({ id, status, manual, personal = false, business, businesses, assignee = null, people = [] }: { id: string; status: TaskStatus; manual: boolean; /** Personal tasks have no business and can't be handed on. */ personal?: boolean; business?: string; businesses: string[]; assignee?: string | null; people?: { email: string; name: string }[] }) {
   const [pending, start] = useTransition();
   const [editing, setEditing] = useState(false);
   const run = (fn: () => Promise<void>) => start(() => fn());
@@ -72,7 +72,7 @@ export function TaskActions({ id, status, manual, business, businesses, assignee
           </select>
         </label>
       )}
-      <button className={`${ab} min-w-10 justify-center sm:min-w-8`} disabled={pending} onClick={() => setEditing(true)} title="Assign business" aria-label="Assign business"><Tag size={13} /></button>
+      {!personal && <button className={`${ab} min-w-10 justify-center sm:min-w-8`} disabled={pending} onClick={() => setEditing(true)} title="Assign business" aria-label="Assign business"><Tag size={13} /></button>}
       {manual && (
         <button className={`${ab} min-w-10 justify-center sm:min-w-8`} disabled={pending} onClick={() => confirm("Delete this task?") && run(() => deleteTaskAction(id))} title="Delete" aria-label="Delete"><Trash2 size={13} /></button>
       )}

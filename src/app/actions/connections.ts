@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { invalidateExternal } from "@/lib/aggregate";
-import { clientIp, requireOwner } from "@/lib/server/auth";
+import { clientIp, requireOwner, requireUser } from "@/lib/server/auth";
 import { auditConnection } from "@/lib/server/connect";
 import { sha256Hex } from "@/lib/server/crypto";
 import { getAuthed } from "@/lib/server/oauth";
@@ -124,4 +124,24 @@ export async function relabelConnection(id: string, form: FormData) {
   await audit(user.email, "connection.relabel", id, { label, business });
   await invalidateExternal();
       revalidatePath("/", "layout");
+}
+
+/** Someone disconnects their own mailbox and calendar (only ever their own). */
+export async function disconnectMine(id: string) {
+  const user = await requireUser();
+  const removed = await deleteConnection(id, { ownerEmail: user.email });
+  if (!removed) return;
+  await audit(user.email, "connection.remove_personal", `${removed.provider}:${removed.account}`, null, await clientIp());
+  await invalidateExternal();
+  revalidatePath("/", "layout");
+}
+
+/** An owner removes someone's personal mailbox (they never see its content). */
+export async function disconnectPersonal(id: string) {
+  const user = await requireOwner();
+  const removed = await deleteConnection(id, "personal");
+  if (!removed) return;
+  await audit(user.email, "connection.remove_personal", `${removed.provider}:${removed.account}`, { of: removed.owner_email }, await clientIp());
+  await invalidateExternal();
+  revalidatePath("/", "layout");
 }

@@ -212,7 +212,7 @@ export function deriveRiskTasks(r: RiskInput): { tasks: RiskTask[]; unobserved: 
   for (const a of r.security.alerts) {
     if (a.kind === "dependabot" && a.severity !== "critical" && a.severity !== "high") continue;
     const alias = a.kind === "dependabot" ? `github-dependabot:${a.repo}:${a.number}` : `github-secret:${a.repo}:${a.number}`;
-    add("security", `${a.repo}/${a.kind}:${a.number}`, { title: a.kind === "secret" ? `Rotate the ${a.title.replace(/^Leaked /, "")} leaked in ${a.repo}` : `${a.repo}: ${a.title}`, severity: a.severity, source: "GitHub security", url: a.url, createdAt: a.createdAt }, alias);
+    add("security", `${a.repo}/${a.kind}:${a.number}`, { title: a.kind === "secret" ? secretTaskTitle(a) : `${a.repo}: ${a.title}`, ...(a.kind === "secret" && a.location ? { detail: `First found in ${a.location}` } : {}), severity: a.severity, source: "GitHub security", url: a.url, createdAt: a.createdAt }, alias);
   }
   for (const s of r.security.repos) {
     if (s.dependabot === "off") add("security", `${s.repo}/dependabot-off`, { title: `Turn on Dependabot alerts for ${s.repo}`, detail: "Free, and tells you when a dependency has a known vulnerability.", severity: "low", source: "Security", url: `https://github.com/${s.repo}/settings/security_analysis`, createdAt: now });
@@ -226,4 +226,14 @@ export function deriveRiskTasks(r: RiskInput): { tasks: RiskTask[]; unobserved: 
   }
 
   return { tasks, unobserved };
+}
+
+/**
+ * A leaked-secret task title. Several alerts of one type in one repo (three
+ * Google API keys…) are told apart by GitHub's alert number and, when known,
+ * the file it was first found in.
+ */
+export function secretTaskTitle(a: { repo: string; title: string; number: number; location?: string }): string {
+  const where = a.location ? `, ${a.location.replace(/:\d+$/, "").split("/").slice(-2).join("/")}` : "";
+  return `Rotate the ${a.title.replace(/^Leaked /, "")} leaked in ${a.repo} (alert #${a.number}${where})`;
 }

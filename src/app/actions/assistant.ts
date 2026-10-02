@@ -51,7 +51,7 @@ export async function draftReplyAction(emailId: string): Promise<{ draft?: strin
   if (!(await aiBudget(user.email))) return { error: `You've reached ${AI_PER_HOUR} AI requests this hour.` };
   try {
     const draft = await draftReply(email, env("OWNER_NAME") ?? "Kaj Consulting");
-    await audit(user.email, "ai.draft_reply", email.account, null);
+    await audit(user.email, "ai.draft_reply", email.owner ? "my mailbox" : email.account, null);
     return { draft };
   } catch (err) {
     return { error: err instanceof AiRefusal ? err.message : `Couldn't draft a reply (${errorMessage(err)}).` };

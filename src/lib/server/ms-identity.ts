@@ -43,3 +43,23 @@ export function msIdentity(c: MsClaims, opts: { tenant: string; expectedTid?: st
   if (!MULTI.has(opts.tenant.toLowerCase()) && opts.expectedTid && c.tid !== opts.expectedTid) return { error: "That account belongs to a different organization." };
   return { email, subject: `${c.tid}:${c.oid}`, name: c.name?.trim().slice(0, 80) || null };
 }
+
+/**
+ * Whether a Microsoft account may be connected as this person's own mailbox.
+ * A person who signs in with Microsoft must connect that same account (their
+ * pinned tid:oid); anyone else, the account named like their dashboard address.
+ */
+export function ownMicrosoftAccount(
+  c: MsClaims,
+  person: { email: string; msSubject: string | null },
+  opts: { tenant: string; expectedTid?: string | null },
+): { subject: string; email: string } | { error: string } {
+  const id = msIdentity(c, opts);
+  if ("error" in id) return id;
+  if (person.msSubject) {
+    if (id.subject !== person.msSubject) return { error: `Connect the Microsoft account you sign in with, not ${id.email}.` };
+  } else if (id.email !== person.email.toLowerCase()) {
+    return { error: `Connect your own Microsoft account (${person.email}), not ${id.email}.` };
+  }
+  return { subject: id.subject, email: id.email };
+}

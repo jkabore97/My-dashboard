@@ -1,3 +1,5 @@
+import { secretTaskTitle } from "../risk";
+import { secretLocation } from "../connectors/security";
 import { formatMoney } from "../money";
 import { sha256Hex } from "./crypto";
 import { recordEvent, type NewEvent } from "./store/events";
@@ -82,7 +84,7 @@ export function handleGithub(event: string, delivery: string, p: Json): Outcome 
       const key = `github-secret:${repo}:${a.number}`;
       if (["created", "reopened"].includes(p.action)) {
         ev({ title: `Leaked secret detected in ${repo}`, body: a.secret_type_display_name ?? a.secret_type, severity: "critical", url: a.html_url });
-        out.openTasks.push({ key, title: `Rotate leaked ${a.secret_type_display_name ?? "secret"} in ${repo}`, severity: "critical", source: "GitHub security", url: a.html_url });
+        out.openTasks.push({ key, title: secretTaskTitle({ repo, title: a.secret_type_display_name ?? a.secret_type ?? "secret", number: a.number, location: secretLocation(a) }), severity: "critical", source: "GitHub security", url: a.html_url });
       } else if (p.action === "resolved") {
         out.resolveTasks.push(key);
       }

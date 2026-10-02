@@ -217,8 +217,8 @@ describe("connections and users", () => {
     await db.query("update connections set secret = 'v1:AAAA:BBBB:CCCC' where provider = 'github'"); // as if ENCRYPTION_KEY changed
     const { list, undecryptable } = await readConnections();
     expect(list.map((c) => c.provider)).toEqual(["gmail"]);
-    expect(undecryptable).toEqual([{ provider: "github", account: "kaj" }]);
-    expect(await connectionHealth()).toEqual({ readable: false, undecryptable: [{ provider: "github", account: "kaj" }] });
+    expect(undecryptable).toEqual([{ provider: "github", account: "kaj", ownerEmail: null }]);
+    expect(await connectionHealth()).toEqual({ readable: false, undecryptable: [{ provider: "github", account: "kaj", ownerEmail: null }] });
   });
   it("TOTP-only verification never consumes a recovery code", async () => {
     const { generateSecret, totp } = await import("@/lib/server/totp");

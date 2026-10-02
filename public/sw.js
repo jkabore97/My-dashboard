@@ -2,7 +2,7 @@
 // the dashboard on click. It doesn't cache pages: the dashboard holds private
 // data and must always come from the server with a valid session.
 // Bump VERSION when this file changes so browsers pick the new one up quickly.
-const VERSION = "kcc-sw-3";
+const VERSION = "kcc-sw-4";
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
@@ -32,8 +32,21 @@ self.addEventListener("push", (event) => {
   if (Array.isArray(data.actions) && data.id && max > 0) {
     options.actions = data.actions.filter((a) => a && (a.action === "ack" || a.action === "snooze")).slice(0, max).map((a) => ({ action: a.action, title: String(a.title).slice(0, 40) }));
   }
-  event.waitUntil(self.registration.showNotification(data.title || "Kaj Command Center", options));
+  event.waitUntil(Promise.all([self.registration.showNotification(data.title || "Kaj Command Center", options), setBadge(data.appBadge)]));
 });
+
+/** The app icon badge (unread critical/high alerts), where the platform supports it. Never fails. */
+function setBadge(n) {
+  try {
+    const nav = self.navigator;
+    if (typeof n !== "number" || !nav) return Promise.resolve();
+    if (n > 0 && "setAppBadge" in nav) return nav.setAppBadge(Math.min(n, 99)).catch(() => {});
+    if (n <= 0 && "clearAppBadge" in nav) return nav.clearAppBadge().catch(() => {});
+  } catch {
+    // unsupported: nothing to do
+  }
+  return Promise.resolve();
+}
 
 /** Tells the dashboard about a button press or a tap; the session cookie proves who it is. */
 function report(id, action) {

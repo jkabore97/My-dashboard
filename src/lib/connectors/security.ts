@@ -23,6 +23,15 @@ interface SecretAlert {
   created_at: string;
   secret_type_display_name?: string;
   secret_type?: string;
+  /** Where the secret was first found (commits: a file path; also issues, PRs, wikis…). */
+  first_location_detected?: { path?: string; start_line?: number } | null;
+}
+
+/** "src/firebase.js:12" from the alert's first location, when it's a file. */
+export function secretLocation(a: Pick<SecretAlert, "first_location_detected">): string | undefined {
+  const l = a.first_location_detected;
+  if (!l?.path) return undefined;
+  return `${l.path.slice(-120)}${l.start_line ? `:${l.start_line}` : ""}`;
 }
 
 class HttpError extends Error {
@@ -83,9 +92,13 @@ export async function getSecurity(repos: Repo[], reposLive: boolean) {
             else if (c === "error") fail(`dependabot:${r.fullName}`, `${r.fullName} Dependabot: ${errorMessage(err)}`);
           }
           try {
-            const list = await gh<SecretAlert[]>(token!, `/repos/${r.fullName}/secret-scanning/alerts?state=open&per_page=100`);
+            // hide_secret: the secret itself is never fetched.
+            const list = await gh<SecretAlert[]>(token!, `/repos/${r.fullName}/secret-scanning/alerts?state=open&per_page=100&hide_secret=true`);
             s.secretScanning = "on";
-            for (const a of list) alerts.push({ kind: "secret", repo: r.fullName, number: a.number, severity: "critical", title: `Leaked ${a.secret_type_display_name ?? a.secret_type ?? "secret"}`, url: a.html_url, createdAt: a.created_at });
+            for (const a of list) {
+              const location = secretLocation(a);
+              alerts.push({ kind: "secret", repo: r.fullName, number: a.number, severity: "critical", title: `Leaked ${a.secret_type_display_name ?? a.secret_type ?? "secret"}`, url: a.html_url, createdAt: a.created_at, ...(location ? { location } : {}) });
+            }
           } catch (err) {
             const c = classifyAlertError(err);
             if (c === "off" || c === "unavailable") s.secretScanning = "unavailable";

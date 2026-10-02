@@ -4,7 +4,9 @@ import { requireOwner, requireUser } from "@/lib/server/auth";
 import { getDashboard } from "@/lib/server/dashboard";
 import { configStatus, PLATFORM_DEFS } from "@/lib/platforms";
 import { oauthConfigured } from "@/lib/server/connect";
-import { listConnectionSummaries, MULTI_ACCOUNT } from "@/lib/server/store/connections";
+import { listConnectionSummaries, listPersonalSummaries, MULTI_ACCOUNT } from "@/lib/server/store/connections";
+import { listMembers } from "@/lib/server/store/team";
+import { DisconnectPersonalButton } from "@/components/settings/MyMail";
 import { getSetting, lastRun } from "@/lib/server/store/settings";
 import { WEBHOOK_ENV } from "@/lib/server/webhooks";
 import { hasGoogleScope, type GoogleFeature } from "@/lib/server/google";
@@ -51,6 +53,9 @@ export default async function PlatformsPage({ searchParams }: { searchParams: Pr
   const h = await headers();
   const origin = env("APP_URL") ?? `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host")}`;
   const connections = d.dbError ? [] : await listConnectionSummaries();
+  // People's own mailboxes: who has one, never what's in it.
+  const personal = d.dbError ? [] : await listPersonalSummaries();
+  const names = new Map((d.dbError ? [] : await listMembers()).map((m) => [m.email, m.name ?? m.email]));
   const storedSecrets: Record<string, boolean> = d.dbError ? {} : Object.fromEntries(await Promise.all(Object.keys(WEBHOOK_ENV).map(async (p) => [p, !!(await getSetting(`webhook_secret:${p}`, null))])));
   const lastCron = d.dbError ? null : await getSetting<{ at: string } | null>("job:last_cron", null);
   const lastSync = d.dbError ? null : await lastRun("job:sync");
@@ -159,6 +164,27 @@ export default async function PlatformsPage({ searchParams }: { searchParams: Pr
           );
         })}
       </div>
+
+      <SectionRule className="mt-10">Personal mailboxes</SectionRule>
+      <HeadPanel accent="#3fd0ff" title="Personal mail & calendars" status={<Tag color={personal.length ? "#3fd0ff" : "#7f97ab"}>{personal.length} connected</Tag>} bodyClassName="!p-0">
+        <p className="px-4 py-3 text-[13px] text-muted sm:px-5">Team members with Inbox or Agenda can connect their own Microsoft 365{oauthConfigured("gmail") ? " or Google" : ""} account from their Settings. Its mail, events and to-dos are visible to that person only, not on this dashboard for you. You can disconnect one here.</p>
+        {personal.length > 0 && (
+          <ul className="border-t border-line/60">
+            {personal.map((c) => {
+              const who = names.get(c.ownerEmail) ?? c.ownerEmail;
+              return (
+                <li key={c.id} className="flex items-center gap-3 border-b border-line/40 px-4 py-3 last:border-0 sm:px-5">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm"><span className="text-ink">{who}</span> <span className="text-muted">has a personal mailbox connected</span></div>
+                    <div className="text-xs text-muted">{c.provider === "microsoft" ? "Microsoft 365" : "Google"} · {timeAgo(c.createdAt)}</div>
+                  </div>
+                  <DisconnectPersonalButton id={c.id} who={who} />
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </HeadPanel>
 
       <SectionRule className="mt-10">Real-time webhooks</SectionRule>
       <div className="grid gap-4 md:grid-cols-2">

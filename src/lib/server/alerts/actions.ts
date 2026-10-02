@@ -37,7 +37,7 @@ export async function alertAction(user: CurrentUser, id: string, action: AlertAc
   await snoozeTask(task.id, until);
   await restartIncident(task.id, until); // alerts again if it's still open when the snooze ends
   await acknowledge(user.email, entry.taskId); // and stop anything still queued for them about it
-  await audit(user.email, "task.snooze", task.title, { preset: "1h", via: "notification" });
+  await audit(user.email, "task.snooze", task.privateTo ? "personal task" : task.title, { preset: "1h", via: "notification" });
   await recordActivity(task.id, user.email, "snooze", { preset: "1h" }).catch(() => {});
   return { ok: true };
 }

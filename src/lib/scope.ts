@@ -1,4 +1,5 @@
-import { canSee, canSeeTask, eventSection, inBusiness, isFullOwner, type Access, type Section } from "./access";
+import { canSee, canSeeTask, eventSection, inBusiness, isFullOwner, ownItem, type Access, type Section } from "./access";
+import type { PersonalProblem } from "./connectors/personal";
 import type { Records } from "./connectors/records";
 import type { CameraSiteStatus } from "./connectors/hikvision";
 import type { DomainsReport } from "./connectors/records";
@@ -14,6 +15,11 @@ export interface ScopableTask extends Task {
   sourceKey?: string | null;
   assignee?: string | null;
 }
+
+// Personal items (someone's own mailbox and calendar, and what's derived from
+// them) carry an owner and reach that person alone. That holds for every
+// viewer, full owners included, and is applied before anything else, so the
+// shared cache of platform data can hold everyone's items safely.
 
 export interface Scopable {
   repos: Repo[];
@@ -36,6 +42,7 @@ export interface Scopable {
   platforms: unknown[];
   sources: { source: string; mode: string; error?: string; partial?: { key: string; error: string }[] }[];
   undecryptableConnections: number;
+  personalProblems?: PersonalProblem[];
 }
 
 export interface ScopeContext {
@@ -43,7 +50,22 @@ export interface ScopeContext {
   businessForDomain: (domain: string) => string | undefined;
 }
 
-export function scopeFor<T extends Scopable>(d: T, a: Access, email: string, ctx: ScopeContext): T {
+/** Drops other people's personal items. Every viewer goes through this, full owners included. */
+export function privateFor<T extends Scopable>(d: T, a: Access, email: string): T {
+  const own = ownItem(email);
+  return {
+    ...d,
+    emails: d.emails.filter(own),
+    calendar: d.calendar.filter(own),
+    notifications: d.notifications.filter(own),
+    openTasks: d.openTasks.filter((t) => !t.privateTo || canSeeTask(a, email, t)),
+    derivedTasks: d.derivedTasks.filter((t) => !t.privateTo || t.privateTo === email),
+    ...(d.personalProblems ? { personalProblems: d.personalProblems.filter((p) => p.owner === email) } : {}),
+  };
+}
+
+export function scopeFor<T extends Scopable>(full: T, a: Access, email: string, ctx: ScopeContext): T {
+  const d = privateFor(full, a, email);
   if (isFullOwner(a)) return d;
   const sec = (s: Section) => canSee(a, s);
   const biz = (b: string | null | undefined) => inBusiness(a, b);
@@ -60,7 +82,8 @@ export function scopeFor<T extends Scopable>(d: T, a: Access, email: string, ctx
     repos,
     hosting: pick("hosting", d.hosting, (h) => h.business),
     databases: pick("databases", d.databases, (x) => x.business),
-    emails: pick("inbox", d.emails, (e) => e.business),
+    // A person's own mail has no business: it's shown to them (with the Inbox) whatever their businesses.
+    emails: sec("inbox") ? d.emails.filter((e) => (e.owner ? e.owner === email : biz(e.business))) : [],
     websites: pick("websites", d.websites, (w) => w.business),
     stripe: pick("money", d.stripe, (s) => s.business),
     records: {
@@ -78,14 +101,14 @@ export function scopeFor<T extends Scopable>(d: T, a: Access, email: string, ctx
       ? { alerts: d.security.alerts.filter((x) => biz(repoBusiness.get(x.repo)) && (visibleRepos.has(x.repo) || !sec("repos"))), repos: d.security.repos.filter((x) => biz(repoBusiness.get(x.repo))), github2fa: null, githubLogin: null }
       : { alerts: [], repos: [], github2fa: null, githubLogin: null },
     // Calendars aren't tied to a business: whoever has the Agenda sees them.
-    calendar: sec("agenda") ? d.calendar : [],
+    calendar: sec("agenda") ? d.calendar.filter(ownItem(email)) : [],
     analytics: pick("analytics", d.analytics, (x) => domainBiz(x.domain)),
     reviews: pick("analytics", d.reviews, (p) => p.business),
     cameras: pick("cameras", d.cameras, (s) => s.business),
     solar: pick("solar", d.solar, (s) => s.business),
     notifications: d.notifications.filter((n) => {
       const s = eventSection(n.source);
-      return (s === "notifications" ? sec("notifications") : sec(s)) && biz(n.business);
+      return (s === "notifications" ? sec("notifications") : sec(s)) && (n.owner ? n.owner === email : biz(n.business));
     }),
     openTasks: d.openTasks.filter((t) => canSeeTask(a, email, t)),
     derivedTasks: [],
