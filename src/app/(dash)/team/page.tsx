@@ -1,4 +1,4 @@
-import { requireOwner, allowedEmails, ownerIdentity, passwordSignInEnabled } from "@/lib/server/auth";
+import { requireOwner, allowedEmails, ownerIdentity, passwordSignInEnabled, memberPasswordsEnabled, googleSignInEnabled, microsoftSignInEnabled } from "@/lib/server/auth";
 import { listMembers } from "@/lib/server/store/team";
 import { listActivity } from "@/lib/server/store/tasks";
 import { knownBusinesses } from "@/lib/server/reports";
@@ -14,10 +14,11 @@ export default async function TeamPage() {
   const envOwners = [...(passwordSignInEnabled() ? [ownerIdentity()] : []), ...allowedEmails()];
   const names = new Map(members.map((m) => [m.email, m.name ?? m.email]));
   const who = (email: string) => names.get(email) ?? email;
+  const methods = [microsoftSignInEnabled() && "Microsoft account", memberPasswordsEnabled() && "password", googleSignInEnabled() && "Google account"].filter(Boolean).join(" or ") || "account";
 
   return (
     <>
-      <PageHeader title="Team" subtitle="Invite the people who work with you. Each person sees only the sections of their role and the businesses you pick; everyone signs in with their own password or Google account plus an authenticator app." />
+      <PageHeader title="Team" subtitle={`Invite the people who work with you. Each person sees only the sections of their role and the businesses you pick; everyone signs in with their own ${methods} plus an authenticator app.`} />
       <div className="grid gap-6 xl:grid-cols-5">
         <div className="grid content-start gap-6 xl:col-span-3">
           <Card title="Owners">
