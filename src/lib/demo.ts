@@ -7,7 +7,23 @@ import type { CalendarEvent, Database, EmailMessage, HostingProject, PlaceReview
 
 const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
 
-export const demoRepos = (): Repo[] => [
+/** Sample weekly commit counts (deterministic), oldest week first. */
+function demoActivity(seed: number, level: number): Repo["activity"] {
+  const monday = new Date();
+  monday.setUTCHours(0, 0, 0, 0);
+  monday.setUTCDate(monday.getUTCDate() - monday.getUTCDay());
+  return Array.from({ length: 26 }, (_, w) => ({
+    weekStart: new Date(monday.getTime() - (25 - w) * 7 * 86_400_000).toISOString().slice(0, 10),
+    days: Array.from({ length: 7 }, (_, d) => {
+      const v = ((w * 7 + d + seed) * 37 + seed * 11) % 13;
+      return d === 0 || d === 6 ? (v > 10 ? 1 : 0) : Math.max(0, Math.round(((v - 4) * level * (0.5 + w / 26)) / 3));
+    }),
+  }));
+}
+
+export const demoRepos = (): Repo[] => demoRepoList().map((r, i) => (i < 4 ? { ...r, activity: demoActivity(i + 1, [3, 2, 1.4, 0.6][i]) } : r));
+
+const demoRepoList = (): Repo[] => [
   { id: "r1", name: "my-dashboard", fullName: "jkabore97/my-dashboard", url: "https://github.com/jkabore97/my-dashboard", private: true, language: "TypeScript", defaultBranch: "main", openIssues: 2, openPullRequests: 1, pushedAt: ago(12), business: "Kaj Consulting" },
   { id: "r2", name: "kaj-consulting-site", fullName: "kaj/kaj-consulting-site", url: "https://github.com", private: false, language: "TypeScript", defaultBranch: "main", openIssues: 5, openPullRequests: 3, pushedAt: ago(60 * 5), business: "Kaj Consulting" },
   { id: "r3", name: "client-portal", fullName: "kaj/client-portal", url: "https://github.com", private: true, language: "TypeScript", defaultBranch: "main", openIssues: 11, openPullRequests: 0, pushedAt: ago(60 * 26), business: "Kaj Consulting" },
@@ -15,7 +31,18 @@ export const demoRepos = (): Repo[] => [
   { id: "r5", name: "booking-api", fullName: "kaj/booking-api", url: "https://github.com", private: true, language: "Python", defaultBranch: "main", openIssues: 0, openPullRequests: 0, pushedAt: ago(60 * 24 * 40), business: "Kaj Bookings" },
 ];
 
-export const demoHosting = (): HostingProject[] => [
+const deploys = (...list: [minutesAgo: number, state: HostingProject["lastDeployState"], buildSeconds: number | null][]): HostingProject["recentDeploys"] =>
+  list.map(([m, state, b]) => ({ at: ago(m), state, buildMs: b == null ? null : b * 1000 }));
+
+export const demoHosting = (): HostingProject[] => demoHostingList().map((h) => ({ ...h, ...(DEMO_DEPLOYS[h.id] ? { recentDeploys: DEMO_DEPLOYS[h.id]() } : {}) }));
+
+const DEMO_DEPLOYS: Record<string, () => HostingProject["recentDeploys"]> = {
+  h1: () => deploys([300, "ready", 41], [60 * 9, "ready", 38], [60 * 16, "ready", 44]),
+  h2: () => deploys([95, "error", 22], [60 * 4, "ready", 57], [60 * 13, "ready", 52]),
+  h3: () => deploys([3, "building", null], [60 * 7, "ready", 33], [60 * 20, "ready", 35]),
+};
+
+const demoHostingList = (): HostingProject[] => [
   { id: "h1", name: "kaj-consulting-site", provider: "vercel", url: "https://kajconsulting.example", framework: "nextjs", lastDeployState: "ready", lastDeployAt: ago(300), repo: "kaj-consulting-site", business: "Kaj Consulting" },
   { id: "h2", name: "client-portal", provider: "vercel", url: "https://portal.kajconsulting.example", framework: "nextjs", lastDeployState: "error", lastDeployAt: ago(95), repo: "client-portal", business: "Kaj Consulting" },
   { id: "h3", name: "shop-storefront", provider: "vercel", url: "https://shop.example", framework: "vite", lastDeployState: "building", lastDeployAt: ago(3), repo: "shop-storefront", business: "Kaj Store" },
@@ -23,10 +50,11 @@ export const demoHosting = (): HostingProject[] => [
 ];
 
 export const demoDatabases = (): Database[] => [
-  { id: "d1", name: "kaj-prod", provider: "supabase", region: "us-east-1", status: "healthy", createdAt: ago(60 * 24 * 200), business: "Kaj Consulting", advisories: [{ level: "critical", title: "RLS disabled on table public.clients" }] },
-  { id: "d2", name: "shop-db", provider: "supabase", region: "eu-west-2", status: "healthy", createdAt: ago(60 * 24 * 90), business: "Kaj Store", advisories: [{ level: "medium", title: "Unindexed foreign key on orders.customer_id" }] },
-  { id: "d3", name: "bookings-staging", provider: "supabase", region: "us-east-1", status: "paused", createdAt: ago(60 * 24 * 300), business: "Kaj Bookings" },
-  { id: "d4", name: "booking-cache", provider: "cloudflare-d1", region: null, status: "healthy", createdAt: ago(60 * 24 * 60), business: "Kaj Bookings" },
+  { id: "d1", name: "kaj-prod", provider: "supabase", region: "us-east-1", status: "healthy", createdAt: ago(60 * 24 * 200), business: "Kaj Consulting", engine: "Postgres 15.8", advisories: [{ level: "critical", title: "RLS disabled on table public.clients" }] },
+  { id: "d2", name: "shop-db", provider: "supabase", region: "eu-west-2", status: "healthy", createdAt: ago(60 * 24 * 90), business: "Kaj Store", engine: "Postgres 15.8", advisories: [{ level: "medium", title: "Unindexed foreign key on orders.customer_id" }] },
+  { id: "d3", name: "bookings-staging", provider: "supabase", region: "us-east-1", status: "paused", createdAt: ago(60 * 24 * 300), business: "Kaj Bookings", engine: "Postgres 15.1" },
+  { id: "d4", name: "booking-cache", provider: "cloudflare-d1", region: null, status: "healthy", createdAt: ago(60 * 24 * 60), business: "Kaj Bookings", engine: "SQLite (D1)", sizeBytes: 38_412_288, tables: 7 },
+  { id: "d5", name: "shop-sessions", provider: "cloudflare-d1", region: null, status: "healthy", createdAt: ago(60 * 24 * 20), business: "Kaj Store", engine: "SQLite (D1)", sizeBytes: 4_521_984, tables: 3 },
 ];
 
 export const demoEmails = (): EmailMessage[] => [
@@ -202,3 +230,25 @@ export const demoSolarReadings = (now = new Date()): SolarReading[] => {
   }
   return out;
 };
+
+/**
+ * Sample uptime checks (every 30 minutes for 30 days) for the sample websites,
+ * so the Websites page can be previewed. Only used while websites show sample data.
+ */
+export function demoUptimeHistory(sites: Pick<Website, "domain" | "responseMs" | "status">[], now = Date.now()): { key: string; data: { status: Website["status"]; responseMs: number | null }; takenAt: string }[] {
+  const out: { key: string; data: { status: Website["status"]; responseMs: number | null }; takenAt: string }[] = [];
+  const step = 30 * 60_000;
+  const count = 30 * 48;
+  sites.forEach((s, k) => {
+    const base = Math.min(s.responseMs ?? 200, 600);
+    for (let i = count; i >= 0; i--) {
+      const t = now - i * step;
+      const wobble = ((i * 37 + k * 101) % 23) / 23;
+      // A couple of short incidents per site, and the site's current status at the end.
+      const incident = (i + k * 211) % 1291 === 3 ? "down" : (i + k * 131) % 1409 === 5 ? "degraded" : null;
+      const status: Website["status"] = i === 0 ? s.status : incident ?? "up";
+      out.push({ key: s.domain, data: { status, responseMs: status === "down" ? null : Math.round(base * (0.75 + wobble * 0.5) + (status === "degraded" ? 900 : 0)) }, takenAt: new Date(t).toISOString() });
+    }
+  });
+  return out;
+}

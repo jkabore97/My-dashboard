@@ -24,6 +24,12 @@ export interface PlatformDef {
   /** Source names (SourceResult.source) whose errors belong on this card; defaults to [name]. */
   sources?: string[];
   envKeys: string[];
+  /**
+   * Set up only through environment variables (no connection, no data
+   * connector): the card shows on/off from whether every envKey is set.
+   * Never shows the values.
+   */
+  configOnly?: { on: string; off: string };
 }
 
 const tokenField: TokenField = { name: "token", label: "API token", secret: true };
@@ -42,12 +48,19 @@ export const PLATFORM_DEFS: PlatformDef[] = [
   { id: "websites", sources: ["Websites", "Domains"], name: "Website monitor", category: "analytics", available: true, envKeys: [], docsUrl: "/settings#websites", note: "Uptime every 5 minutes + sign-ups per site" },
   { id: "hikvision", name: "Hikvision cameras", category: "devices", available: true, provider: "hikvision", webhook: "hikvision", sources: ["Cameras"], envKeys: [], docsUrl: "/cameras", note: "NVR and camera status, live snapshots, disk health and alarms (ISAPI through a secure tunnel). Add one per site.", token: { fields: [{ name: "baseUrl", label: "Tunnel address", placeholder: "https://nvr.yourdomain.com" }, { name: "username", label: "NVR username", placeholder: "a read-only operator account" }, { name: "token", label: "NVR password", secret: true }, { name: "label", label: "Site name", placeholder: "Office", optional: true }, { name: "business", label: "Business", optional: true }, { name: "cfClientId", label: "Cloudflare Access client ID", optional: true }, { name: "cfClientSecret", label: "Cloudflare Access client secret", optional: true, secret: true }], label: "Add a recorder site", help: "Expose the NVR's web port through Cloudflare Tunnel (or Tailscale Funnel), never by port forwarding. Create a separate NVR user with only Remote: Live View and Parameters Settings view rights. If you protect the tunnel with Cloudflare Access, add a service token here. See the README for the 5-minute setup." } },
   { id: "solar", name: "Solar (SOFAR / Fsolar)", category: "devices", available: true, sources: ["Solar"], envKeys: ["SOLAR_INGEST_TOKEN"], docsUrl: "/settings#solar", note: "Production, battery, grid and alarms from your SOFAR inverter, pushed by Home Assistant or a small script. Direct Fsolar cloud sync waits on SOFAR granting API access." },
+  { id: "resend", name: "Resend email", category: "email", available: true, envKeys: ["RESEND_API_KEY", "BRIEF_EMAIL_FROM", "BRIEF_EMAIL_TO"], docsUrl: "https://resend.com/api-keys", note: "Sends the morning brief and weekly reports by email.", configOnly: { on: "Morning brief and weekly reports go out by email.", off: "Off until RESEND_API_KEY, BRIEF_EMAIL_FROM and BRIEF_EMAIL_TO are set." } },
+  { id: "claude", name: "Claude AI", category: "productivity", available: true, envKeys: ["ANTHROPIC_API_KEY"], docsUrl: "https://console.anthropic.com/settings/keys", note: "Powers Ask, inbox triage, reply drafts and the morning brief summary.", configOnly: { on: "Ask, triage and summaries use Claude.", off: "Off until ANTHROPIC_API_KEY is set; Ask answers from rules only." } },
   { id: "gdrive", name: "Google Drive", category: "productivity", available: false, envKeys: [], docsUrl: "https://drive.google.com" },
   { id: "linkedin", name: "LinkedIn Page", category: "social", available: false, envKeys: [], docsUrl: "https://www.linkedin.com/developers" },
   { id: "slack", name: "Slack", category: "productivity", available: false, envKeys: [], docsUrl: "https://api.slack.com/apps" },
 ];
 
-/** Live/demo/error status for the connectors shown on the overview. */
+/** Pure: whether a config-only platform is on (every env key set). */
+export function configStatus(p: Pick<PlatformDef, "envKeys">, has: (key: string) => boolean): { on: boolean; keys: { key: string; set: boolean }[] } {
+  const keys = p.envKeys.map((key) => ({ key, set: has(key) }));
+  return { on: keys.length > 0 && keys.every((k) => k.set), keys };
+}
+
 /** Live/demo/error per platform, keyed by platform id. */
 export function getPlatforms(modes: Record<string, SourceMode | undefined>) {
   return PLATFORM_DEFS.filter((p) => p.available).map((p) => ({ ...p, mode: modes[p.id] ?? null }));

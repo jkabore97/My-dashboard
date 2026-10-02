@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, type CSSProperties } from "react";
 import { Wrench } from "lucide-react";
 import { runFixAction } from "@/app/actions/assistant";
 
@@ -10,7 +10,8 @@ export function FixButton({ taskId, label, title }: { taskId: string; label: str
   return (
     <span className="inline-flex flex-wrap items-center gap-2">
       <button
-        className="inline-flex items-center gap-1 rounded-md border border-accent/50 bg-accent/10 px-2 py-1 text-xs text-ink hover:bg-accent/20 disabled:opacity-50"
+        className="hud-btn hud-btn-solid min-h-10 px-3 py-1 text-[11.5px] sm:min-h-8"
+        style={{ "--b": "#3df5a0" } as CSSProperties}
         disabled={pending}
         onClick={() => confirm(`${label}: "${title}"?\n\nThis acts on the live platform with your connected account.`) && start(async () => setMsg(await runFixAction(taskId)))}
       >

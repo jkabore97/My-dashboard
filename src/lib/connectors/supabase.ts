@@ -13,6 +13,7 @@ interface SbProject {
   region: string;
   status: string;
   created_at: string;
+  database?: { version?: string };
 }
 
 interface SbLint {
@@ -57,6 +58,7 @@ export async function getSupabaseProjects(rules: BusinessRule[]) {
             createdAt: p.created_at,
             advisories: advs,
             business: businessFor(p.name, rules),
+            engine: p.database?.version ? `Postgres ${p.database.version}` : "Postgres",
           };
         }),
       );

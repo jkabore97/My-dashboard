@@ -30,6 +30,8 @@ export interface Repo {
   openPullRequests: number | null;
   pushedAt: string;
   business?: string;
+  /** Commits per day on the default branch, oldest week first (GitHub commit_activity; only fetched for the most recently pushed repos). */
+  activity?: { weekStart: string; days: number[] }[];
 }
 
 export type DeployState = "ready" | "building" | "error" | "canceled" | "queued";
@@ -44,6 +46,8 @@ export interface HostingProject {
   lastDeployAt: string | null;
   repo?: string;
   business?: string;
+  /** Production deploys in the last 24 hours, newest first (Vercel only). */
+  recentDeploys?: { at: string; state: DeployState | null; buildMs: number | null }[];
 }
 
 export interface Database {
@@ -55,6 +59,11 @@ export interface Database {
   createdAt: string | null;
   advisories?: { level: Severity; title: string }[];
   business?: string;
+  /** Size on disk in bytes, only where the platform reports it (Cloudflare D1). */
+  sizeBytes?: number | null;
+  tables?: number | null;
+  /** Engine and version, e.g. "Postgres 15.1". */
+  engine?: string | null;
 }
 
 export interface EmailMessage {

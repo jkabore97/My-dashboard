@@ -3,7 +3,7 @@ import { Fragment, type ReactNode } from "react";
 /** Bold, inline code, bullet and numbered lists, headings: enough for short answers. Text stays escaped by React. */
 function inline(text: string): ReactNode[] {
   return text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).map((part, i) =>
-    part.startsWith("**") && part.endsWith("**") ? <strong key={i}>{part.slice(2, -2)}</strong> : part.startsWith("`") && part.endsWith("`") ? <code key={i} className="rounded bg-bg px-1 text-xs">{part.slice(1, -1)}</code> : <Fragment key={i}>{part}</Fragment>,
+    part.startsWith("**") && part.endsWith("**") ? <strong key={i} className="font-semibold text-[#f2faff]">{part.slice(2, -2)}</strong> : part.startsWith("`") && part.endsWith("`") ? <code key={i} className="bg-cyan/10 px-1 font-mono text-xs text-cyan">{part.slice(1, -1)}</code> : <Fragment key={i}>{part}</Fragment>,
   );
 }
 
@@ -28,7 +28,7 @@ export function SimpleMarkdown({ text }: { text: string }) {
     }
     flush();
     const heading = line.match(/^#{1,4}\s+(.*)$/);
-    if (heading) blocks.push(<p key={blocks.length} className="mt-3 font-semibold">{inline(heading[1])}</p>);
+    if (heading) blocks.push(<p key={blocks.length} className="hud-label mt-3 text-[12px] text-cyan">{inline(heading[1])}</p>);
     else if (line.trim()) blocks.push(<p key={blocks.length} className="my-2">{inline(line)}</p>);
   }
   flush();

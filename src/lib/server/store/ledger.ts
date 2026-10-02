@@ -33,6 +33,10 @@ export interface Subscription {
   url: string | null;
   notes: string | null;
   active: boolean;
+  /** Day it was first tracked (YYYY-MM-DD). */
+  createdOn?: string;
+  /** Day of the last change; for an inactive row, roughly when it stopped being tracked. */
+  updatedOn?: string;
 }
 
 export type DeadlineCategory = "tax" | "filing" | "license" | "insurance" | "contract" | "other";
@@ -96,10 +100,10 @@ export async function deleteInvoice(id: string) {
 
 // ─── Subscriptions ───────────────────────────────────────────────────────────
 
-const SUB_COLS = `id, business, vendor, plan, amount_minor::text as amount_minor, currency, billing_interval, ${d("next_renewal")}, auto_renew, url, notes, active`;
+const SUB_COLS = `id, business, vendor, plan, amount_minor::text as amount_minor, currency, billing_interval, ${d("next_renewal")}, auto_renew, url, notes, active, to_char(created_at, 'YYYY-MM-DD') as created_on, to_char(updated_at, 'YYYY-MM-DD') as updated_on`;
 
-type SubRow = { id: string; business: string | null; vendor: string; plan: string | null; amount_minor: string; currency: string; billing_interval: "month" | "year"; next_renewal: string | null; auto_renew: boolean; url: string | null; notes: string | null; active: boolean };
-const toSub = (r: SubRow): Subscription => ({ id: r.id, business: r.business, vendor: r.vendor, plan: r.plan, amountMinor: Number(r.amount_minor), currency: r.currency, interval: r.billing_interval, nextRenewal: r.next_renewal, autoRenew: r.auto_renew, url: r.url, notes: r.notes, active: r.active });
+type SubRow = { id: string; business: string | null; vendor: string; plan: string | null; amount_minor: string; currency: string; billing_interval: "month" | "year"; next_renewal: string | null; auto_renew: boolean; url: string | null; notes: string | null; active: boolean; created_on?: string | null; updated_on?: string | null };
+const toSub = (r: SubRow): Subscription => ({ id: r.id, business: r.business, vendor: r.vendor, plan: r.plan, amountMinor: Number(r.amount_minor), currency: r.currency, interval: r.billing_interval, nextRenewal: r.next_renewal, autoRenew: r.auto_renew, url: r.url, notes: r.notes, active: r.active, ...(r.created_on ? { createdOn: r.created_on } : {}), ...(r.updated_on ? { updatedOn: r.updated_on } : {}) });
 
 export async function listSubscriptions(includeInactive = false) {
   const db = await getDb();

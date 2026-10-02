@@ -25,16 +25,49 @@ export function mapVercelState(s?: string): DeployState | null {
   }
 }
 
+interface VercelDeployment {
+  projectId?: string;
+  created?: number;
+  createdAt?: number;
+  buildingAt?: number;
+  ready?: number;
+  state?: string;
+  readyState?: string;
+}
+
+type RecentDeploy = NonNullable<HostingProject["recentDeploys"]>[number];
+
+/** Production deployments grouped by project, newest first, with build time when Vercel reports both ends. */
+export function groupDeployments(deployments: VercelDeployment[]): Map<string, RecentDeploy[]> {
+  const out = new Map<string, RecentDeploy[]>();
+  for (const d of deployments) {
+    const created = d.created ?? d.createdAt;
+    if (!d.projectId || typeof created !== "number") continue;
+    const buildMs = typeof d.ready === "number" && typeof d.buildingAt === "number" && d.ready >= d.buildingAt ? d.ready - d.buildingAt : null;
+    const list = out.get(d.projectId) ?? [];
+    list.push({ at: new Date(created).toISOString(), state: mapVercelState(d.readyState ?? d.state), buildMs });
+    out.set(d.projectId, list);
+  }
+  for (const list of out.values()) list.sort((a, b) => b.at.localeCompare(a.at));
+  return out;
+}
+
 export async function getVercelProjects(rules: BusinessRule[]) {
   const creds = await vercelCreds();
   return fromSource<HostingProject[]>(
     "Vercel",
     !!creds,
     async () => {
-      const { projects } = await getJson<{ projects: VercelProject[] }>(
-        `https://api.vercel.com/v9/projects?limit=100${creds!.teamId ? `&teamId=${encodeURIComponent(creds!.teamId)}` : ""}`,
-        { headers: { Authorization: `Bearer ${creds!.token}` } },
-      );
+      const team = creds!.teamId ? `&teamId=${encodeURIComponent(creds!.teamId)}` : "";
+      const auth = { headers: { Authorization: `Bearer ${creds!.token}` } };
+      const since = Date.now() - 24 * 3_600_000;
+      const [{ projects }, deploys] = await Promise.all([
+        getJson<{ projects: VercelProject[] }>(`https://api.vercel.com/v9/projects?limit=100${team}`, auth),
+        // One call for the whole account's production deploys of the last day (the Hosting timeline).
+        getJson<{ deployments: VercelDeployment[] }>(`https://api.vercel.com/v6/deployments?target=production&limit=100&since=${since}${team}`, auth)
+          .then((r) => groupDeployments(r.deployments ?? []))
+          .catch(() => null),
+      ]);
       return projects.map((p) => {
         const prod = p.targets?.production;
         const latest = p.latestDeployments?.[0];
@@ -50,6 +83,8 @@ export async function getVercelProjects(rules: BusinessRule[]) {
           lastDeployAt: at ? new Date(at).toISOString() : null,
           repo: p.link?.repo,
           business: businessFor(p.name, rules),
+          // Absent when the history call failed, so the page can't mistake that for "no deploys".
+          ...(deploys ? { recentDeploys: deploys.get(p.id) ?? [] } : {}),
         };
       });
     },

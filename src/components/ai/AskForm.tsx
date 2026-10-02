@@ -18,16 +18,16 @@ export function AskForm({ enabled }: { enabled: boolean }) {
           disabled={!enabled}
           maxLength={1000}
           placeholder={enabled ? "Ask anything about your businesses…" : "Set ANTHROPIC_API_KEY to enable"}
-          className="min-w-0 flex-1 basis-64 rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+          className="hud-input min-h-11 min-w-0 flex-1 basis-64 px-3.5 py-2.5 text-[15px] placeholder:text-muted/70 disabled:opacity-60"
           autoFocus
         />
-        <button disabled={!enabled || pending} className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
+        <button disabled={!enabled || pending} className="hud-btn hud-btn-solid min-h-11 px-5">
           <Sparkles size={14} />
           {pending ? "Thinking…" : "Ask"}
         </button>
       </form>
       {!state.answer && !state.error && (
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="mt-4 flex flex-wrap gap-2">
           {EXAMPLES.map((q) => (
             <button
               key={q}
@@ -38,7 +38,7 @@ export function AskForm({ enabled }: { enabled: boolean }) {
                 input.value = q;
                 input.form?.requestSubmit();
               }}
-              className="rounded-full border border-line px-3 py-1 text-xs text-muted hover:border-accent/50 hover:text-ink disabled:opacity-50"
+              className="hud-cut min-h-10 border border-line bg-cyan/[0.04] px-3 text-left text-[13px] text-[#b7c7d4] transition hover:border-cyan/50 hover:text-ink disabled:opacity-50 sm:min-h-9"
             >
               {q}
             </button>
@@ -47,7 +47,8 @@ export function AskForm({ enabled }: { enabled: boolean }) {
       )}
       {state.error && <p className="mt-4 text-sm text-critical">{state.error}</p>}
       {state.answer && (
-        <div className="mt-4 rounded-lg border border-line bg-bg p-4" aria-live="polite">
+        <div className="hud-cut mt-5 border border-violet/40 bg-[#040a10]/60 p-4 sm:p-5" aria-live="polite">
+          <div className="hud-label mb-2 text-[11px] text-violet">✦ Claude · answer{state.question ? <span className="ml-2 font-sans normal-case tracking-normal text-muted">“{state.question}”</span> : null}</div>
           <SimpleMarkdown text={state.answer} />
         </div>
       )}

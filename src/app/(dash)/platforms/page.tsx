@@ -1,16 +1,18 @@
-import { requireOwner } from "@/lib/server/auth";
+import type { CSSProperties } from "react";
 import { headers } from "next/headers";
-import { requireUser } from "@/lib/server/auth";
+import { requireOwner, requireUser } from "@/lib/server/auth";
 import { getDashboard } from "@/lib/server/dashboard";
-import { PLATFORM_DEFS } from "@/lib/platforms";
+import { configStatus, PLATFORM_DEFS } from "@/lib/platforms";
 import { oauthConfigured } from "@/lib/server/connect";
 import { listConnectionSummaries, MULTI_ACCOUNT } from "@/lib/server/store/connections";
 import { getSetting, lastRun } from "@/lib/server/store/settings";
 import { WEBHOOK_ENV } from "@/lib/server/webhooks";
 import { hasGoogleScope, type GoogleFeature } from "@/lib/server/google";
 import { env } from "@/lib/source";
-import { Card, ModePill, PageHeader, timeAgo } from "@/components/ui";
+import { btn, ModePill, PageHeader, SeverityIcon, StatStrip, Tag, timeAgo } from "@/components/ui";
 import { DisconnectButton, RelabelForm, TokenForm, WebhookSecretForm } from "@/components/platforms/forms";
+import { CodeBox, HeadPanel, Monogram, PLATFORM_COLOR } from "@/components/admin/bits";
+import { SectionRule } from "@/components/sites/bits";
 import type { SourceMode } from "@/lib/types";
 
 const WEBHOOK_HELP: Record<string, string> = {
@@ -20,6 +22,11 @@ const WEBHOOK_HELP: Record<string, string> = {
   supabase: "Project → Database → Webhooks (e.g. on auth.users INSERT). Add an HTTP header x-webhook-secret with the secret. Append ?site=yourdomain.com to the URL.",
   hikvision: "On the NVR: Configuration → Network → Advanced → Alarm Server (HTTP Listening). Host: your dashboard's domain, port 443, HTTPS, URL: the path above with your secret and the site id from Cameras. Then tick \"Notify surveillance center\" on the events you want (video loss, HDD error, illegal login, motion).",
 };
+const WEBHOOK_NAME = { github: "GitHub", vercel: "Vercel", stripe: "Stripe", supabase: "Supabase", hikvision: "Hikvision NVR alarms" } as const;
+const WEBHOOK_COLOR = { github: "#a98bff", vercel: "#3fd0ff", stripe: "#ffd84d", supabase: "#3df5a0", hikvision: "#c6f432" } as const;
+
+/** Card order on the page (others follow in definition order). */
+const ORDER = ["microsoft", "github", "vercel", "supabase", "cloudflare", "stripe", "websites", "hikvision", "solar", "resend", "gmail", "claude", "reviews"];
 
 const GOOGLE_FEATURES: [GoogleFeature, string][] = [["gmail", "Gmail"], ["calendar", "Calendar"], ["analytics", "Analytics"], ["searchConsole", "Search Console"]];
 
@@ -27,11 +34,11 @@ function GoogleGrants({ scopes }: { scopes: string[] | null }) {
   if (!scopes) return <div className="text-xs text-muted">Connected before permissions were recorded. Reconnect to add Calendar, Analytics and Search Console.</div>;
   const missing = GOOGLE_FEATURES.filter(([f]) => !hasGoogleScope(scopes, f));
   return (
-    <div className="mt-0.5 flex flex-wrap gap-1">
+    <div className="mt-1 flex flex-wrap items-center gap-1">
       {GOOGLE_FEATURES.map(([f, label]) => (
-        <span key={f} className={`rounded px-1.5 py-0.5 text-[10px] ${hasGoogleScope(scopes, f) ? "bg-ok/15 text-ok" : "bg-low/20 text-muted line-through"}`}>{label}</span>
+        <span key={f} className={`px-1.5 py-0.5 font-mono text-[10.5px] ${hasGoogleScope(scopes, f) ? "bg-emerald/10 text-emerald" : "bg-line/40 text-muted line-through"}`}>{label}</span>
       ))}
-      {missing.length > 0 && <span className="text-[10px] text-muted">Reconnect to grant the rest.</span>}
+      {missing.length > 0 && <span className="text-[10.5px] text-muted">Reconnect to grant the rest.</span>}
     </div>
   );
 }
@@ -44,35 +51,78 @@ export default async function PlatformsPage({ searchParams }: { searchParams: Pr
   const h = await headers();
   const origin = env("APP_URL") ?? `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host")}`;
   const connections = d.dbError ? [] : await listConnectionSummaries();
-  const storedSecrets = d.dbError ? {} : Object.fromEntries(await Promise.all(Object.keys(WEBHOOK_ENV).map(async (p) => [p, !!(await getSetting(`webhook_secret:${p}`, null))])));
+  const storedSecrets: Record<string, boolean> = d.dbError ? {} : Object.fromEntries(await Promise.all(Object.keys(WEBHOOK_ENV).map(async (p) => [p, !!(await getSetting(`webhook_secret:${p}`, null))])));
   const lastCron = d.dbError ? null : await getSetting<{ at: string } | null>("job:last_cron", null);
   const lastSync = d.dbError ? null : await lastRun("job:sync");
   const modes: Record<string, SourceMode | null> = Object.fromEntries(d.platforms.map((p) => [p.id, p.mode]));
+  const has = (k: string) => !!env(k);
+
+  const defs = PLATFORM_DEFS.filter((p) => p.available).sort((a, b) => (ORDER.indexOf(a.id) + 1 || 99) - (ORDER.indexOf(b.id) + 1 || 99));
+  const state = (id: string) => {
+    const p = defs.find((x) => x.id === id)!;
+    if (p.configOnly) return configStatus(p, has).on ? "live" : "demo";
+    return modes[id] ?? "demo";
+  };
+  const counts = { live: defs.filter((p) => state(p.id) === "live").length, error: defs.filter((p) => state(p.id) === "error").length, off: defs.filter((p) => state(p.id) === "demo").length };
+  const cronOn = !!env("CRON_SECRET");
 
   return (
     <>
-      <PageHeader title="Platforms" subtitle="Connect each platform once. Credentials are encrypted in your database; environment variables still work as a fallback." />
-      {error && <div className="mb-4 rounded-lg border border-critical/40 bg-critical/10 px-4 py-3 text-sm text-critical">{error}</div>}
-      {connected && <div className="mb-4 rounded-lg border border-ok/40 bg-ok/10 px-4 py-3 text-sm text-ok">Connected {connected}.</div>}
+      <PageHeader title="Platforms" subtitle="Connect each platform once. Credentials are encrypted in your database; environment variables still work as a fallback.">
+        <Tag color="#3df5a0">{counts.live} live</Tag>
+        {counts.error > 0 && <Tag color="#ff3d6e">{counts.error} failing</Tag>}
+        <Tag color="#7f97ab">{counts.off} not connected</Tag>
+      </PageHeader>
+
+      {error && (
+        <div className="hud-panel mb-5 flex items-start gap-3 px-4 py-3 sm:px-5" style={{ "--a": "#ff3d6e" } as CSSProperties}>
+          <SeverityIcon severity="critical" />
+          <p className="text-sm"><span className="hud-label mr-2 text-[11px] text-critical">Couldn&apos;t connect</span>{error}</p>
+        </div>
+      )}
+      {connected && (
+        <div className="hud-panel mb-5 flex items-center gap-3 px-4 py-3 sm:px-5" style={{ "--a": "#3df5a0" } as CSSProperties}>
+          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-emerald text-emerald shadow-[0_0_8px_#3df5a0]">✓</span>
+          <p className="text-sm">Connected {connected}.</p>
+        </div>
+      )}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {PLATFORM_DEFS.filter((p) => p.available).map((p) => {
+        {defs.map((p) => {
+          const color = PLATFORM_COLOR[p.id] ?? "#3fd0ff";
+          if (p.configOnly) {
+            const cfg = configStatus(p, has);
+            return (
+              <HeadPanel key={p.id} id={p.id} accent={color} icon={<Monogram id={p.id} name={p.name} />} title={p.name} status={<Tag color={cfg.on ? "#3df5a0" : "#7f97ab"}>{cfg.on ? "On" : "Off"}</Tag>}>
+                {p.note && <p className="text-[13px] text-muted">{p.note}</p>}
+                <p className="mt-3 text-sm">{cfg.on ? p.configOnly.on : p.configOnly.off}</p>
+                <ul className="mt-3 flex flex-wrap gap-1.5">
+                  {cfg.keys.map((k) => (
+                    <li key={k.key} className={`px-1.5 py-0.5 font-mono text-[10.5px] ${k.set ? "bg-emerald/10 text-emerald" : "bg-line/40 text-muted"}`}>{k.set ? "✓" : "–"} {k.key}</li>
+                  ))}
+                </ul>
+                <p className="mt-auto pt-4 text-xs text-muted">Set in the server environment (values are never shown here). <a href={p.docsUrl} target="_blank" rel="noreferrer" className="text-cyan hover:underline">Get a key ›</a></p>
+              </HeadPanel>
+            );
+          }
           const mine = connections.filter((c) => c.provider === p.provider);
           const envSet = p.envKeys.length > 0 && p.envKeys.every((k) => !!env(k));
           const mode = modes[p.id];
           const problems = d.sources.filter((s) => (p.sources ?? [p.name]).includes(s.source)).flatMap((s) => (s.error ? [s.error] : (s.partial ?? []).map((x) => x.error)));
           const multi = !!p.provider && MULTI_ACCOUNT.includes(p.provider);
           return (
-            <Card key={p.id} title={<span id={p.id} className="scroll-mt-20">{p.name}</span>} action={mode ? <ModePill mode={mode} /> : null}>
-              {p.note && <p className="text-sm text-muted">{p.note}</p>}
-              {problems.length > 0 && <p className="mt-2 break-words text-xs text-critical">{problems.join(" · ")}</p>}
+            <HeadPanel key={p.id} id={p.id} accent={color} icon={<Monogram id={p.id} name={p.name} />} title={p.name} status={mode ? <ModePill mode={mode} /> : null}>
+              {p.note && <p className="text-[13px] text-muted">{p.note}</p>}
+              {problems.length > 0 && (
+                <p className="mt-2 flex items-start gap-2 break-words text-xs text-critical"><SeverityIcon severity="critical" size={14} /><span className="min-w-0">{problems.join(" · ")}</span></p>
+              )}
 
               {mine.length > 0 && (
-                <ul className="mt-3 space-y-2 border-t border-line pt-3">
+                <ul className="mt-3 space-y-2.5">
                   {mine.map((c, i) => (
                     <li key={c.id} className="text-sm">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="truncate">{c.label ?? c.account}{c.label && c.label !== c.account ? <span className="text-muted"> · {c.account}</span> : null}{!multi && i < mine.length - 1 ? <span className="text-high"> · not in use</span> : null}</span>
+                        <span className="min-w-0 truncate">{c.label ?? c.account}{c.label && c.label !== c.account ? <span className="text-muted"> · {c.account}</span> : null}{!multi && i < mine.length - 1 ? <span className="text-high"> · not in use</span> : null}</span>
                         <DisconnectButton id={c.id} name={c.label ?? c.account} />
                       </div>
                       <div className="text-xs text-muted">{c.business ? `${c.business} · ` : ""}connected {timeAgo(c.createdAt)}</div>
@@ -84,54 +134,58 @@ export default async function PlatformsPage({ searchParams }: { searchParams: Pr
               )}
               {mine.length === 0 && envSet && <p className="mt-3 text-xs text-muted">Using environment variables ({p.envKeys.join(", ")}).</p>}
 
-              {!d.dbError && (p.oauth || p.token) && (
-                <div className="mt-3 border-t border-line pt-3">
-                  {p.oauth && (oauthConfigured(p.oauth) ? (
-                    <a href={`/api/connect/${p.oauth}`} className="inline-block rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-bg hover:opacity-90">
-                      {mine.length && multi ? "Connect another account" : mine.length ? "Reconnect or replace" : `Connect ${p.name}`}
-                    </a>
-                  ) : (
-                    <p className="text-xs text-muted">One-click connect needs {p.oauth === "github" ? "GITHUB_OAUTH_CLIENT_ID/SECRET" : p.oauth === "gmail" ? "GOOGLE_CLIENT_ID/SECRET" : p.oauth === "microsoft" ? "MS_CLIENT_ID/SECRET" : "VERCEL_INTEGRATION_SLUG and VERCEL_CLIENT_ID/SECRET"} (see README).</p>
-                  ))}
-                  {mine.length > 0 && !multi && <p className="mt-2 text-xs text-muted">One {p.name} account at a time: connecting another replaces this one.</p>}
-                  {p.token && (
-                    <details className="mt-2">
-                      <summary className="cursor-pointer text-xs text-accent">{p.token.label ? (mine.length ? p.token.label.replace(/^Add an? /, "Add another ") : p.token.label) : mine.length && !multi ? "Replace with an API token" : p.oauth ? "Use an API token instead" : mine.length ? "Add another account" : "Connect with an API key"}</summary>
-                      <TokenForm provider={p.provider!} fields={p.token.fields} help={p.token.help} />
-                    </details>
-                  )}
-                </div>
-              )}
-              {p.docsUrl.startsWith("/") && <a href={p.docsUrl} className="mt-3 inline-block text-xs text-accent hover:underline">Configure sites →</a>}
-            </Card>
+              <div className="mt-auto pt-4">
+                {!d.dbError && (p.oauth || p.token) && (
+                  <>
+                    {p.oauth && (oauthConfigured(p.oauth) ? (
+                      <a href={`/api/connect/${p.oauth}`} className={`${btn(mine.length && !multi ? "outline" : "solid")} min-h-10 sm:min-h-0`} style={{ "--b": color } as CSSProperties}>
+                        {mine.length && multi ? "Connect another account" : mine.length ? "Reconnect or replace" : `Connect ${p.name}`}
+                      </a>
+                    ) : (
+                      <p className="text-xs text-muted">One-click connect needs {p.oauth === "github" ? "GITHUB_OAUTH_CLIENT_ID/SECRET" : p.oauth === "gmail" ? "GOOGLE_CLIENT_ID/SECRET" : p.oauth === "microsoft" ? "MS_CLIENT_ID/SECRET" : "VERCEL_INTEGRATION_SLUG and VERCEL_CLIENT_ID/SECRET"} (see README).</p>
+                    ))}
+                    {mine.length > 0 && !multi && <p className="mt-2 text-xs text-muted">One {p.name} account at a time: connecting another replaces this one.</p>}
+                    {p.token && (
+                      <details className="mt-2 group">
+                        <summary className="flex min-h-10 cursor-pointer items-center text-xs text-cyan sm:min-h-0">{p.token.label ? (mine.length ? p.token.label.replace(/^Add an? /, "Add another ") : p.token.label) : mine.length && !multi ? "Replace with an API token" : p.oauth ? "Use an API token instead" : mine.length ? "Add another account" : "Connect with an API key"} ›</summary>
+                        <TokenForm provider={p.provider!} fields={p.token.fields} help={p.token.help} />
+                      </details>
+                    )}
+                  </>
+                )}
+                {p.docsUrl.startsWith("/") && <a href={p.docsUrl} className="mt-2 inline-flex min-h-10 items-center text-xs text-cyan hover:underline sm:min-h-0">{p.docsUrl === "/cameras" ? "Open Cameras" : `Configure in ${p.docsUrl.startsWith("/settings") ? "Settings" : "the app"}`} ›</a>}
+              </div>
+            </HeadPanel>
           );
         })}
       </div>
 
-      <h2 className="mb-3 mt-10 text-sm font-semibold uppercase tracking-wider text-muted">Real-time webhooks</h2>
+      <SectionRule className="mt-10">Real-time webhooks</SectionRule>
       <div className="grid gap-4 md:grid-cols-2">
         {(Object.keys(WEBHOOK_ENV) as (keyof typeof WEBHOOK_ENV)[]).map((p) => {
           const fromEnv = !!env(WEBHOOK_ENV[p]);
-          const stored = (storedSecrets as Record<string, boolean>)[p];
+          const stored = storedSecrets[p];
+          const on = fromEnv || stored;
           return (
-            <Card key={p} title={{ github: "GitHub", vercel: "Vercel", stripe: "Stripe", supabase: "Supabase", hikvision: "Hikvision NVR alarms" }[p]} action={<ModePill mode={fromEnv || stored ? "live" : "demo"} />}>
-              <code className="block break-all rounded bg-bg px-2 py-1 text-xs">{origin}/api/webhooks/{p}{p === "hikvision" ? "/<secret>/<site-id>" : ""}</code>
-              <p className="mt-2 text-xs text-muted">{WEBHOOK_HELP[p]}</p>
+            <HeadPanel key={p} accent={WEBHOOK_COLOR[p]} title={WEBHOOK_NAME[p]} status={on ? <ModePill mode="live" /> : <Tag color="#7f97ab">Not set</Tag>} className={p === "hikvision" ? "md:col-span-2" : ""}>
+              <CodeBox>{origin}/api/webhooks/{p}{p === "hikvision" ? "/<secret>/<site-id>" : ""}</CodeBox>
+              <p className="mt-2 text-xs leading-relaxed text-muted">{WEBHOOK_HELP[p]}</p>
               <p className="mt-2 text-xs">{fromEnv ? `Secret set via ${WEBHOOK_ENV[p]}.` : stored ? "Secret saved." : "No secret yet. Requests are rejected until one is set."}</p>
-              {!fromEnv && !d.dbError && <WebhookSecretForm provider={p} canGenerate={p === "github" || p === "supabase" || p === "hikvision"} />}
-            </Card>
+              {!fromEnv && !d.dbError && <div className="mt-auto pt-1"><WebhookSecretForm provider={p} canGenerate={p === "github" || p === "supabase" || p === "hikvision"} /></div>}
+            </HeadPanel>
           );
         })}
       </div>
 
-      <h2 className="mb-3 mt-10 text-sm font-semibold uppercase tracking-wider text-muted">Scheduled checks</h2>
-      <Card>
-        <p className="text-sm">
-          Cron: {env("CRON_SECRET") ? (lastCron ? <>last run <strong>{timeAgo(lastCron.at)}</strong></> : "configured, not run yet") : <span className="text-high">CRON_SECRET is not set, so scheduled checks are off</span>}
-          {" · "}Last sync: {lastSync ? timeAgo(lastSync) : "never"}
-        </p>
-        <p className="mt-1 text-xs text-muted">Every 5 minutes: uptime probes, deploy and inbox sync, task reconciliation, history cleanup. Runs on Vercel Cron via <code>vercel.json</code> (5-minute schedules need a Pro plan).</p>
-      </Card>
+      <SectionRule className="mt-10">Scheduled checks</SectionRule>
+      <StatStrip
+        items={[
+          { label: "Cron", value: cronOn ? (lastCron ? timeAgo(lastCron.at) : "not run yet") : "off", tone: cronOn ? "ink" : "high", hint: cronOn ? "every 5 minutes · Vercel Cron" : "CRON_SECRET is not set" },
+          { label: "Last sync", value: lastSync ? timeAgo(lastSync) : "never", hint: "deploys · inbox · tasks" },
+          { label: "Each run", value: "5 min", hint: "uptime probes, sync, task reconciliation, history cleanup" },
+        ]}
+      />
+      <p className="mt-3 text-xs text-muted">Runs on Vercel Cron via <code className="font-mono text-[#9be7ff]">vercel.json</code> (5-minute schedules need a Pro plan).</p>
     </>
   );
 }

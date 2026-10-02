@@ -27,7 +27,8 @@ export interface CameraSiteStatus {
   id: string;
   label: string;
   business: string | null;
-  device: { name: string | null; model: string | null; serial: string | null; firmware: string | null };
+  /** firmwareDate: the build date the recorder reports (YYYY-MM-DD), when it reports one. */
+  device: { name: string | null; model: string | null; serial: string | null; firmware: string | null; firmwareDate?: string | null };
   channels: CameraChannel[];
   disks: CameraDisk[];
   checkedAt: string;
@@ -45,7 +46,35 @@ const bool = (v: unknown) => (v == null ? null : String(v).trim().toLowerCase() 
 
 export function parseDeviceInfo(body: string) {
   const d = xml.parse(body)?.DeviceInfo ?? {};
-  return { name: text(d.deviceName), model: text(d.model), serial: text(d.serialNumber), firmware: text(d.firmwareVersion) };
+  const firmwareDate = parseFirmwareDate(text(d.firmwareReleasedDate));
+  return { name: text(d.deviceName), model: text(d.model), serial: text(d.serialNumber), firmware: text(d.firmwareVersion), ...(firmwareDate ? { firmwareDate } : {}) };
+}
+
+/** Hikvision reports the firmware build date as "build 170823" (YYMMDD) or an ISO date. Anything else: null. */
+export function parseFirmwareDate(v: string | null): string | null {
+  if (!v) return null;
+  const iso = v.match(/\b(20\d{2})-(\d{2})-(\d{2})\b/);
+  const build = v.match(/build\s*(\d{2})(\d{2})(\d{2})\b/i);
+  const [y, m, d]: number[] = iso ? [Number(iso[1]), Number(iso[2]), Number(iso[3])] : build ? [2000 + Number(build[1]), Number(build[2]), Number(build[3])] : [0, 0, 0];
+  if (!y || m < 1 || m > 12 || d < 1 || d > 31) return null;
+  const date = new Date(Date.UTC(y, m - 1, d));
+  if (date.getUTCMonth() !== m - 1) return null;
+  return date.toISOString().slice(0, 10);
+}
+
+/** Firmware older than this is flagged as an advisory (never a task). */
+export const FIRMWARE_ADVISORY_YEARS = 3;
+
+/**
+ * Pure: an advisory when the recorder reports a firmware build date older
+ * than FIRMWARE_ADVISORY_YEARS. Without a reported date nothing is judged.
+ */
+export function firmwareAdvisory(device: CameraSiteStatus["device"], now = new Date()): { date: string; year: number; ageYears: number } | null {
+  if (!device.firmwareDate) return null;
+  const t = Date.parse(`${device.firmwareDate}T00:00:00Z`);
+  if (Number.isNaN(t) || t > now.getTime()) return null;
+  const ageYears = Math.floor((now.getTime() - t) / (365.25 * 86_400_000));
+  return ageYears >= FIRMWARE_ADVISORY_YEARS ? { date: device.firmwareDate, year: new Date(t).getUTCFullYear(), ageYears } : null;
 }
 
 /** NVR channel list + their online status (two ISAPI calls). */

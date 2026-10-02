@@ -4,7 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { Bell, BellOff } from "lucide-react";
 import { subscribePush, testPush, unsubscribePush } from "@/app/actions/push";
 
-const btn = "inline-flex items-center gap-2 rounded-lg border border-line px-3 py-1.5 text-sm text-muted hover:border-accent/50 hover:text-ink disabled:opacity-50";
+const btn = "hud-btn min-h-10 [--b:#ff5fd7] sm:min-h-0";
 
 function keyBytes(base64url: string) {
   const pad = "=".repeat((4 - (base64url.length % 4)) % 4);
@@ -57,13 +57,17 @@ export function PushToggle({ publicKey }: { publicKey: string | null }) {
     <div className="flex flex-wrap items-center gap-2">
       {sub ? (
         <>
-          <button className={btn} disabled={pending} onClick={disable}><BellOff size={14} />Turn off on this device</button>
+          <span className="mr-auto flex items-center gap-2.5 text-sm"><span className="relative inline-block h-5 w-9 border border-emerald/60 bg-emerald/15"><i className="absolute right-0.5 top-0.5 h-3.5 w-3.5 bg-emerald shadow-[0_0_8px_#3df5a0]" /></span>On for this device</span>
           <button className={btn} disabled={pending} onClick={() => start(async () => setMsg(await testPush()))}><Bell size={14} />Send a test</button>
+          <button className={btn} disabled={pending} onClick={disable}><BellOff size={14} />Turn off</button>
         </>
       ) : (
-        <button className={btn} disabled={pending} onClick={enable}><Bell size={14} />Enable notifications on this device</button>
+        <>
+          <span className="mr-auto flex items-center gap-2.5 text-sm text-muted"><span className="relative inline-block h-5 w-9 border border-line bg-line/30"><i className="absolute left-0.5 top-0.5 h-3.5 w-3.5 bg-muted/60" /></span>Off for this device</span>
+          <button className={`${btn} hud-btn-solid`} disabled={pending} onClick={enable}><Bell size={14} />Enable on this device</button>
+        </>
       )}
-      {msg && <span className={`text-sm ${msg.error ? "text-critical" : "text-ok"}`}>{msg.error ?? msg.ok}</span>}
+      {msg && <span className={`basis-full text-sm ${msg.error ? "text-critical" : "text-emerald"}`}>{msg.error ?? msg.ok}</span>}
     </div>
   );
 }
