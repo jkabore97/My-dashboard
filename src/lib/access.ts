@@ -30,7 +30,7 @@ export const ROLE_LABEL: Record<Role, string> = { owner: "Owner", developer: "De
 export const ROLE_DESCRIPTION: Record<Role, string> = {
   owner: "Everything, including connections, settings, the team and the audit log.",
   developer: "Repos, hosting, databases, websites, domains, security, analytics and their tasks.",
-  assistant: "Inbox, agenda, clients, deadlines, cameras, solar and their tasks.",
+  assistant: "Inbox, agenda (every connected calendar, whatever the business), clients, deadlines, cameras, solar and their tasks.",
   accountant: "Money, invoices, subscriptions, deadlines, clients and weekly reports.",
 };
 

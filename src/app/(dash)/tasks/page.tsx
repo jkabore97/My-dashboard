@@ -35,8 +35,10 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
   const tasks = business ? all.filter((t) => (t.business ?? "Unassigned") === business) : all;
   const businesses = (user.businesses ?? ([...new Set([...d.openTasks, ...d.repos, ...d.websites].map((t) => t.business).filter(Boolean))].sort() as string[]));
   const team = d.dbError ? [] : await listPeople().catch(() => []);
-  const people = team.length > 1 ? team.map((p) => ({ email: p.email, name: p.name, businesses: p.businesses })) : [];
-  const names = Object.fromEntries(team.map((p) => [p.email, p.name]));
+  // A teammate limited to some businesses only learns about people who share one of them, and only those businesses.
+  const visibleTo = (p: (typeof team)[number]) => (user.businesses === null ? p.businesses : p.businesses === null ? user.businesses : p.businesses.filter((b) => user.businesses!.includes(b)));
+  const people = team.length > 1 ? team.map((p) => ({ email: p.email, name: p.name, businesses: visibleTo(p) })).filter((p) => p.businesses === null || p.businesses.length > 0) : [];
+  const names = Object.fromEntries(people.map((p) => [p.email, p.name]));
   const activity = view === "activity" && !d.dbError ? (await listActivity({ limit: 300 })).filter((a) => canSeeTask(user, user.email, a) && (!business || a.business === business)).slice(0, 100) : [];
 
   const href = (next: { business?: string; view?: View }) => {

@@ -120,8 +120,10 @@ async function newInvite(email: string, by: string): Promise<string> {
 export async function inviteMember(m: { email: string; name: string | null; role: Role; businesses: string[] | null; by: string }): Promise<{ token: string } | { error: string }> {
   const db = await getDb();
   const rows = await db.query<{ email: string }>(
-    `insert into users (email, name, role, businesses, invited_by) values ($1, $2, $3, $4::text::jsonb, $5)
-     on conflict (email) do update set name = excluded.name, role = excluded.role, businesses = excluded.businesses, invited_by = excluded.invited_by, disabled_at = null
+    // A fresh, unguessable session version, so a cookie from an earlier account with this address never fits.
+    `insert into users (email, name, role, businesses, invited_by, session_version) values ($1, $2, $3, $4::text::jsonb, $5, 2 + floor(random() * 1000000000)::int)
+     on conflict (email) do update set name = excluded.name, role = excluded.role, businesses = excluded.businesses, invited_by = excluded.invited_by, disabled_at = null,
+       session_version = users.session_version + 1 + floor(random() * 1000000)::int
        where users.role is null and users.totp_enabled_at is null and users.last_login_at is null
      returning email`,
     [m.email, m.name, m.role, m.businesses ? JSON.stringify(m.businesses) : null, m.by],

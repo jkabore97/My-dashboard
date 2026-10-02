@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { businessDenied, requireOwner, requireSection } from "@/lib/server/auth";
 import { rowBusiness, type OwnedTable } from "@/lib/server/store/ownership";
-import { getConfig, parseDomainList } from "@/lib/server/config";
+import { businessForDomain, getConfig, parseDomainList } from "@/lib/server/config";
+import { inBusiness } from "@/lib/access";
 import { refreshDomainChecks } from "@/lib/server/domains";
 import { audit } from "@/lib/server/store/audit";
 import { requestSync } from "@/lib/server/sync";
@@ -204,7 +205,9 @@ export async function saveDomainSettingsAction(_prev: RecordState, f: FormData):
 
 export async function checkDomainsNowAction(): Promise<RecordState> {
   const user = await requireSection("domains");
-  const { domains, dkimSelectors } = await getConfig();
+  const { domains: all, dkimSelectors, sites } = await getConfig();
+  // A teammate limited to some businesses only re-checks those businesses' domains.
+  const domains = user.businesses === null ? all : all.filter((d) => inBusiness(user, businessForDomain(d, sites)));
   // Forced checks still wait a minute per domain, so repeated clicks can't hammer registries.
   const n = await refreshDomainChecks(domains, dkimSelectors, { force: true, deadline: Date.now() + 30_000 });
   await audit(user.email, "domains.check", null, { checked: n });
