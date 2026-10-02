@@ -9,7 +9,7 @@ import { formatMoney, parseAmount, sumByCurrency, toInputAmount, toMonthly } fro
 import { deriveRiskTasks, registrationSeverity, certificateSeverity, deadlineSeverity, type RiskInput } from "@/lib/risk";
 import { sinceHour, summarize } from "@/lib/connectors/stripe";
 import { classifyAlertError } from "@/lib/connectors/security";
-import { checkDomain, parseEmailAuth, parseRdap, registrableDomain, tlsCertificate, txtValues, type Lookups } from "@/lib/server/domains";
+import { CHAIN_PROBLEM, checkDomain, certificateProblem, parseEmailAuth, parseRdap, registrableDomain, tlsCertificate, txtValues, type Lookups } from "@/lib/server/domains";
 import { dailyRevenue, moneyByBusiness, moneyOverview } from "@/lib/money-summary";
 import { demoStripe } from "@/lib/demo";
 
@@ -311,7 +311,12 @@ describe("risk tasks", () => {
     expect(unobserved).toContain("security/kaj/b/"); // not checked this round
   });
 
-  it("raises a critical task for an invalid or expired certificate", () => {
+  it("maps chain errors to the chain problem", () => {
+    for (const code of ["UNABLE_TO_VERIFY_LEAF_SIGNATURE", "UNABLE_TO_GET_ISSUER_CERT_LOCALLY", "UNABLE_TO_GET_ISSUER_CERT"]) expect(certificateProblem(code)).toBe(CHAIN_PROBLEM);
+    expect(certificateProblem("CERT_HAS_EXPIRED")).toBe("expired");
+  });
+
+  it("raises a critical task for an invalid or expired certificate, high for an incomplete chain", () => {
     const r = base();
     const check = (domain: string, certificate: object) => ({ domain, checkedAt: "", registration: { ok: false as const, error: "x" }, certificate, email: { ok: false as const, error: "x" } });
     r.domains = {
@@ -319,6 +324,10 @@ describe("risk tasks", () => {
         check("bad.kaj.com", { ok: true, expiresOn: "2027-01-01", issuer: "Me", valid: false, problem: "self-signed" }),
         check("old.kaj.com", { ok: true, expiresOn: "2026-09-01", issuer: "LE", valid: false, problem: "expired" }),
         check("fine.kaj.com", { ok: true, expiresOn: "2027-01-01", issuer: "LE", valid: true, problem: null }),
+        check("chain.kaj.com", { ok: true, expiresOn: "2027-01-01", issuer: "Sectigo", valid: false, problem: CHAIN_PROBLEM }),
+        check("wronghost.kaj.com", { ok: true, expiresOn: "2027-01-01", issuer: "LE", valid: false, problem: "issued for a different host name" }),
+        check("revoked.kaj.com", { ok: true, expiresOn: "2027-01-01", issuer: "LE", valid: false, problem: "revoked" }),
+        check("oldchain.kaj.com", { ok: true, expiresOn: "2026-09-01", issuer: "LE", valid: false, problem: CHAIN_PROBLEM }),
         check("legacy.kaj.com", { ok: true, expiresOn: "2026-10-03", issuer: "LE" }), // stored before validity was recorded
       ] as RiskInput["domains"]["checks"],
       pending: [],
@@ -327,6 +336,10 @@ describe("risk tasks", () => {
     expect(tasks.map((t) => [t.id, t.severity, t.title])).toEqual([
       ["domains/certificate:bad.kaj.com", "critical", "SSL certificate for bad.kaj.com is invalid: self-signed"],
       ["domains/certificate:old.kaj.com", "critical", "SSL certificate for old.kaj.com expired"],
+      ["domains/certificate:chain.kaj.com", "high", "SSL certificate chain for chain.kaj.com is incomplete"],
+      ["domains/certificate:wronghost.kaj.com", "critical", "SSL certificate for wronghost.kaj.com is invalid: issued for a different host name"],
+      ["domains/certificate:revoked.kaj.com", "critical", "SSL certificate for revoked.kaj.com is invalid: revoked"],
+      ["domains/certificate:oldchain.kaj.com", "critical", "SSL certificate for oldchain.kaj.com expired"],
       ["domains/certificate:legacy.kaj.com", "critical", "SSL certificate for legacy.kaj.com expires tomorrow"],
     ]);
   });

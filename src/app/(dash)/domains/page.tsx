@@ -1,7 +1,7 @@
 import { getDashboard } from "@/lib/server/dashboard";
 import { getConfig } from "@/lib/server/config";
 import { businessForDomain } from "@/lib/server/config";
-import { registrableDomain, type DomainCheck } from "@/lib/server/domains";
+import { CHAIN_PROBLEM, registrableDomain, type DomainCheck } from "@/lib/server/domains";
 import { certificateSeverity, registrationSeverity } from "@/lib/risk";
 import { daysBetween, formatDate, relativeDays, today } from "@/lib/dates";
 import { Card, PageHeader, StatusDot, Table, td, timeAgo } from "@/components/ui";
@@ -65,7 +65,7 @@ export default async function DomainsPage() {
               </td>
               <td className={td}>
                 {c.certificate.ok && c.certificate.valid === false ? (
-                  <span className="text-xs text-critical">invalid: {c.certificate.problem ?? "not trusted"}<span className="block text-muted">expires {formatDate(c.certificate.expiresOn)}</span></span>
+                  <span className={`text-xs ${c.certificate.problem === CHAIN_PROBLEM ? "text-high" : "text-critical"}`}>{c.certificate.problem === CHAIN_PROBLEM ? "incomplete chain: some apps reject it" : `invalid: ${c.certificate.problem ?? "not trusted"}`}<span className="block text-muted">expires {formatDate(c.certificate.expiresOn)}</span></span>
                 ) : c.certificate.ok ? (
                   <><Expiry date={c.certificate.expiresOn} severity={certificateSeverity} now={now} />{c.certificate.issuer && <span className="text-xs text-muted">{c.certificate.issuer}</span>}</>
                 ) : <span className="text-xs text-critical" title={c.certificate.error}>no valid certificate</span>}
@@ -92,7 +92,7 @@ export default async function DomainsPage() {
         <Card title="What the checks mean">
           <dl className="space-y-3 text-sm">
             <div><dt className="font-medium">Registration</dt><dd className="text-muted">When the domain itself lapses. Alerts at 30, 14 and 3 days, rising from low to critical. Turn on auto-renew at your registrar.</dd></div>
-            <div><dt className="font-medium">SSL certificate</dt><dd className="text-muted">Hosts like Vercel and Cloudflare renew these automatically around 30 days out. A warning inside 20 days means renewal is failing (often a DNS change).</dd></div>
+            <div><dt className="font-medium">SSL certificate</dt><dd className="text-muted">Hosts like Vercel and Cloudflare renew these automatically around 30 days out. A warning inside 20 days means renewal is failing (often a DNS change). An expired, self-signed, revoked or wrong-host certificate is critical; an incomplete chain (missing intermediate) is high, since most desktop browsers cope but some apps and phones don't.</dd></div>
             <div><dt className="font-medium">SPF, DKIM, DMARC</dt><dd className="text-muted">Prove mail from your domain is really you. Without them, invoices and proposals land in spam and others can spoof your address.</dd></div>
           </dl>
         </Card>

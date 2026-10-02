@@ -391,12 +391,32 @@ describe("webhook and polling duplicates", () => {
     expect((await listTasks("open")).map((x) => x.title).sort()).toEqual(["stripe/acct/dispute:dp_2", "webhook dispute"]);
   });
 
-  it("brings the polled task back once the webhook task is closed but the problem remains", async () => {
+  const polledInvoice = () =>
+    ({ modes: { stripe: "live" }, derivedTasks: [{ ...t("stripe/acct/invoice:in_1"), live: true, scope: "stripe", alias: "stripe-invoice:in_1" }], notifications: [], websites: [], unobserved: [], skipScopes: [], credentialsKnown: true }) as unknown as Collected;
+  const webhookTask = async () => {
     await upsertEventTask("stripe-invoice:in_1", { title: "payment failed", severity: "high", source: "Stripe", createdAt: new Date().toISOString() });
-    const [hook] = await listTasks("open");
-    await completeTask(hook.id);
-    const c = { modes: { stripe: "live" }, derivedTasks: [{ ...t("stripe/acct/invoice:in_1"), live: true, scope: "stripe", alias: "stripe-invoice:in_1" }], notifications: [], websites: [], unobserved: [], skipScopes: [], credentialsKnown: true } as unknown as Collected;
-    await persist(c, { force: true });
+    return (await listTasks("open"))[0];
+  };
+
+  it("keeps the polled task hidden once the user closed the webhook task", async () => {
+    await completeTask((await webhookTask()).id);
+    await persist(polledInvoice(), { force: true });
+    expect(await listTasks("open")).toHaveLength(0);
+  });
+
+  it("keeps it hidden just after the platform resolved it, while polled data may be stale", async () => {
+    await webhookTask();
+    await resolveEventTask("stripe-invoice:in_1");
+    await persist(polledInvoice(), { force: true });
+    expect(await listTasks("open")).toHaveLength(0);
+  });
+
+  it("brings the polled task back when the platform resolved it over 5 minutes ago but the problem remains", async () => {
+    await webhookTask();
+    await resolveEventTask("stripe-invoice:in_1");
+    const db = await getDb();
+    await db.query("update tasks set resolved_at = now() - interval '6 minutes' where source_key = 'stripe-invoice:in_1'");
+    await persist(polledInvoice(), { force: true });
     expect((await listTasks("open")).map((x) => x.title)).toEqual(["stripe/acct/invoice:in_1"]);
   });
 });

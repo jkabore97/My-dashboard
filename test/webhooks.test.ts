@@ -57,6 +57,18 @@ describe("webhook handlers", () => {
     const closed = handleStripe({ id: "evt_2", type: "charge.dispute.closed", data: { object: { id: "dp_1", amount: 48000, currency: "usd", status: "won" } } });
     expect(closed.resolveTasks).toEqual(["stripe-dispute:dp_1"]);
   });
+  it("Stripe test-mode events are recorded, labelled, and never open or close tasks", () => {
+    const dispute = handleStripe({ id: "evt_t1", type: "charge.dispute.created", livemode: false, created: 1, data: { object: { id: "dp_t", amount: 100, currency: "usd", reason: "fraudulent" } } });
+    expect(dispute.openTasks).toEqual([]);
+    expect(dispute.events).toHaveLength(1);
+    expect(dispute.events[0].title).toBe("Payment dispute: $1.00 (test)");
+    expect(dispute.events[0].url).toContain("/test/");
+    const paid = handleStripe({ id: "evt_t2", type: "invoice.paid", livemode: false, data: { object: { id: "in_t", amount_paid: 100, currency: "usd" } } });
+    expect(paid.resolveTasks).toEqual([]);
+    expect(paid.events[0].title).toMatch(/\(test\)$/);
+    const payout = handleStripe({ id: "evt_t3", type: "payout.failed", livemode: false, data: { object: { id: "po_t", amount: 100, currency: "usd" } } });
+    expect(payout.openTasks).toEqual([]);
+  });
   it("Vercel production error is critical", () => {
     const out = handleVercel({ id: "v1", type: "deployment.error", payload: { target: "production", deployment: { name: "portal", url: "portal.vercel.app" } } });
     expect(out.events[0]).toMatchObject({ severity: "critical", dedupeKey: "vercel:v1" });

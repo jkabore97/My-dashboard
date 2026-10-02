@@ -79,14 +79,18 @@ export interface Lookups {
   certificate: (host: string) => Promise<CertificateInfo>;
 }
 
+/** The server doesn't send (or chain to) a trusted intermediate; many browsers still cope. */
+export const CHAIN_PROBLEM = "untrusted or incomplete certificate chain";
+
 const CERT_PROBLEMS: Record<string, string> = {
   CERT_HAS_EXPIRED: "expired",
   CERT_NOT_YET_VALID: "not valid yet",
   ERR_TLS_CERT_ALTNAME_INVALID: "issued for a different host name",
   DEPTH_ZERO_SELF_SIGNED_CERT: "self-signed",
   SELF_SIGNED_CERT_IN_CHAIN: "signed by an untrusted (self-signed) authority",
-  UNABLE_TO_VERIFY_LEAF_SIGNATURE: "untrusted or incomplete certificate chain",
-  UNABLE_TO_GET_ISSUER_CERT_LOCALLY: "untrusted or incomplete certificate chain",
+  UNABLE_TO_VERIFY_LEAF_SIGNATURE: CHAIN_PROBLEM,
+  UNABLE_TO_GET_ISSUER_CERT_LOCALLY: CHAIN_PROBLEM,
+  UNABLE_TO_GET_ISSUER_CERT: CHAIN_PROBLEM,
   CERT_REVOKED: "revoked",
 };
 

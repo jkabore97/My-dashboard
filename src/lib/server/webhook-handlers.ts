@@ -164,6 +164,9 @@ export function handleStripe(p: Json): Outcome {
       out.events.push({ ...base, title: "Subscription canceled", body: o.customer ?? undefined, severity: "medium", url: dash("subscriptions") });
       break;
   }
+  // Test-mode events are history only: like test accounts on the Money page,
+  // they never open or close tasks.
+  if (p.livemode === false) return { events: out.events.map((e) => ({ ...e, title: `${e.title} (test)` })), openTasks: [], resolveTasks: [] };
   return out;
 }
 

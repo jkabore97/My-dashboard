@@ -2,7 +2,7 @@ import { daysBetween, formatDate, relativeDays, rollForward } from "./dates";
 import { formatMoney } from "./money";
 import type { Records } from "./connectors/records";
 import type { DomainsReport } from "./connectors/records";
-import { registrableDomain } from "./server/domains";
+import { CHAIN_PROBLEM, registrableDomain } from "./server/domains";
 import { businessForDomain, type SiteConfig } from "./server/config";
 import { ACCOUNT_CHECKLIST, CONFIRMATION_VALID_DAYS } from "./security-checklist";
 import type { ReceivableInvoice, SecurityReport, Severity, SourceMode, StripeAccountSummary, Task } from "./types";
@@ -179,7 +179,10 @@ export function deriveRiskTasks(r: RiskInput): { tasks: RiskTask[]; unobserved: 
       if (sev) add("domains", `registration:${apex}`, { title: days < 0 ? `${apex} registration expired` : `${apex} registration expires ${relativeDays(days)}`, detail: `${c.registration.registrar ?? "Registrar unknown"} · ${formatDate(c.registration.expiresOn)}. Turn on auto-renew or renew now.`, severity: sev, source: "Domains", url: "/domains", createdAt: now, business });
     } else if (!c.registration.ok) unobserved.push(`domains/registration:${apex}`);
 
-    if (c.certificate.ok && c.certificate.valid === false) {
+    if (c.certificate.ok && c.certificate.valid === false && c.certificate.problem === CHAIN_PROBLEM && daysBetween(r.today, c.certificate.expiresOn) >= 0) {
+      // Desktop browsers usually fetch a missing intermediate themselves; apps, curl and some phones don't.
+      add("domains", `certificate:${c.domain}`, { title: `SSL certificate chain for ${c.domain} is incomplete`, detail: `Some browsers and apps will reject it. Re-issue the certificate or include the intermediate certificate in your host's settings. (${c.certificate.issuer ?? "Unknown issuer"})`, severity: "high", source: "Domains", url: `https://${c.domain}`, createdAt: now, business });
+    } else if (c.certificate.ok && c.certificate.valid === false) {
       const expired = daysBetween(r.today, c.certificate.expiresOn) < 0;
       add("domains", `certificate:${c.domain}`, { title: expired ? `SSL certificate for ${c.domain} expired` : `SSL certificate for ${c.domain} is invalid: ${c.certificate.problem ?? "not trusted"}`, detail: `${c.certificate.issuer ?? "Unknown issuer"} · expires ${formatDate(c.certificate.expiresOn)}. Visitors see a security warning; fix it in your host's domain settings.`, severity: "critical", source: "Domains", url: `https://${c.domain}`, createdAt: now, business });
     } else if (c.certificate.ok) {

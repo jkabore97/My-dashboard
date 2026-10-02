@@ -142,14 +142,21 @@ export async function upsertEventTask(key: string, t: Omit<Task, "id">) {
 }
 
 /**
- * Which of these keys are webhook (event) tasks that are still open or
- * snoozed. A closed webhook task no longer stands in for the polled one, so a
- * problem that's still there (an invoice still unpaid) gets its task back.
+ * Which of these keys are webhook (event) tasks that still stand in for the
+ * polled duplicate: open or snoozed; closed by the user (their "done" sticks
+ * while the problem persists); or resolved by the platform less than 5
+ * minutes ago, while polled data may still be cached from before the fix.
+ * Only an older platform resolution lets a still-present problem's polled
+ * task appear.
  */
 export async function existingEventKeys(keys: string[]): Promise<Set<string>> {
   if (!keys.length) return new Set();
   const db = await getDb();
-  const rows = await db.query<{ source_key: string }>("select source_key from tasks where origin = 'event' and status <> 'done' and source_key = any($1::text[])", [keys]);
+  const rows = await db.query<{ source_key: string }>(
+    `select source_key from tasks where origin = 'event' and source_key = any($1::text[])
+       and (status <> 'done' or resolved_by = 'user' or resolved_at > now() - interval '5 minutes')`,
+    [keys],
+  );
   return new Set(rows.map((r) => r.source_key));
 }
 

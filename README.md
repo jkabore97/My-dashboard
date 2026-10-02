@@ -30,7 +30,7 @@ One private dashboard for every business Kaj Consulting runs: repositories, host
 | **Webhooks** (real time) | Stripe dispute or failed payout, CI failing on `main`, Dependabot or leaked-secret alert | The platform reports it fixed (dispute closed, CI green, alert fixed) |
 | **You** | Anything you add on the To-do page | You mark it done |
 
-When a webhook and polling both see the same dispute or security alert, you get one task, not two. Marking a deadline's task done also completes that deadline (repeating ones move to their next date).
+When a webhook and polling both see the same dispute, failed invoice or security alert, you get one task, not two, and marking it done keeps it done while the problem persists. If the platform reports it fixed but polling still sees the problem a few minutes later, the polled task appears. Marking a deadline's task done also completes that deadline (repeating ones move to their next date).
 
 Marking a signal task done keeps it done for as long as the condition persists. A source that is temporarily failing (or one failing mailbox, project or repo within it) never auto-closes its tasks; it shows up as a connector error instead. Disconnecting a platform closes its signal tasks.
 
