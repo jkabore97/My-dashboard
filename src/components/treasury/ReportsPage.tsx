@@ -29,7 +29,9 @@ async function lastBriefSent(day: string): Promise<string | null> {
 export default async function ReportsPage({ searchParams }: { searchParams: Promise<{ business?: string; to?: string }> }) {
   const user = await requireSection("reports");
   const sp = await searchParams;
-  const businesses = (await knownBusinesses()).filter((b) => inBusiness(user, b));
+  const d = await getDashboard();
+  // The business filter (top bar) narrows the choice to that one business.
+  const businesses = (await knownBusinesses()).filter((b) => inBusiness(user, b) && (!d.business || b === d.business));
   const business = sp.business && businesses.includes(sp.business) ? sp.business : businesses[0];
   const now = today();
   const latest = addDays(now, -1);
@@ -40,7 +42,6 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
   const email = emailEnabled();
 
   // Daily revenue for the week, only from Stripe accounts whose money is real (as the report itself).
-  const d = await getDashboard();
   const stripeLive = d.modes.stripe === "live";
   const live = stripeLive ? liveAccounts(d.stripe) : [];
   const days = r ? Array.from({ length: 7 }, (_, i) => addDays(r.from, i)) : [];

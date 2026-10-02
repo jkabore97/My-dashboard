@@ -111,7 +111,8 @@ export function Shell({ allowed, counts, clocks, email, name, role, businesses, 
           <Link href="/" className="bg-gradient-to-r from-cyan via-violet to-pink bg-clip-text font-display text-sm font-bold tracking-[0.22em] text-transparent sm:text-base">
             KAJ <span className="hidden sm:inline">// COMMAND</span><span className="sm:hidden">// CMD</span>
           </Link>
-          {businesses.length > 1 && <BusinessSelect businesses={businesses} business={business} />}
+          {(businesses.length > 1 || business) && <BusinessSelect businesses={businesses} business={business} />}
+          {business && <ClearFilter business={business} />}
           <button onClick={() => setPalette(true)} className="hud-input hidden max-w-md flex-1 items-center gap-2 px-3 py-2 text-left text-sm text-muted md:flex">
             <span className="font-display font-bold text-cyan">&gt;</span> Jump to anything…
             <span className="ml-auto border border-line px-1.5 font-mono text-[10px]">⌘K</span>
@@ -168,13 +169,13 @@ export function Shell({ allowed, counts, clocks, email, name, role, businesses, 
         <button onClick={() => setMore(true)} className="flex min-w-14 flex-col items-center gap-0.5 px-2 py-1 font-display text-[10px] font-semibold uppercase tracking-[0.12em] text-muted"><MoreHorizontal size={20} />More</button>
       </nav>
 
-      {more && <MoreSheet groups={groups} counts={counts} onClose={() => setMore(false)} email={email} />}
+      {more && <MoreSheet groups={groups} counts={counts} onClose={() => setMore(false)} email={email} businesses={businesses} business={business} />}
       {palette && <Palette groups={groups} businesses={businesses} onClose={() => setPalette(false)} />}
     </div>
   );
 }
 
-function BusinessSelect({ businesses, business }: { businesses: string[]; business: string | null }) {
+function BusinessSelect({ businesses, business, phone = false }: { businesses: string[]; business: string | null; phone?: boolean }) {
   const [pending, start] = useTransition();
   return (
     <select
@@ -182,15 +183,27 @@ function BusinessSelect({ businesses, business }: { businesses: string[]; busine
       value={business ?? ""}
       disabled={pending}
       onChange={(e) => start(() => setBusinessFilter(e.target.value || null))}
-      className="hud-input hidden max-w-48 cursor-pointer appearance-none px-3 py-2 font-display text-[12px] font-semibold uppercase tracking-[0.12em] sm:block"
+      className={`hud-input cursor-pointer appearance-none px-3 py-2 font-display text-[12px] font-semibold uppercase tracking-[0.12em] ${phone ? "block w-full min-h-11" : "hidden max-w-48 sm:block"}`}
     >
       <option value="">All businesses ▾</option>
+      {business && !businesses.includes(business) && <option value={business}>{business}</option>}
       {businesses.map((b) => <option key={b} value={b}>{b}</option>)}
     </select>
   );
 }
 
-function MoreSheet({ groups, counts, onClose, email }: { groups: ReturnType<typeof visibleNav>; counts: Record<string, number>; onClose: () => void; email: string }) {
+/** Always-visible reminder (and the way out on phones) when one business is selected. */
+function ClearFilter({ business }: { business: string }) {
+  const [pending, start] = useTransition();
+  return (
+    <button onClick={() => start(() => setBusinessFilter(null))} disabled={pending} title="Show all businesses"
+      className="hud-cut inline-flex min-h-9 max-w-40 items-center gap-1.5 border border-gold/60 bg-gold/10 px-2 font-display text-[11px] font-semibold uppercase tracking-[0.1em] text-gold sm:hidden">
+      <span className="truncate">Only {business}</span><X size={12} className="shrink-0" />
+    </button>
+  );
+}
+
+function MoreSheet({ groups, counts, onClose, email, businesses, business }: { groups: ReturnType<typeof visibleNav>; counts: Record<string, number>; onClose: () => void; email: string; businesses: string[]; business: string | null }) {
   return (
     <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm lg:hidden" onClick={onClose}>
       <div className="absolute inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto border-t border-cyan/40 bg-[#07101b] p-5 pb-10" onClick={(e) => e.stopPropagation()}>
@@ -198,6 +211,12 @@ function MoreSheet({ groups, counts, onClose, email }: { groups: ReturnType<type
           <span className="hud-title text-sm">All sections</span>
           <button onClick={onClose} aria-label="Close" className="p-1 text-muted"><X size={20} /></button>
         </div>
+        {businesses.length > 1 && (
+          <div className="mb-4">
+            <div className="hud-label mb-2 text-[11px] text-gold">Business</div>
+            <BusinessSelect businesses={businesses} business={business} phone />
+          </div>
+        )}
         {groups.map((g) => (
           <div key={g.id} className="mb-4">
             <div className="hud-label mb-2 text-[11px]" style={{ color: g.color }}>{g.label}</div>

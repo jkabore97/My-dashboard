@@ -75,7 +75,17 @@ const EXTERNAL_FRESH_MS = 60_000;
 const SNAPSHOT_KEY = "cache:external";
 let external: { key: string; at: number; value: Promise<External> } | null = null;
 
-/** Next request refetches every platform (after connecting or disconnecting one, and in cron). */
+let forceRefetch = false;
+
+/**
+ * This instance's next collect() fetches every platform afresh and overwrites
+ * the saved copy, which other instances keep serving meanwhile (cron).
+ */
+export function refetchExternal() {
+  forceRefetch = true;
+}
+
+/** Drops the saved copy so the next request anywhere refetches (after connecting or disconnecting a platform). */
 export async function invalidateExternal() {
   external = null;
   await deleteSetting(SNAPSHOT_KEY).catch(() => {});
@@ -120,6 +130,11 @@ function refreshInBackground(config: Config, key: string) {
 
 async function externalData(config: Config): Promise<{ at: number; value: External }> {
   const key = JSON.stringify([config.businessRules, config.sites]);
+  if (forceRefetch) {
+    forceRefetch = false;
+    const value = await fetchAndSave(config, key);
+    return { at: external?.at ?? Date.now(), value };
+  }
   if (external?.key === key && Date.now() - external.at <= EXTERNAL_FRESH_MS) return { at: external.at, value: await external.value };
   const snap = await readSnapshot(key);
   if (!snap) {

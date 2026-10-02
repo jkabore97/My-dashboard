@@ -214,12 +214,12 @@ export default async function Overview({ searchParams }: { searchParams: Promise
               {spendAll > 0 && (
                 <>
                   <div className="mt-3 flex h-2.5 gap-[2px]" role="img" aria-label="Monthly spend by platform">
-                    {spendLines.top.map((l, i) => <i key={l.vendor} style={{ flex: l.amount, background: SPEND_COLORS[i % SPEND_COLORS.length] }} />)}
+                    {spendLines.top.map((l, i) => <i key={`${l.vendor}-${i}`} style={{ flex: l.amount, background: SPEND_COLORS[i % SPEND_COLORS.length] }} />)}
                     {spendLines.restAmount > 0 && <i style={{ flex: spendLines.restAmount, background: "#5e7a8f" }} />}
                   </div>
                   <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11.5px] text-[#c5d3de]">
                     {spendLines.top.map((l, i) => (
-                      <span key={l.vendor} className="inline-flex items-center gap-1.5"><i className="h-[7px] w-[7px]" style={{ background: SPEND_COLORS[i % SPEND_COLORS.length] }} />{l.vendor} <span className="tabular-nums">{wholeMoney(l.amount, spendCurrency!)}</span></span>
+                      <span key={`${l.vendor}-${i}`} className="inline-flex items-center gap-1.5"><i className="h-[7px] w-[7px]" style={{ background: SPEND_COLORS[i % SPEND_COLORS.length] }} />{l.vendor} <span className="tabular-nums">{wholeMoney(l.amount, spendCurrency!)}</span></span>
                     ))}
                     {spendLines.rest > 0 && <span className="text-muted">+{spendLines.rest} more</span>}
                   </div>

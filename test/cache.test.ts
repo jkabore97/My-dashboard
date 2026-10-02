@@ -1,7 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { getDb, pgliteDb, useDb } from "@/lib/server/db";
 import { getSetting } from "@/lib/server/store/settings";
-import { collect, forgetExternalMemory, invalidateExternal } from "@/lib/aggregate";
+import { collect, forgetExternalMemory, invalidateExternal, refetchExternal } from "@/lib/aggregate";
 
 vi.mock("next/server", async (orig) => ({ ...(await orig<object>()), after: (fn: () => unknown) => void fn() }));
 
@@ -49,5 +49,15 @@ describe("shared platform data snapshot", () => {
     await collect();
     await invalidateExternal();
     expect(await getSetting<Snap>("cache:external", null)).toBeNull();
+  });
+
+  it("cron refetches and overwrites the copy without emptying it for other instances", async () => {
+    await collect();
+    const before = (await getSetting<Snap>("cache:external", null))!;
+    refetchExternal();
+    const c = await collect();
+    const after = (await getSetting<Snap>("cache:external", null))!;
+    expect(after.at).toBeGreaterThanOrEqual(before.at);
+    expect(c.externalAt).toBe(after.at);
   });
 });

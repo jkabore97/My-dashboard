@@ -68,7 +68,7 @@ export default async function SecurityPage() {
   const resolved = d.dbError
     ? null
     : (await getTasksByStatus("done").catch(() => null))
-        ?.filter((t) => taskSection(t.sourceKey) === "security")
+        ?.filter((t) => taskSection(t.sourceKey) === "security" && (!d.business || t.business === d.business))
         .map((t) => ({ t, at: (t as unknown as { resolvedAt?: string | null }).resolvedAt ?? null }))
         .filter((x) => x.at && daysBetween(x.at.slice(0, 10), now) <= 30)
         .sort((a, b) => b.at!.localeCompare(a.at!)) ?? null;

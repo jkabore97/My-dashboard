@@ -60,7 +60,8 @@ export async function getVercelProjects(rules: BusinessRule[]) {
     async () => {
       const team = creds!.teamId ? `&teamId=${encodeURIComponent(creds!.teamId)}` : "";
       const auth = { headers: { Authorization: `Bearer ${creds!.token}` } };
-      const since = Date.now() - 24 * 3_600_000;
+      // Rounded to the hour so the request (and its 2-minute cache entry) is reused.
+      const since = Math.floor((Date.now() - 24 * 3_600_000) / 3_600_000) * 3_600_000;
       const [{ projects }, deploys] = await Promise.all([
         getJson<{ projects: VercelProject[] }>(`https://api.vercel.com/v9/projects?limit=100${team}`, auth),
         // One call for the whole account's production deploys of the last day (the Hosting timeline).

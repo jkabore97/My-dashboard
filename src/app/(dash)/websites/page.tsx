@@ -1,3 +1,4 @@
+import { businessTimeZone } from "@/lib/dates";
 import Link from "next/link";
 import { requireSection } from "@/lib/server/auth";
 import { isFullOwner } from "@/lib/access";
@@ -53,7 +54,7 @@ export default async function WebsitesPage({ searchParams }: { searchParams: Pro
 
   const hourStart = now - 24 * 3_600_000;
   const BUCKETS = 48;
-  const timeLabels = Array.from({ length: BUCKETS }, (_, i) => new Date(hourStart + (i + 0.5) * (24 * 3_600_000) / BUCKETS).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false }));
+  const timeLabels = Array.from({ length: BUCKETS }, (_, i) => new Date(hourStart + (i + 0.5) * (24 * 3_600_000) / BUCKETS).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: businessTimeZone() }));
   const series = sites
     .map((w) => ({ name: short(w.domain), color: businessColor(w.business), values: medianResponse(history.get(w.domain) ?? [], hourStart, now, BUCKETS) }))
     .filter((x) => x.values.some((v) => v != null))

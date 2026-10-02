@@ -30,14 +30,16 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
   const view: View = params.view && Object.hasOwn(VIEWS, params.view) ? (params.view as View) : "open";
   const business = params.business;
   const d = await getDashboard();
+  // Lists read straight from the store follow the top-bar business filter like open tasks do.
+  const focused = (list: TaskView[]) => (d.business ? list.filter((t) => t.business === d.business) : list);
 
   const [snoozed, done, team, log] = d.dbError
     ? [[], [], [], []]
     : await Promise.all([
-        getTasksByStatus("snoozed").catch(() => [] as TaskView[]),
-        getTasksByStatus("done").catch(() => [] as TaskView[]),
+        getTasksByStatus("snoozed").then(focused).catch(() => [] as TaskView[]),
+        getTasksByStatus("done").then(focused).catch(() => [] as TaskView[]),
         listPeople().catch(() => []),
-        listActivity({ limit: 300 }).catch(() => []),
+        listActivity({ limit: 300 }).then((l) => (d.business ? l.filter((a) => a.business === d.business) : l)).catch(() => []),
       ]);
   const inBiz = (t: { business?: string | null }) => !business || (t.business ?? "Unassigned") === business;
   const mine = d.openTasks.filter((t) => t.assignee === user.email);

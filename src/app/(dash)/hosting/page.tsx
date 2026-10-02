@@ -1,3 +1,4 @@
+import { businessTimeZone } from "@/lib/dates";
 import type { CSSProperties, ReactNode } from "react";
 import { requireSection } from "@/lib/server/auth";
 import { getDashboard } from "@/lib/server/dashboard";
@@ -42,7 +43,7 @@ export default async function HostingPage({ searchParams }: { searchParams: Prom
   const vercelDeploys = vercel.reduce((n, h) => n + (h.recentDeploys?.length ?? 0), 0);
   const updatedWeek = workers.filter((w) => w.lastDeployAt && now - Date.parse(w.lastDeployAt) < 7 * 86_400_000).length;
   const fixes = tasksAsAttention(s.openTasks, "hosting");
-  const hours = [24, 18, 12, 6, 0].map((h) => (h === 0 ? "now" : new Date(now - h * 3_600_000).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false })));
+  const hours = [24, 18, 12, 6, 0].map((h) => (h === 0 ? "now" : new Date(now - h * 3_600_000).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: businessTimeZone() })));
 
   return (
     <>

@@ -12,6 +12,7 @@ import { lastRun } from "./store/settings";
 import { after } from "next/server";
 import { fixForTask } from "../fix-match";
 import { businessFilter } from "./view";
+import { knownBusinesses } from "./reports";
 
 export interface TaskView extends Task {
   status: TaskStatus;
@@ -74,10 +75,25 @@ export const getDashboard = cache(async () => {
   const ctx = { businessForDomain: (d: string) => businessForDomain(d, sites) };
   const scoped = scopeFor({ ...c, openTasks, notifications, dbError }, user, user.email, ctx);
   // The business filter narrows the view further, within what this person may see.
+  // A stale cookie (business renamed or gone) is ignored rather than emptying every page.
   const focus = await businessFilter();
-  const visible = focus && (user.businesses === null || user.businesses.includes(focus)) ? focus : null;
-  const view = visible ? scopeFor(scoped, { ...user, businesses: [visible] }, user.email, ctx) : scoped;
-  return { ...view, user, business: visible };
+  const known = focus ? await knownBusinesses(c).catch(() => [] as string[]) : [];
+  const visible = focus && known.includes(focus) && (user.businesses === null || user.businesses.includes(focus)) ? focus : null;
+  if (!visible) return { ...scoped, user, business: null };
+  const narrowed = scopeFor(scoped, { ...user, businesses: [visible] }, user.email, ctx);
+  // Narrowing reuses the role rules, which strip owner-only data; the filter
+  // only hides other businesses' rows, so that data is carried over as it was.
+  return {
+    ...narrowed,
+    records: { ...narrowed.records, checklist: scoped.records.checklist },
+    security: { ...narrowed.security, github2fa: scoped.security.github2fa, githubLogin: scoped.security.githubLogin },
+    derivedTasks: scoped.derivedTasks.filter((t) => t.business === visible),
+    platforms: scoped.platforms,
+    sources: scoped.sources,
+    undecryptableConnections: scoped.undecryptableConnections,
+    user,
+    business: visible,
+  };
 });
 
 export type Dashboard = Awaited<ReturnType<typeof getDashboard>>;

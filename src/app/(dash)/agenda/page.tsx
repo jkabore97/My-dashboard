@@ -65,8 +65,10 @@ export default async function AgendaPage() {
   const off = other ? offsetHours(tz, other.timeZone, nowMs) : 0;
   const nowH = hourIn(tz, nowMs);
   const theirs = { from: (((WORK_FROM - off) % 24) + 24) % 24, to: (((WORK_TO - off) % 24) + 24) % 24 };
-  const overlap = theirs.from < theirs.to ? { from: Math.max(WORK_FROM, theirs.from), to: Math.min(WORK_TO, theirs.to) } : null;
-  const hasOverlap = !!overlap && overlap.to > overlap.from;
+  // Their working day may wrap past midnight on our clock: check each piece against our 9-to-5.
+  const pieces = theirs.from < theirs.to ? [[theirs.from, theirs.to]] : [[theirs.from, 24], [0, theirs.to]];
+  const overlap = pieces.map(([a, b]) => ({ from: Math.max(WORK_FROM, a), to: Math.min(WORK_TO, b) })).find((o) => o.to > o.from) ?? null;
+  const hasOverlap = !!overlap;
   const hh = (h: number) => { const H = Math.floor(h); const M = Math.round((h - H) * 60); const d0 = new Date(Date.UTC(2000, 0, 1, H, M)); return d0.toLocaleTimeString("en-US", { timeZone: "UTC", hour: "numeric", minute: M ? "2-digit" : undefined }); };
   const band = (from: number, to: number) => (from < to ? [{ l: from, w: to - from }] : [{ l: from, w: 24 - from }, { l: 0, w: to }]);
 
