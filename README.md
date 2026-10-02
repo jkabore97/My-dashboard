@@ -89,7 +89,7 @@ npm run typecheck
    - `ALLOWED_EMAILS=` the address you sign in to Microsoft with (you become the owner)
    - `MS_CLIENT_ID`, `MS_CLIENT_SECRET`, `MS_TENANT_ID` (the tenant ID for a single-organization app; leave it empty for the multi-account option)
    - `APP_URL`, `DATABASE_URL`, `SESSION_SECRET` (`openssl rand -base64 48`), `ENCRYPTION_KEY` (`openssl rand -base64 32`, keep it safe), `CRON_SECRET` (`openssl rand -hex 32`). Production refuses to start without the secrets.
-   - `vercel.json` schedules `/api/cron/check` every 5 minutes. This needs a Pro plan; on Hobby, change it to daily or call the endpoint from any scheduler with `Authorization: Bearer $CRON_SECRET`.
+   - `vercel.json` runs `/api/cron/check` once a day at 07:00 UTC, which the free Hobby plan allows (it also sends the morning brief when `BRIEF_HOUR` matches). Opening the dashboard always syncs fresh data. For checks every 5 minutes (uptime alerts, push for new critical items), either switch to Pro and set the schedule to `*/5 * * * *`, or have a free scheduler such as cron-job.org call `GET APP_URL/api/cron/check` every 5 minutes with the header `Authorization: Bearer <CRON_SECRET>`.
 5. **Sign in** at your `APP_URL` with Microsoft, scan the 2FA QR code, and save your recovery codes.
 6. **Team page:** invite people by the address they sign in to Microsoft with (usually their work email). They open the link (or just the dashboard) and choose *Sign in with Microsoft*.
 
