@@ -1,5 +1,6 @@
 import { connection } from "next/server";
 import { Sidebar } from "@/components/Sidebar";
+import { clockZones } from "@/lib/server/clocks";
 import { requireUser } from "@/lib/server/auth";
 import { getDashboard } from "@/lib/server/dashboard";
 import { samplesEnabled } from "@/lib/source";
@@ -21,7 +22,7 @@ export default async function DashLayout({ children }: { children: React.ReactNo
 
   return (
     <div className="lg:flex">
-      <Sidebar counts={counts} email={user.email} name={user.name} role={user.envOwner ? null : ROLE_LABEL[user.role]} allowed={allowed} />
+      <Sidebar counts={counts} email={user.email} name={user.name} role={user.envOwner ? null : ROLE_LABEL[user.role]} allowed={allowed} clocks={clockZones()} />
       <main className="min-w-0 flex-1 px-4 py-6 sm:px-8">
         {d.dbError && (
           <div className="mb-6 rounded-lg border border-critical/40 bg-critical/10 px-4 py-3 text-sm">

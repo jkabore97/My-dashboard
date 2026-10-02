@@ -436,3 +436,25 @@ describe("shared hosting addresses", () => {
     expect(onSharedHost("notvercel.app")).toBe(false);
   });
 });
+
+import { clockZones } from "@/lib/server/clocks";
+
+describe("sidebar clocks", () => {
+  it("shows the business zone first, then CLOCKS, skipping bad or duplicate zones", () => {
+    vi.stubEnv("BUSINESS_TIMEZONE", "America/New_York");
+    vi.stubEnv("CLOCKS", "Ouaga=Africa/Ouagadougou, Mars/Olympus, America/New_York, Asia/Tokyo");
+    expect(clockZones()).toEqual([
+      { label: "New York", timeZone: "America/New_York" },
+      { label: "Ouaga", timeZone: "Africa/Ouagadougou" },
+      { label: "Tokyo", timeZone: "Asia/Tokyo" },
+    ]);
+  });
+});
+
+import { inBriefWindow } from "@/lib/server/reports";
+
+describe("morning brief window", () => {
+  it("sends from the brief hour for six hours, not overnight", () => {
+    expect([6, 7, 8, 12, 13, 23].map((h) => inBriefWindow(h, 7))).toEqual([false, true, true, true, false, false]);
+  });
+});

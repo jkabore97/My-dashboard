@@ -102,11 +102,17 @@ export async function sendOnce(key: string, send: () => Promise<void>): Promise<
   }
 }
 
-/** Cron hook: sends the morning brief once a day at BRIEF_HOUR, and on Mondays a weekly report per business. */
+/**
+ * Cron hook: sends the morning brief once a day, from BRIEF_HOUR until six
+ * hours later (a once-a-day schedule rarely lands on the exact hour), and on
+ * Mondays a weekly report per business. Each is sent at most once a day.
+ */
+export const inBriefWindow = (hour: number, start = briefHour()) => hour >= start && hour < start + 6;
+
 export async function sendScheduledReports(c: Collected, now = new Date()): Promise<string[]> {
   const sent: string[] = [];
   const tz = businessTimeZone();
-  if (hourIn(tz, now) !== briefHour() || (!emailEnabled() && !pushEnabled())) return sent;
+  if (!inBriefWindow(hourIn(tz, now)) || (!emailEnabled() && !pushEnabled())) return sent;
   const day = today(tz, now);
 
   try {

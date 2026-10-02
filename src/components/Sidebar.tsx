@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { BarChart3, Bell, Briefcase, CalendarClock, CalendarDays, Cctv, CheckSquare, Database, DollarSign, FileText, Globe, Globe2, LayoutDashboard, LogOut, Mail, Menu, Plug, Server, Settings, ShieldCheck, Sparkles, Sun, GitBranch, Users, X } from "lucide-react";
 import { signOut } from "@/app/actions/auth";
+import { Clocks, type ClockZone } from "./Clocks";
 
 const NAV = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
@@ -31,7 +32,7 @@ const NAV = [
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
-export function Sidebar({ counts, email, name, role, allowed }: { counts: Record<string, number>; email: string; name: string; role: string | null; allowed: string[] }) {
+export function Sidebar({ counts, email, name, role, allowed, clocks = [] }: { counts: Record<string, number>; email: string; name: string; role: string | null; allowed: string[]; clocks?: ClockZone[] }) {
   const path = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -70,13 +71,17 @@ export function Sidebar({ counts, email, name, role, allowed }: { counts: Record
     <div className="mb-6 px-3">
       <div className="text-xs uppercase tracking-[0.2em] text-muted">Kaj Consulting</div>
       <div className="text-lg font-semibold">Command Center</div>
+      {clocks.length > 0 && <div className="mt-4 rounded-lg border border-line px-3 py-2"><Clocks zones={clocks} /></div>}
     </div>
   );
 
   return (
     <>
       <div className="sticky top-0 z-30 flex items-center justify-between border-b border-line bg-bg/90 px-4 py-3 backdrop-blur print:hidden lg:hidden">
-        <span className="font-semibold">Command Center</span>
+        <span className="flex flex-col">
+          <span className="font-semibold">Command Center</span>
+          {clocks.length > 0 && <Clocks zones={clocks} compact />}
+        </span>
         <button aria-label="Open menu" onClick={() => setOpen(true)} className="rounded-md p-1.5 hover:bg-panel-2"><Menu size={20} /></button>
       </div>
       {open && (
