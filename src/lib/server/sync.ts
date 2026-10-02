@@ -101,26 +101,29 @@ async function recordWebsite(w: Website) {
   }
 }
 
-/** Seconds after cron starts when no new domain check is started (the function may run 60 s). */
+// The cron function may run 60 s. Domain checks start no later than 35 s in
+// (each can take ~10 s); triage, a Claude call with a 15 s timeout, runs only
+// when at least 20 s remain.
 const DOMAIN_BUDGET_MS = 35_000;
+const TRIAGE_LATEST_START_MS = 40_000;
 
-/** Cron entry point: fresh collection, forced persist, domain checks, housekeeping. */
+/** Cron entry point: sync, then notifications, then the slow optional work. */
 export async function runScheduledChecks() {
   const started = Date.now();
   const c = await collect();
   await persist(c, { force: true });
-  // Domain checks hit RDAP/DNS/TLS (up to ~10 s each), so they run here, after
-  // the sync that must not be starved, within a time budget; whatever is left
-  // waits for the next run.
+  // Alerts and the brief come right after the sync, before anything slow can
+  // use up the time limit. They never fail the run.
+  const pushed = await pushNewCriticalTasks().catch((err) => (console.error(`[push] ${errorMessage(err)}`), 0));
+  const reports = await sendScheduledReports(c).catch((err) => (console.error(`[reports] ${errorMessage(err)}`), [] as string[]));
+  // Domain checks hit RDAP/DNS/TLS within the remaining budget; whatever is
+  // left waits for the next run.
   const { domains, dkimSelectors } = await getConfig();
   const domainsChecked = await refreshDomainChecks(domains, dkimSelectors, { deadline: started + DOMAIN_BUDGET_MS });
   if (domainsChecked) await requestSync(); // let the next page view turn them into tasks
   // New mail gets read by Claude (when enabled); the next sync uses the result.
-  const triaged = c.modes.inbox === "live" ? await triagePending(c.emails).catch(() => 0) : 0;
+  const triaged = c.modes.inbox === "live" && Date.now() - started <= TRIAGE_LATEST_START_MS ? await triagePending(c.emails).catch(() => 0) : 0;
   if (triaged) await requestSync();
-  // Notifications never fail the run: the sync above is what matters.
-  const pushed = await pushNewCriticalTasks().catch((err) => (console.error(`[push] ${errorMessage(err)}`), 0));
-  const reports = await sendScheduledReports(c).catch((err) => (console.error(`[reports] ${errorMessage(err)}`), [] as string[]));
   await pruneOldData();
   await setSetting("job:last_cron", { at: new Date().toISOString(), ms: Date.now() - started });
   return {

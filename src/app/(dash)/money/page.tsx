@@ -9,9 +9,10 @@ import { InvoiceActions, InvoiceForm, ReopenInvoice, SubscriptionForm, Subscript
 export default async function MoneyPage() {
   const d = await getDashboard();
   const now = today();
-  const m = moneyOverview(d.stripe, d.records, now);
-  const chart = dailyRevenue(d.stripe, now);
-  const testAccounts = d.stripe.length - liveAccounts(d.stripe).length;
+  const samples = { samples: d.modes.stripe !== "live" };
+  const m = moneyOverview(d.stripe, d.records, now, samples);
+  const chart = dailyRevenue(d.stripe, now, samples);
+  const testAccounts = d.stripe.filter((a) => !a.livemode && !a.sample).length;
   const businesses = [...new Set([...d.stripe.map((a) => a.business), ...d.records.subscriptions.map((s) => s.business), ...d.records.invoices.map((i) => i.business), ...d.openTasks.map((t) => t.business)].filter(Boolean))].sort() as string[];
   const recentlyPaid = d.records.invoices.filter((i) => i.status !== "open");
   const subs = d.records.subscriptions;
@@ -31,7 +32,7 @@ export default async function MoneyPage() {
 
       <div className="mt-6 grid gap-6 xl:grid-cols-5">
         <Card className="xl:col-span-3" title={`Daily revenue, last 30 days (${chart.currency.toUpperCase()})`}>
-          {liveAccounts(d.stripe).length ? <RevenueBars days={chart.days} currency={chart.currency} /> : <Empty>{d.stripe.length ? "Only test-mode Stripe accounts are connected; their revenue isn't charted." : "Connect Stripe on the Platforms page to see revenue."}</Empty>}
+          {liveAccounts(d.stripe, samples).length ? <RevenueBars days={chart.days} currency={chart.currency} /> : <Empty>{d.stripe.length ? "Only test-mode Stripe accounts are connected; their revenue isn't charted." : "Connect Stripe on the Platforms page to see revenue."}</Empty>}
           {chart.otherCurrencies.length > 0 && <p className="mt-2 text-xs text-muted">Also earning in {chart.otherCurrencies.map((c) => c.toUpperCase()).join(", ")}; see the table.</p>}
         </Card>
         <Card className="xl:col-span-2" title="By Stripe account">
@@ -41,7 +42,7 @@ export default async function MoneyPage() {
               {d.stripe.map((a) => (
                 <li key={a.id} className="py-3">
                   <div className="flex items-baseline justify-between gap-2">
-                    <span className="font-medium">{a.business}{!a.livemode && <span className="ml-2 rounded bg-high/20 px-1 text-[10px] uppercase text-high">test</span>}</span>
+                    <span className="font-medium">{a.business}{!a.livemode && !a.sample && <span className="ml-2 rounded bg-high/20 px-1 text-[10px] uppercase text-high">test</span>}</span>
                     <span className="tabular-nums">{formatTotals(a.revenue.map((r) => ({ currency: r.currency, amount: r.gross })))}</span>
                   </div>
                   <div className="mt-0.5 text-xs text-muted">

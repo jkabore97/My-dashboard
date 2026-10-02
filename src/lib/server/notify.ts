@@ -1,6 +1,7 @@
 import webpush from "web-push";
 import { env, errorMessage } from "../source";
 import { getDb } from "./db";
+import { claimInterval } from "./store/settings";
 
 // Outbound notifications: email (Resend) for the morning brief and weekly
 // report, and Web Push to the installed dashboard app for critical items.
@@ -84,25 +85,41 @@ export async function pushAll(payload: { title: string; body: string; url?: stri
   return { sent, errors };
 }
 
+/** Push text for a task. Email subjects are written by outside senders, so the sender is named and the text kept short. */
+export function pushText(t: { title: string; detail: string | null; source_key: string | null; origin: string }) {
+  const email = t.origin === "derived" && /^(gmail|outlook)\//.test(t.source_key ?? "");
+  if (email) {
+    const from = (t.detail ?? "").replace(/^From\s+/, "").slice(0, 80) || "unknown sender";
+    return { title: "Critical email", body: `${from}: ${t.title.slice(0, 80)}` };
+  }
+  return { title: `Critical: ${t.title}`.slice(0, 120), body: (t.detail ?? "Open the dashboard for details.").slice(0, 200) };
+}
+
 /**
  * Pushes each newly opened critical task once. Returns how many were sent.
- * Only tasks opened in the last day count, so turning push on doesn't replay history.
+ * "New" means opened (or reopened) in the last day, so turning push on
+ * doesn't replay older problems. A short lease stops two cron runs sending
+ * the same task; the task counts as notified only once the send was tried.
+ * Resolving or reopening a task clears it (migration 7), so a recurrence is
+ * pushed again.
  */
 export async function pushNewCriticalTasks(): Promise<number> {
   if (!pushEnabled()) return 0;
   const db = await getDb();
-  const fresh = await db.query<{ id: string; title: string; detail: string | null; url: string | null }>(
-    `select t.id, t.title, t.detail, t.url from tasks t
-     where t.status = 'open' and t.severity = 'critical' and t.updated_at > now() - interval '1 day'
+  const fresh = await db.query<{ id: string; title: string; detail: string | null; url: string | null; source_key: string | null; origin: string }>(
+    `select t.id, t.title, t.detail, t.url, t.source_key, t.origin from tasks t
+     where t.status = 'open' and t.severity = 'critical' and t.occurred_at > now() - interval '1 day'
        and not exists (select 1 from notified n where n.task_id = t.id and n.channel = 'push')
      order by t.occurred_at desc limit 10`,
   );
   if (!fresh.length || (await countSubscriptions()) === 0) return 0;
+  let sent = 0;
   for (const t of fresh) {
-    // Claim first so two cron runs can't both send it.
-    const claimed = await db.query("insert into notified (task_id, channel) values ($1, 'push') on conflict do nothing returning task_id", [t.id]);
-    if (!claimed.length) continue;
-    await pushAll({ title: `Critical: ${t.title}`.slice(0, 120), body: (t.detail ?? "Open the dashboard for details.").slice(0, 200), url: t.url && t.url.startsWith("/") ? t.url : "/tasks", tag: `task-${t.id}` });
+    if (!(await claimInterval(`push:${t.id}`, 120))) continue;
+    await pushAll({ ...pushText(t), url: t.url && t.url.startsWith("/") ? t.url : "/tasks", tag: `task-${t.id}` }).catch((err) => console.error(`[push] ${errorMessage(err)}`));
+    await db.query("insert into notified (task_id, channel) values ($1, 'push') on conflict do nothing", [t.id]);
+    await db.query("delete from settings where key = $1", [`push:${t.id}`]); // the lease has done its job
+    sent++;
   }
-  return fresh.length;
+  return sent;
 }

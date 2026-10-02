@@ -92,7 +92,7 @@ export function deriveRiskTasks(r: RiskInput): { tasks: RiskTask[]; unobserved: 
 
   // ─── Stripe ─── (test-mode accounts are connected for trying things out; their problems aren't real)
   for (const a of r.stripe) {
-    if (!a.livemode) continue;
+    if (!a.livemode && !a.sample) continue; // samples still give the demo to-do list its examples (never live)
     const p = `${enc(a.id)}/`;
     for (const d of a.disputes) {
       if (d.status !== "needs_response" && d.status !== "warning_needs_response") continue;

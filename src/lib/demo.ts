@@ -63,7 +63,7 @@ export const demoStripe = (): StripeAccountSummary[] => {
   const sum = (d: { gross: number }[]) => d.reduce((n, x) => n + x.gross, 0);
   return [
     {
-      id: "demo-consulting", business: "Kaj Consulting", livemode: true,
+      id: "demo-consulting", business: "Kaj Consulting", livemode: false, sample: true,
       balance: [{ currency: "usd", available: 1_284_000, pending: 312_500 }],
       revenue: [{ currency: "usd", gross: sum(consulting), refunds: 0, fees: Math.round(sum(consulting) * 0.029), net: Math.round(sum(consulting) * 0.971) }],
       daily: consulting, mrr: [{ currency: "usd", amount: 650_000 }], activeSubscriptions: 9, pastDueSubscriptions: 1,
@@ -75,7 +75,7 @@ export const demoStripe = (): StripeAccountSummary[] => {
       truncated: false,
     },
     {
-      id: "demo-store", business: "Kaj Store", livemode: true,
+      id: "demo-store", business: "Kaj Store", livemode: false, sample: true,
       balance: [{ currency: "usd", available: 402_300, pending: 88_100 }],
       revenue: [{ currency: "usd", gross: sum(store), refunds: 21_900, fees: Math.round(sum(store) * 0.032), net: Math.round(sum(store) * 0.95) }],
       daily: store, mrr: [], activeSubscriptions: 0, pastDueSubscriptions: 0, disputes: [], openInvoices: [], truncated: false,

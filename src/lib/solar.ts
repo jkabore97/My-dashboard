@@ -95,13 +95,19 @@ export function hourIn(tz: string, now = new Date()) {
   }
 }
 
-/** Pure: stations → tasks (offline in daylight, faults/alarms, low battery). */
+export function isDaylight(s: SolarSettings, tz: string, now = new Date()) {
+  const h = hourIn(tz, now);
+  return h >= s.daylightFrom && h < s.daylightTo;
+}
+
+/**
+ * Pure: stations → tasks (offline in daylight, faults/alarms, low battery).
+ * Outside daylight "offline" can't be judged, so the caller leaves an
+ * existing offline task as it is (see devices.ts) instead of closing it.
+ */
 export function deriveSolarTasks(stations: SolarStation[], s: SolarSettings, tz: string, now = new Date()): (Omit<Task, "id"> & { key: string })[] {
   const out: (Omit<Task, "id"> & { key: string })[] = [];
-  const daylight = (() => {
-    const h = hourIn(tz, now);
-    return h >= s.daylightFrom && h < s.daylightTo;
-  })();
+  const daylight = isDaylight(s, tz, now);
   for (const st of stations) {
     const r = st.latest;
     const silentMin = (now.getTime() - Date.parse(r.at)) / 60_000;
@@ -120,10 +126,15 @@ export function deriveSolarTasks(stations: SolarStation[], s: SolarSettings, tz:
   return out;
 }
 
-/** Pure: raw readings (oldest first) → per-station view. */
+/** Pure: raw readings (any order, duplicates allowed) → per-station view; `latest` is always the newest by time. */
 export function buildStations(readings: SolarReading[], businesses: Record<string, string>, tz: string, now = new Date()): SolarStation[] {
   const byStation = new Map<string, SolarReading[]>();
-  for (const r of readings) byStation.set(r.station, [...(byStation.get(r.station) ?? []), r]);
+  const seen = new Set<string>();
+  for (const r of readings) {
+    if (seen.has(`${r.station}|${r.at}`)) continue;
+    seen.add(`${r.station}|${r.at}`);
+    byStation.set(r.station, [...(byStation.get(r.station) ?? []), r]);
+  }
   const day = today(tz, now);
   return [...byStation].map(([station, rs]) => {
     rs.sort((a, b) => a.at.localeCompare(b.at));

@@ -53,7 +53,7 @@ Marking a signal task done keeps it done for as long as the condition persists. 
 - Every webhook is signature-checked. Cron needs `CRON_SECRET`. Failed login and 2FA attempts are rate-limited (a correct one doesn't count). Password sign-in is limited per IP on Vercel, or behind your own reverse proxy with `TRUSTED_PROXY=true`; without a trustworthy IP, all callers share one looser limit (100 failures an hour), and a tripped limit is audited.
 - Every sign-in, connection change, setting change and task action goes to the audit log (Settings).
 - Row-level security is enabled on all tables, so Supabase's public API keys can't read them.
-- Camera recorders are only reached through an https tunnel hostname (local and IP addresses are refused). Snapshots are fetched server-side, so the browser never sees the NVR's address or password. The solar ingest token is stored as a hash.
+- Camera recorders are only reached through an https tunnel hostname (IP addresses, local names and names that resolve to private addresses are refused, checked again before every request). Snapshots are only passed through as JPEG or PNG. Snapshots are fetched server-side, so the browser never sees the NVR's address or password. The solar ingest token is stored as a hash.
 - AI features send a compact summary of dashboard data (never passwords or tokens) to Anthropic's API, are limited to 60 requests an hour, and treat email text as untrusted content.
 
 ## Run locally

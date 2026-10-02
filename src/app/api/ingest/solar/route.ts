@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import { clientIp } from "@/lib/server/auth";
-import { audit } from "@/lib/server/store/audit";
-import { refundAttempt, takeAttempt } from "@/lib/server/store/ratelimit";
-import { checkIngestToken, ingestConfigured, storeReading } from "@/lib/server/solar-store";
+import { authorizeIngest, ingestConfigured, storeReading } from "@/lib/server/solar-store";
 import { requestSync } from "@/lib/server/sync";
 import { parseReading } from "@/lib/solar";
 
@@ -14,14 +12,9 @@ const MAX_BODY = 100_000;
 
 export async function POST(req: Request) {
   if (!(await ingestConfigured())) return NextResponse.json({ error: "Solar ingest isn't set up: generate a token in Settings or set SOLAR_INGEST_TOKEN" }, { status: 503 });
-  const ip = await clientIp();
-  // Only failed tokens count toward the limit (refunded on success).
-  const key = `ingest:solar:${ip ?? "unknown"}`;
-  const n = await takeAttempt(key, 15 * 60);
-  if (n === 21) await audit("solar-ingest", "ingest.rate_limited", key, null, ip);
-  if (n > 20) return NextResponse.json({ error: "too many failed attempts" }, { status: 429 });
-  if (!(await checkIngestToken(req.headers.get("authorization")))) return NextResponse.json({ error: "invalid token" }, { status: 401 });
-  await refundAttempt(key);
+  const auth = await authorizeIngest(req.headers.get("authorization"), await clientIp());
+  if (auth === "limited") return NextResponse.json({ error: "too many failed attempts" }, { status: 429 });
+  if (auth === "invalid") return NextResponse.json({ error: "invalid token" }, { status: 401 });
 
   const raw = await req.text();
   if (raw.length > MAX_BODY) return NextResponse.json({ error: "payload too large" }, { status: 413 });

@@ -6,8 +6,15 @@ import type { ReceivableInvoice, StripeAccountSummary } from "./types";
 // Pure roll-ups for the Money page and Overview. Different currencies are
 // never converted; every total is a list of per-currency amounts. Stripe
 // accounts in test mode are left out of every roll-up: their money isn't real.
+// Sample (demo) accounts count only where a page asks for them to show what
+// the page looks like; reports, the brief and Ask never do.
 
-export const liveAccounts = (stripe: StripeAccountSummary[]) => stripe.filter((a) => a.livemode);
+export interface RollupOptions {
+  /** Include sample accounts (demo display while Stripe isn't connected). */
+  samples?: boolean;
+}
+
+export const liveAccounts = (stripe: StripeAccountSummary[], o: RollupOptions = {}) => stripe.filter((a) => (a.livemode && !a.sample) || (!!o.samples && !!a.sample));
 
 export interface Receivable extends ReceivableInvoice {
   daysLate: number | null;
@@ -48,8 +55,8 @@ export function spend(records: Records, today: string): SpendLine[] {
     }));
 }
 
-export function moneyOverview(all: StripeAccountSummary[], records: Records, today: string) {
-  const stripe = liveAccounts(all);
+export function moneyOverview(all: StripeAccountSummary[], records: Records, today: string, o: RollupOptions = {}) {
+  const stripe = liveAccounts(all, o);
   const owed = receivables(stripe, records, today);
   const lines = spend(records, today);
   return {
@@ -67,8 +74,8 @@ export function moneyOverview(all: StripeAccountSummary[], records: Records, tod
 }
 
 /** Per-business money for the Overview cards. */
-export function moneyByBusiness(all: StripeAccountSummary[], records: Records, today: string) {
-  const stripe = liveAccounts(all);
+export function moneyByBusiness(all: StripeAccountSummary[], records: Records, today: string, o: RollupOptions = {}) {
+  const stripe = liveAccounts(all, o);
   const out = new Map<string, { revenue: CurrencyAmount[]; spend: CurrencyAmount[] }>();
   const get = (b: string) => out.get(b) ?? out.set(b, { revenue: [], spend: [] }).get(b)!;
   for (const a of stripe) get(a.business).revenue.push(...a.revenue.map((r) => ({ currency: r.currency, amount: r.gross })));
@@ -77,8 +84,8 @@ export function moneyByBusiness(all: StripeAccountSummary[], records: Records, t
 }
 
 /** Daily gross for the busiest currency, filled to 30 days ending today. */
-export function dailyRevenue(all: StripeAccountSummary[], today: string) {
-  const stripe = liveAccounts(all);
+export function dailyRevenue(all: StripeAccountSummary[], today: string, o: RollupOptions = {}) {
+  const stripe = liveAccounts(all, o);
   const totals = sumByCurrency(stripe.flatMap((a) => a.daily.map((d) => ({ currency: d.currency, amount: d.gross }))));
   const currency = totals[0]?.currency ?? "usd";
   const byDay = new Map<string, number>();

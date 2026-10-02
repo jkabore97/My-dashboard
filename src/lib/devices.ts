@@ -1,5 +1,5 @@
 import type { CameraSiteStatus } from "./connectors/hikvision";
-import { deriveSolarTasks, type SolarSettings, type SolarStation } from "./solar";
+import { deriveSolarTasks, isDaylight, type SolarSettings, type SolarStation } from "./solar";
 import type { SourceMode, Task } from "./types";
 
 // Phase 4 rules: cameras (Hikvision NVRs) and solar systems → tasks. Pure,
@@ -33,6 +33,7 @@ export function deriveDeviceTasks(d: DeviceInput): { tasks: DeviceTask[]; unobse
   const add = (scope: DeviceScope, key: string, t: Omit<Task, "id">) => tasks.push({ ...t, id: `${scope}/${key}`, scope, live: d.modes[scope] === "live" });
 
   for (const site of d.cameras) {
+    if (site.warnings?.length) continue; // only partly read: its tasks stay as they are (it's in partial.cameras)
     const business = site.business ?? undefined;
     const offline = site.channels.filter((c) => c.online === false);
     if (offline.length) {
@@ -69,5 +70,7 @@ export function deriveDeviceTasks(d: DeviceInput): { tasks: DeviceTask[]; unobse
     add("solar", key, rest);
   }
 
-  return { tasks, unobserved: d.partial.cameras.map((id) => `cameras/${id}:`) };
+  // At night a silent inverter is normal, so an open "stopped reporting" task stays as it is until daylight says otherwise.
+  const night = isDaylight(d.solarSettings, d.timeZone, now) ? [] : d.solar.map((st) => `solar/${st.station}:offline`);
+  return { tasks, unobserved: [...d.partial.cameras.map((id) => `cameras/${id}:`), ...night] };
 }

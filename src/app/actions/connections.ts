@@ -6,7 +6,7 @@ import { auditConnection } from "@/lib/server/connect";
 import { sha256Hex } from "@/lib/server/crypto";
 import { getAuthed } from "@/lib/server/oauth";
 import { fetchSite } from "@/lib/connectors/hikvision";
-import { validateSiteUrl } from "@/lib/server/site-credentials";
+import { assertPublicHost, siteAccount, validateSiteUrl } from "@/lib/server/site-credentials";
 import { audit } from "@/lib/server/store/audit";
 import { deleteConnection, listConnectionSummaries, saveConnection, updateConnectionLabel, type Provider } from "@/lib/server/store/connections";
 
@@ -59,7 +59,13 @@ export async function saveTokenConnection(_prev: ConnectState, form: FormData): 
       const cfClientSecret = field(form, "cfClientSecret").slice(0, 200);
       if (!!cfClientId !== !!cfClientSecret) return { error: "Cloudflare Access needs both the client ID and the client secret." };
       const site = { baseUrl: url.url, username, password: token, ...(cfClientId ? { cfClientId, cfClientSecret } : {}) };
-      account = new URL(url.url).host;
+      account = siteAccount(url.url);
+      // Saving over an existing site would silently swap its address and login.
+      if ((await listConnectionSummaries()).some((c) => c.provider === "hikvision" && c.account === account)) {
+        return { error: `${account} is already connected. Disconnect it first to change its login, or use a different path for another recorder.` };
+      }
+      const notPublic = await assertPublicHost(new URL(url.url).hostname).then(() => null, (err: Error) => err.message);
+      if (notPublic) return { error: notPublic };
       const label = field(form, "label").slice(0, 80) || account;
       const business = field(form, "business").slice(0, 80) || null;
       // Proves the address, tunnel token and login all work before saving.

@@ -1,5 +1,5 @@
 import { XMLParser } from "fast-xml-parser";
-import { hikvisionSites, type HikvisionSite } from "../server/site-credentials";
+import { assertPublicHost, hikvisionSites, type HikvisionSite } from "../server/site-credentials";
 import { digestFetch } from "../server/digest";
 import { errorMessage, fromSource } from "../source";
 import { demoCameras } from "../demo";
@@ -31,6 +31,8 @@ export interface CameraSiteStatus {
   channels: CameraChannel[];
   disks: CameraDisk[];
   checkedAt: string;
+  /** Parts that couldn't be read this round (then the site's tasks aren't judged). */
+  warnings?: string[];
 }
 
 const xml = new XMLParser({ ignoreAttributes: true, parseTagValue: false, removeNSPrefix: true, isArray: (name) => ["InputProxyChannel", "InputProxyChannelStatus", "hdd", "StreamingChannel", "VideoInputChannel"].includes(name) });
@@ -100,6 +102,7 @@ export function siteHeaders(s: HikvisionSite): Record<string, string> {
 }
 
 export async function isapi(s: HikvisionSite, path: string, accept = "application/xml"): Promise<Response> {
+  await assertPublicHost(new URL(s.baseUrl).hostname);
   const res = await digestFetch(`${s.baseUrl}${path}`, { username: s.username, password: s.password }, { headers: { Accept: accept, ...siteHeaders(s) }, signal: AbortSignal.timeout(10_000) });
   if (res.status === 401) throw new Error("NVR rejected the username or password");
   if (res.status >= 300 && res.status < 400) throw new Error("The tunnel redirected the request; if it's behind Cloudflare Access, add the service token");
@@ -114,17 +117,22 @@ async function isapiText(s: HikvisionSite, path: string) {
 
 export async function fetchSite(s: HikvisionSite): Promise<CameraSiteStatus> {
   const device = parseDeviceInfo(await isapiText(s, "/ISAPI/System/deviceInfo"));
+  const warnings: string[] = [];
   let channels: CameraChannel[];
+  let list: string | null = null;
   try {
-    const list = await isapiText(s, "/ISAPI/ContentMgmt/InputProxy/channels");
-    const status = await isapiText(s, "/ISAPI/ContentMgmt/InputProxy/channels/status").catch(() => null);
-    channels = parseChannels(list, status);
+    list = await isapiText(s, "/ISAPI/ContentMgmt/InputProxy/channels");
   } catch {
     // Not an NVR: a standalone camera exposes its own video inputs.
+  }
+  if (list !== null) {
+    const status = await isapiText(s, "/ISAPI/ContentMgmt/InputProxy/channels/status").catch((err) => (warnings.push(`camera status unavailable (${errorMessage(err)})`), null));
+    channels = parseChannels(list, status);
+  } else {
     channels = parseVideoInputs(await isapiText(s, "/ISAPI/System/Video/inputs/channels"));
   }
-  const disks = await isapiText(s, "/ISAPI/ContentMgmt/Storage").then(parseStorage).catch(() => []);
-  return { id: s.id, label: s.label, business: s.business, device, channels, disks, checkedAt: new Date().toISOString() };
+  const disks = await isapiText(s, "/ISAPI/ContentMgmt/Storage").then(parseStorage).catch((err) => (warnings.push(`disk status unavailable (${errorMessage(err)})`), [] as CameraDisk[]));
+  return { id: s.id, label: s.label, business: s.business, device, channels, disks, checkedAt: new Date().toISOString(), ...(warnings.length ? { warnings } : {}) };
 }
 
 export async function getCameras() {
@@ -134,7 +142,11 @@ export async function getCameras() {
     sites.length > 0,
     async (fail) => {
       const settled = await Promise.allSettled(sites.map(fetchSite));
-      settled.forEach((r, i) => r.status === "rejected" && fail(sites[i].id, `${sites[i].label}: ${errorMessage(r.reason)}`));
+      // A site that answered only in part (status or disks unreadable) is partial: its tasks are left as they are.
+      settled.forEach((r, i) => {
+        if (r.status === "rejected") fail(sites[i].id, `${sites[i].label}: ${errorMessage(r.reason)}`);
+        else if (r.value.warnings) fail(sites[i].id, `${sites[i].label}: ${r.value.warnings.join("; ")}`);
+      });
       const ok = settled.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
       if (ok.length === 0) throw (settled[0] as PromiseRejectedResult).reason;
       return ok;

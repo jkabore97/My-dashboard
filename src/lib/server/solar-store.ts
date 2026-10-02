@@ -3,6 +3,8 @@ import { env } from "../source";
 import { safeEqual, sha256Hex } from "./crypto";
 import { getDb } from "./db";
 import { getSetting } from "./store/settings";
+import { audit } from "./store/audit";
+import { takeAttempt } from "./store/ratelimit";
 
 // Solar readings live in snapshots (kind "solar", key = station id). The push
 // endpoint authenticates with a bearer token: SOLAR_INGEST_TOKEN, or one
@@ -36,6 +38,22 @@ export async function checkIngestToken(header: string | null): Promise<boolean> 
  * alarms less than 20 s before or after it (retries, two bridges). A change of
  * state (a fault) is always stored. Returns whether it was stored.
  */
+/**
+ * Ingest auth. A valid token is always accepted: the bridge must never be
+ * locked out by someone else's failures. Failed tokens are counted per IP
+ * when the IP can be trusted (20 per 15 minutes, then 429). When it can't,
+ * there's no limit at all: a shared bucket would let anyone block the bridge,
+ * and the token (24 random bytes, or your own long secret) can't be guessed.
+ */
+export async function authorizeIngest(header: string | null, ip: string | null): Promise<"ok" | "invalid" | "limited"> {
+  if (await checkIngestToken(header)) return "ok";
+  if (!ip) return "invalid";
+  const key = `ingest:solar:${ip}`;
+  const n = await takeAttempt(key, 15 * 60);
+  if (n === 21) await audit("solar-ingest", "ingest.rate_limited", key, null, ip);
+  return n > 20 ? "limited" : "invalid";
+}
+
 export async function storeReading(r: SolarReading): Promise<boolean> {
   const db = await getDb();
   const rows = await db.query(
@@ -53,11 +71,14 @@ export async function storeReading(r: SolarReading): Promise<boolean> {
 
 /**
  * Readings for the Solar page and rules: everything from the last 36 hours,
- * plus each station's best reading per day for the 14 days before (enough for
- * the daily-energy chart without loading every 5-minute row).
+ * plus each station's best reading per day for the 14 days before (for the
+ * daily-energy chart without loading every 5-minute row), plus each station's
+ * newest reading however old, so a long-silent station keeps existing (and
+ * keeps its "stopped reporting" task) until its history is pruned.
  */
 export async function loadReadings(): Promise<SolarReading[]> {
   const db = await getDb();
+  const newest = await db.query<{ data: SolarReading }>("select distinct on (key) data from snapshots where kind = 'solar' order by key, taken_at desc, id desc");
   const recent = await db.query<{ data: SolarReading }>(
     "select data from snapshots where kind = 'solar' and taken_at > now() - interval '36 hours' order by taken_at asc",
   );
@@ -66,5 +87,7 @@ export async function loadReadings(): Promise<SolarReading[]> {
      where kind = 'solar' and taken_at <= now() - interval '36 hours' and taken_at > now() - interval '15 days'
      order by key, taken_at::date, (data->>'todayKWh')::float8 desc nulls last`,
   );
-  return [...older.map((r) => r.data), ...recent.map((r) => r.data)];
+  const unique = new Map<string, SolarReading>(); // the newest row is usually also a recent one
+  for (const { data } of [...older, ...recent, ...newest]) unique.set(`${data.station}|${data.at}`, data);
+  return [...unique.values()];
 }

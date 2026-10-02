@@ -13,6 +13,9 @@ import { CHAIN_PROBLEM, checkDomain, certificateProblem, parseEmailAuth, parseRd
 import { dailyRevenue, moneyByBusiness, moneyOverview } from "@/lib/money-summary";
 import { demoStripe } from "@/lib/demo";
 
+// The demo accounts as if they were a real, connected Stripe.
+const liveStripe = () => demoStripe().map((a) => ({ ...a, livemode: true, sample: false }));
+
 describe("dates", () => {
   it("validates and does calendar math", () => {
     expect(isDate("2026-02-29")).toBe(false);
@@ -300,7 +303,7 @@ describe("risk tasks", () => {
 
   it("links polled alerts and disputes to their webhook tasks", () => {
     const r = base();
-    r.stripe = demoStripe();
+    r.stripe = liveStripe();
     r.security = { alerts: [{ kind: "dependabot", repo: "kaj/a", number: 3, severity: "high", title: "Vulnerable x", url: "u", createdAt: "" }, { kind: "dependabot", repo: "kaj/a", number: 4, severity: "low", title: "minor", url: "u", createdAt: "" }], repos: [{ repo: "kaj/a", dependabot: "on", secretScanning: "on" }], github2fa: false, githubLogin: "kaj" };
     r.repos = ["kaj/a", "kaj/b"];
     const { tasks, unobserved } = deriveRiskTasks(r);
@@ -361,14 +364,14 @@ describe("risk tasks", () => {
 
   it("links a polled overdue Stripe invoice to the payment-failed webhook task", () => {
     const r = base();
-    r.stripe = demoStripe();
+    r.stripe = liveStripe();
     const inv = deriveRiskTasks(r).tasks.find((t) => t.id.includes("/invoice:"));
     expect(inv?.alias).toBe(`stripe-invoice:${inv!.id.split("/invoice:")[1]}`);
   });
 
   it("ignores test-mode Stripe accounts", () => {
     const r = base();
-    const [live, other] = demoStripe();
+    const [live, other] = liveStripe();
     r.stripe = [live, { ...other, id: "acct_test", livemode: false }];
     const stripeTasks = deriveRiskTasks(r).tasks.filter((t) => t.scope === "stripe");
     expect(stripeTasks.length).toBeGreaterThan(0);
@@ -385,7 +388,7 @@ describe("risk tasks", () => {
 describe("money overview", () => {
   it("leaves test-mode Stripe accounts out of every roll-up", () => {
     const records = { invoices: [], subscriptions: [], deadlines: [], checklist: {}, clients: [], deals: [] };
-    const [live, other] = demoStripe();
+    const [live, other] = liveStripe();
     const test = { ...other, id: "acct_test", business: "Sandbox", livemode: false };
     const both = moneyOverview([live, test], records, today());
     const liveOnly = moneyOverview([live], records, today());
@@ -399,10 +402,10 @@ describe("money overview", () => {
 
   it("combines Stripe and manual receivables and fills 30 days", () => {
     const records = { invoices: [{ id: "m1", business: "Kaj", client: "Manual", number: null, amountMinor: 500, currency: "usd", issuedOn: null, dueOn: "2026-01-01", status: "open" as const, paidOn: null, notes: null }], subscriptions: [], deadlines: [], checklist: {}, clients: [], deals: [] };
-    const m = moneyOverview(demoStripe(), records, today());
+    const m = moneyOverview(liveStripe(), records, today());
     expect(m.receivables.some((r) => r.source === "manual" && r.editable && r.daysLate! > 0)).toBe(true);
     expect(m.overdueCount).toBeGreaterThanOrEqual(2);
-    const chart = dailyRevenue(demoStripe(), today());
+    const chart = dailyRevenue(liveStripe(), today());
     expect(chart.days).toHaveLength(30);
     expect(chart.days[29].date).toBe(today());
   });

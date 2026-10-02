@@ -158,6 +158,8 @@ export interface StripeAccountSummary {
   id: string;
   business: string;
   livemode: boolean;
+  /** Sample data shown while Stripe isn't connected; only the Money page and Overview display it. */
+  sample?: boolean;
   balance: { currency: string; available: number; pending: number }[];
   /** Last 30 days, per currency. */
   revenue: { currency: string; gross: number; refunds: number; fees: number; net: number }[];

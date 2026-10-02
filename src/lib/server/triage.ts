@@ -16,6 +16,20 @@ export async function cachedTriage(ids: string[]): Promise<Map<string, Triage>> 
   return new Map(rows.map((r) => [r.message_id, { severity: r.severity, summary: r.summary, needsReply: r.needs_reply, task: r.task }]));
 }
 
+const RANK: Record<Severity, number> = { low: 0, medium: 1, high: 2, critical: 3 };
+
+/**
+ * The severity an email ends up with. Its text is written by the sender, who
+ * can try to steer the model, so the AI may refine a medium/low rating but
+ * never lower a keyword rating of critical or high, and on its own can't make
+ * an email more than high (critical, which pushes, needs the keyword rules).
+ */
+export function combineSeverity(rule: Severity, ai: Severity): Severity {
+  if (rule === "critical") return "critical";
+  if (rule === "high") return "high";
+  return RANK[ai] > RANK.high ? "high" : ai;
+}
+
 /** Applies cached AI severity to messages; unchanged when AI is off or the database is down. */
 export async function withTriage(emails: EmailMessage[]): Promise<EmailMessage[]> {
   if (!aiEnabled() || !emails.length) return emails;
@@ -23,7 +37,7 @@ export async function withTriage(emails: EmailMessage[]): Promise<EmailMessage[]
     const map = await cachedTriage(emails.map((e) => e.id));
     return emails.map((e) => {
       const t = map.get(e.id);
-      return t ? { ...e, severity: t.severity, triage: t } : e;
+      return t ? { ...e, severity: combineSeverity(e.severity, t.severity), triage: t } : e;
     });
   } catch {
     return emails;

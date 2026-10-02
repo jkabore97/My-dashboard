@@ -7,6 +7,8 @@ import { errorMessage } from "@/lib/source";
 // A still image from one camera, fetched from the NVR through the tunnel with
 // the stored login. The browser never sees the NVR address or password.
 
+const SAFE_TYPES = new Set(["image/jpeg", "image/png"]);
+
 export async function GET(_req: Request, ctx: { params: Promise<{ site: string; channel: string }> }) {
   await requireUser();
   const { site: siteId, channel } = await ctx.params;
@@ -18,11 +20,12 @@ export async function GET(_req: Request, ctx: { params: Promise<{ site: string; 
     // Sub-stream (x02) is smaller and quicker; fall back to the main stream.
     let res = await isapi(site, `/ISAPI/Streaming/channels/${ch}02/picture`, "image/jpeg");
     if (!res.ok) res = await isapi(site, `/ISAPI/Streaming/channels/${ch}01/picture`, "image/jpeg");
-    const type = res.headers.get("content-type") ?? "";
-    if (!res.ok || !type.startsWith("image/")) return NextResponse.json({ error: `camera returned ${res.status}` }, { status: 502 });
+    // Only raster images: an SVG (or anything else) from a compromised recorder could carry script.
+    const type = (res.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
+    if (!res.ok || !SAFE_TYPES.has(type)) return NextResponse.json({ error: `camera returned ${res.status} ${type || "no type"}` }, { status: 502 });
     const body = await res.arrayBuffer();
     if (body.byteLength > 5_000_000) return NextResponse.json({ error: "image too large" }, { status: 502 });
-    return new NextResponse(body, { headers: { "Content-Type": type, "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" } });
+    return new NextResponse(body, { headers: { "Content-Type": type, "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'" } });
   } catch (err) {
     return NextResponse.json({ error: errorMessage(err) }, { status: 502 });
   }

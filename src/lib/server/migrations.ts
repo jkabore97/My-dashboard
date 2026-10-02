@@ -261,5 +261,21 @@ alter table notified enable row level security;
 alter table email_triage enable row level security;
 `,
   },
+  {
+    version: 7,
+    name: "notified_resets_on_status_change",
+    // A task that resolves or reopens may be pushed again when it recurs.
+    sql: `
+create or replace function clear_task_notified() returns trigger
+language plpgsql set search_path = public as $$
+begin
+  delete from notified where task_id = new.id;
+  return new;
+end $$;
+
+create trigger tasks_clear_notified after update of status on tasks
+for each row when (old.status is distinct from new.status) execute function clear_task_notified();
+`,
+  },
 ];
 

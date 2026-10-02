@@ -6,7 +6,7 @@ import { env, errorMessage } from "../source";
 import { getConfig } from "./config";
 import { getDb } from "./db";
 import { emailEnabled, pushAll, pushEnabled, sendEmail } from "./notify";
-import { claimInterval, expireInterval } from "./store/settings";
+import { claimInterval, expireInterval, getSetting, setSetting } from "./store/settings";
 import { snapshotHistory } from "./store/snapshots";
 import { listTasks } from "./store/tasks";
 
@@ -34,6 +34,9 @@ export async function knownBusinesses(given?: Collected): Promise<string[]> {
   return [...new Set(names.filter((n): n is string => !!n && n !== "Unassigned"))].sort();
 }
 
+/** Stripe accounts reports may count: none unless Stripe is really connected (never sample data). */
+const reportableStripe = (c: Collected) => (c.modes.stripe === "live" ? c.stripe : []);
+
 export async function buildMorningBrief(given?: Collected) {
   const tz = businessTimeZone();
   const day = today(tz);
@@ -46,7 +49,7 @@ export async function buildMorningBrief(given?: Collected) {
     date: day,
     dashboardUrl: appUrl(),
     tasks: open,
-    revenueYesterday: revenueOn(c.stripe, yesterday),
+    revenueYesterday: revenueOn(reportableStripe(c), yesterday),
     signups24h: Number(signups?.n ?? 0),
     meetingsToday: c.modes.calendar === "live" ? c.calendar.filter((e) => (e.allDay ? e.start : today(tz, new Date(e.start))) === day) : [],
     solarYesterdayKWh: c.modes.solar === "live" ? solarOn(c.solar, yesterday) : null,
@@ -69,7 +72,7 @@ export async function weeklyReport(business: string, to = addDays(today(), -1), 
   return buildWeeklyReport({
     business,
     to,
-    stripe: c.stripe,
+    stripe: reportableStripe(c),
     siteChecks: history.filter((h) => domains.has(h.key)).map((h) => ({ domain: h.key, status: h.data.status, totalUsers: h.data.totalUsers, at: h.takenAt })),
     tasksClosed: Number(closed?.n ?? 0),
     open,
@@ -79,40 +82,52 @@ export async function weeklyReport(business: string, to = addDays(today(), -1), 
 }
 
 /**
- * Cron hook: sends the morning brief once a day at BRIEF_HOUR, and on Mondays
- * a weekly report per business. Each send is claimed first so overlapping
- * cron runs can't send twice; a failed send releases the claim to retry.
+ * Sends something at most once: a 10-minute lease keeps overlapping cron runs
+ * from both sending, and a "done" mark is written only after a successful
+ * send. A run killed mid-send (the 60-second limit) leaves no done mark, so a
+ * later run in the same hour tries again once the lease lapses.
  */
+export async function sendOnce(key: string, send: () => Promise<void>): Promise<boolean> {
+  if (await getSetting<string | null>(`${key}:done`, null)) return false;
+  if (!(await claimInterval(key, 600))) return false;
+  try {
+    await send();
+    await setSetting(`${key}:done`, new Date().toISOString());
+    return true;
+  } catch (err) {
+    await expireInterval(key).catch(() => {});
+    throw err;
+  }
+}
+
+/** Cron hook: sends the morning brief once a day at BRIEF_HOUR, and on Mondays a weekly report per business. */
 export async function sendScheduledReports(c: Collected, now = new Date()): Promise<string[]> {
   const sent: string[] = [];
   const tz = businessTimeZone();
   if (hourIn(tz, now) !== briefHour() || (!emailEnabled() && !pushEnabled())) return sent;
   const day = today(tz, now);
 
-  const briefKey = `job:brief:${day}`;
-  if (await claimInterval(briefKey, 3 * 86_400)) {
-    try {
+  try {
+    const done = await sendOnce(`job:brief:${day}`, async () => {
       const brief = await buildMorningBrief(c);
       if (emailEnabled()) await sendEmail(brief.subject, brief.html, brief.text);
       if (pushEnabled()) await pushAll({ title: "Morning brief", body: brief.subject.replace(/^Morning brief · [^·]+· /, ""), url: "/", tag: "brief" });
-      sent.push("brief");
-    } catch (err) {
-      await expireInterval(briefKey).catch(() => {});
-      console.error(`[brief] ${errorMessage(err)}`);
-    }
+    });
+    if (done) sent.push("brief");
+  } catch (err) {
+    console.error(`[brief] ${errorMessage(err)}`);
   }
 
   const weekday = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: tz }).format(now);
   if (weekday === "Mon" && emailEnabled()) {
     for (const b of await knownBusinesses(c)) {
-      const key = `job:weekly:${day}:${b}`;
-      if (!(await claimInterval(key, 3 * 86_400))) continue;
       try {
-        const r = renderWeeklyReport(await weeklyReport(b, addDays(day, -1), c), `${appUrl()}/reports?business=${encodeURIComponent(b)}`);
-        await sendEmail(r.subject, r.html, r.text);
-        sent.push(`weekly:${b}`);
+        const done = await sendOnce(`job:weekly:${day}:${b}`, async () => {
+          const r = renderWeeklyReport(await weeklyReport(b, addDays(day, -1), c), `${appUrl()}/reports?business=${encodeURIComponent(b)}`);
+          await sendEmail(r.subject, r.html, r.text);
+        });
+        if (done) sent.push(`weekly:${b}`);
       } catch (err) {
-        await expireInterval(key).catch(() => {});
         console.error(`[weekly] ${b}: ${errorMessage(err)}`);
       }
     }

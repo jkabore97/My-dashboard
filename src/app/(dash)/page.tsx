@@ -28,8 +28,9 @@ export default async function Overview() {
   const followUps = openDeals.filter((x) => x.nextStepDue && x.nextStepDue <= now).length;
   const rated = s.reviews.filter((p) => p.rating != null && p.reviewCount > 0);
   const rating = rated.length ? rated.reduce((n, p) => n + p.rating! * p.reviewCount, 0) / rated.reduce((n, p) => n + p.reviewCount, 0) : null;
-  const money = moneyOverview(s.stripe, s.records, now);
-  const byBusiness = moneyByBusiness(s.stripe, s.records, now);
+  const samples = { samples: s.modes.stripe !== "live" };
+  const money = moneyOverview(s.stripe, s.records, now, samples);
+  const byBusiness = moneyByBusiness(s.stripe, s.records, now, samples);
   const businesses = [...new Set([...[...s.repos, ...s.hosting, ...s.databases, ...s.websites, ...s.openTasks].map((x) => x.business ?? "Unassigned"), ...byBusiness.keys()])].sort();
 
   return (

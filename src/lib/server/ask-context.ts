@@ -13,7 +13,7 @@ const m = (minor: number, currency: string) => formatMoney(minor, currency);
 export function buildAskContext(d: Dashboard): string {
   const live = (k: keyof Dashboard["modes"]) => d.modes[k] === "live";
   const day = today();
-  const money = moneyOverview(d.stripe, d.records, day);
+  const money = moneyOverview(live("stripe") ? d.stripe : [], d.records, day);
   const sections: Record<string, unknown> = {
     today: day,
     open_tasks: d.openTasks.filter((t) => t.origin !== "demo").slice(0, 60).map((t) => ({ severity: t.severity, title: t.title, business: t.business, source: t.source, since: t.createdAt.slice(0, 10), detail: t.detail?.slice(0, 160) })),
