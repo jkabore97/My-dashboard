@@ -1,5 +1,6 @@
 import { canSee, canSeeTask, eventSection, inBusiness, isFullOwner, ownItem, type Access, type Section } from "./access";
 import type { PersonalProblem } from "./connectors/personal";
+import type { SourceMode } from "./types";
 import type { Records } from "./connectors/records";
 import type { CameraSiteStatus } from "./connectors/hikvision";
 import type { DomainsReport } from "./connectors/records";
@@ -43,6 +44,9 @@ export interface Scopable {
   sources: { source: string; mode: string; error?: string; partial?: { key: string; error: string }[] }[];
   undecryptableConnections: number;
   personalProblems?: PersonalProblem[];
+  /** People with a personal mailbox being read. */
+  personalOwners?: string[];
+  modes?: Record<string, SourceMode>;
 }
 
 export interface ScopeContext {
@@ -53,10 +57,19 @@ export interface ScopeContext {
 /** Drops other people's personal items. Every viewer goes through this, full owners included. */
 export function privateFor<T extends Scopable>(d: T, a: Access, email: string): T {
   const own = ownItem(email);
+  // The shared Inbox / Agenda modes ignore personal mailboxes; a person whose
+  // own mailbox is read sees those pages as live. Sample data (shared mode
+  // not live) is then dropped from their copy rather than mixed with real mail.
+  const mine = !!d.modes && d.modes.mymail === "live" && !!d.personalOwners?.includes(email);
+  const upgrade = (k: "inbox" | "calendar") => mine && d.modes![k] !== "live";
+  const emails = d.emails.filter(upgrade("inbox") ? (x) => x.owner === email : own);
+  const calendar = d.calendar.filter(upgrade("calendar") ? (x) => x.owner === email : own);
   return {
     ...d,
-    emails: d.emails.filter(own),
-    calendar: d.calendar.filter(own),
+    ...(d.modes ? { modes: { ...d.modes, ...(upgrade("inbox") ? { inbox: "live" } : {}), ...(upgrade("calendar") ? { calendar: "live" } : {}) } } : {}),
+    ...(d.personalOwners ? { personalOwners: d.personalOwners.filter((o) => o === email) } : {}),
+    emails,
+    calendar,
     notifications: d.notifications.filter(own),
     openTasks: d.openTasks.filter((t) => !t.privateTo || canSeeTask(a, email, t)),
     derivedTasks: d.derivedTasks.filter((t) => !t.privateTo || t.privateTo === email),

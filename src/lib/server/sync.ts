@@ -135,7 +135,9 @@ export async function runScheduledChecks() {
   const domainsChecked = await refreshDomainChecks(domains, dkimSelectors, { deadline: started + DOMAIN_BUDGET_MS });
   if (domainsChecked) await requestSync(); // let the next page view turn them into tasks
   // New mail gets read by Claude (when enabled); the next sync uses the result.
-  const triaged = c.modes.inbox === "live" && Date.now() - started <= TRIAGE_LATEST_START_MS ? await triagePending(c.emails).catch(() => 0) : 0;
+  // Real mail only: shared mailboxes when live, and people's own (their readings are stored as theirs).
+  const realMail = c.emails.filter((e) => (e.owner ? c.modes.mymail === "live" : c.modes.inbox === "live"));
+  const triaged = realMail.length && Date.now() - started <= TRIAGE_LATEST_START_MS ? await triagePending(realMail).catch(() => 0) : 0;
   if (triaged) await requestSync();
   await pruneOldData();
   await setSetting("job:last_cron", { at: new Date().toISOString(), ms: Date.now() - started });

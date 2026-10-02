@@ -59,10 +59,12 @@ export async function triagePending(emails: EmailMessage[], limit = 25): Promise
     return 0;
   }
   const db = await getDb();
+  const owners = new Map(todo.map((e) => [e.id, e.owner ?? null]));
   for (const [id, t] of results) {
+    // A personal message's reading belongs to its owner (and goes when they or the mailbox do).
     await db.query(
-      "insert into email_triage (message_id, severity, summary, needs_reply, task) values ($1, $2, $3, $4, $5) on conflict (message_id) do nothing",
-      [id, t.severity, t.summary, t.needsReply, t.task],
+      "insert into email_triage (message_id, severity, summary, needs_reply, task, private_to) values ($1, $2, $3, $4, $5, $6) on conflict (message_id) do nothing",
+      [id, t.severity, t.summary, t.needsReply, t.task, owners.get(id) ?? null],
     );
   }
   return results.size;

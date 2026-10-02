@@ -1,6 +1,24 @@
 import { cache } from "react";
 import { env } from "../source";
 import { readConnections, type Connection, type Provider } from "./store/connections";
+import { canConnectPersonal } from "../access";
+import { accessFor, rowAllowed } from "./auth";
+import { getDb } from "./db";
+
+/**
+ * People whose personal mailboxes may still be read: they can still sign in
+ * (not disabled; environment owners still configured) and their access still
+ * includes Inbox or Agenda. Anyone else's connection is kept but not fetched.
+ */
+async function activePersonalOwners(emails: string[]): Promise<Set<string>> {
+  if (!emails.length) return new Set();
+  const db = await getDb();
+  const rows = await db.query<{ email: string; role: string | null; businesses: string[] | null; sections: string[] | null; disabled_at: Date | string | null }>(
+    "select email, role, businesses, sections, disabled_at from users where email = any($1::text[])",
+    [emails],
+  );
+  return new Set(rows.filter((r) => rowAllowed(r, r.email) && canConnectPersonal(accessFor(r))).map((r) => r.email));
+}
 
 // Credentials come from connections made in the UI (encrypted in the
 // database) first, then fall back to environment variables.
@@ -107,7 +125,9 @@ export const microsoftAccounts = cache(async (): Promise<MicrosoftAccount[]> =>
 
 /** People's own Microsoft and Google accounts (mail + calendar), each with its owner. Never business-tagged. */
 export const personalAccounts = cache(async (): Promise<{ microsoft: MicrosoftAccount[]; google: GoogleAccount[] }> => {
-  const mine = (await loadConnections()).list.filter((c) => !!c.ownerEmail);
+  const all = (await loadConnections()).list.filter((c) => !!c.ownerEmail);
+  const active = await activePersonalOwners([...new Set(all.map((c) => c.ownerEmail!))]).catch(() => new Set<string>());
+  const mine = all.filter((c) => active.has(c.ownerEmail!));
   return {
     microsoft: mine.filter((c) => c.provider === "microsoft").map((c) => ({ account: c.account, label: c.account, business: null, refreshToken: c.secret.refreshToken, owner: c.ownerEmail! })),
     google: mine

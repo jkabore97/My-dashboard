@@ -164,13 +164,18 @@ export const collect = cache(async () => {
   // A snapshot saved before personal mailboxes existed has none.
   const personal = ext.personal ?? { source: "My mail", mode: "demo" as SourceMode, data: { emails: [], calendar: [], problems: [] }, fetchedAt: new Date().toISOString() };
   const solar = solarAll.result;
-  // Gmail, Outlook and people's own mailboxes share one inbox; each message
-  // keeps its mailbox id, and personal ones their owner.
-  const merged = mergeSources<EmailMessage>([gmail, outlook, { mode: personal.mode, data: personal.data.emails }]);
-  const calendar = { ...sharedCalendar, ...mergeSources<CalendarEvent>([sharedCalendar, { mode: personal.mode, data: personal.data.calendar }]) };
-  if (calendar.mode === "live") calendar.data.sort((a, b) => Date.parse(a.start) - Date.parse(b.start) || a.title.localeCompare(b.title));
-  // Claude's triage (when enabled) replaces the keyword severity for messages it has read.
-  const emails = { ...merged, data: merged.mode === "live" ? await withTriage(merged.data) : merged.data };
+  // Gmail and Outlook share one inbox; each message keeps its mailbox id.
+  // People's own mail and events ride along (tagged with their owner) but
+  // never change the shared modes: an owner with no shared mailbox still sees
+  // "not connected", and only each person's scoped copy counts theirs (scope.ts).
+  const shared = mergeSources<EmailMessage>([gmail, outlook]);
+  const personalLive = personal.mode === "live";
+  const ownMail: EmailMessage[] = personalLive ? personal.data.emails : [];
+  const ownEvents: CalendarEvent[] = personalLive ? personal.data.calendar : [];
+  const calendar = { ...sharedCalendar, data: [...sharedCalendar.data, ...ownEvents] };
+  calendar.data.sort((a, b) => Date.parse(a.start) - Date.parse(b.start) || a.title.localeCompare(b.title));
+  // Claude's triage (when enabled) replaces the keyword severity for messages it has read (real mail only).
+  const emails = { mode: shared.mode, data: [...(shared.mode === "live" ? await withTriage(shared.data) : shared.data), ...(ownMail.length ? await withTriage(ownMail) : [])] };
   emails.data.sort((a, b) => b.receivedAt.localeCompare(a.receivedAt));
   const hosting = mergeSources([vercel, workers]).data;
   // Visitors (7 days) come from Google Analytics when a property matched the site.
@@ -253,7 +258,7 @@ export const collect = cache(async () => {
 
   const live = (m: SourceMode) => m === "live";
   const notifications: (Notification & { live: boolean })[] = [
-    ...emails.data.map((e) => ({ id: `mail:${e.id}`, source: `${e.mailbox.startsWith("ms:") ? "Outlook" : "Email"} · ${e.account}`, title: e.subject, body: e.from, at: e.receivedAt, severity: e.severity, url: e.url, business: e.business, ...(e.owner ? { owner: e.owner } : {}), live: live(emails.mode) })),
+    ...emails.data.map((e) => ({ id: `mail:${e.id}`, source: `${e.mailbox.startsWith("ms:") ? "Outlook" : "Email"} · ${e.account}`, title: e.subject, body: e.from, at: e.receivedAt, severity: e.severity, url: e.url, business: e.business, ...(e.owner ? { owner: e.owner } : {}), live: live(e.owner ? personal.mode : emails.mode) })),
     ...reviews.data.flatMap((p) =>
       p.reviews.map((r) => ({ id: `review:${r.id}`, source: `Google reviews · ${p.name}`, title: `New ${r.rating}★ review from ${r.author}`, body: r.text.slice(0, 160), at: r.publishedAt, severity: r.rating <= 3 ? ("high" as const) : ("low" as const), url: p.url ?? undefined, business: p.business, live: live(reviews.mode) })),
     ),
@@ -309,6 +314,8 @@ export const collect = cache(async () => {
     unobserved: [...unobservedKeys({ gmail: gmail.partial, supabase: supabase.partial, github: repos.partial, mymail: personal.partial }), ...guards.unobserved, ...risk.unobserved, ...growth.unobserved, ...devices.unobserved, ...(outlook.partial ?? []).map((p) => `outlook/${encodeURIComponent(p.key)}/`)],
     /** Personal accounts that couldn't be read; each is shown to its owner only. */
     personalProblems: personal.data.problems,
+    /** Who has a personal mailbox being read (each viewer's copy keeps only themselves). */
+    personalOwners: personalLive ? [...new Set([...ownMail, ...ownEvents].map((x) => x.owner!).concat(personal.data.problems.map((p) => p.owner)))] : [],
     skipScopes: guards.skipScopes,
     credentialsKnown,
     undecryptableConnections: undecryptable.length,

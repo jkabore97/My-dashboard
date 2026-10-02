@@ -142,18 +142,20 @@ export async function bellFor(viewer: Access & { email: string }, limit = 20): P
 
 const isUrgent = (r: Pick<LogRow, "kind" | "severity">) => r.kind === "alert" && (r.severity === "critical" || r.severity === "high");
 
-/** Unread critical/high alerts per person (for the app icon badge sent with a push). */
-export async function urgentUnread(emails: string[]): Promise<Map<string, number>> {
+/**
+ * Unread critical/high alerts per person (the app icon badge sent with a
+ * push), after the same visibility check as the bell.
+ */
+export async function urgentUnread(viewers: (Access & { email: string })[]): Promise<Map<string, number>> {
   const map = new Map<string, number>();
-  if (!emails.length) return map;
+  if (!viewers.length) return map;
   const db = await getDb();
-  const rows = await db.query<{ user_email: string; n: number }>(
-    `select user_email, count(*)::int as n from alert_log
-     where user_email = any($1::text[]) and kind = 'alert' and severity in ('critical', 'high') and read_at is null and status in ('sent', 'folded', 'failed')
-     group by user_email`,
-    [emails],
+  const rows = await db.query<LogRow>(
+    `${SELECT} from alert_log l left join tasks t on t.id = l.task_id
+     where l.user_email = any($1::text[]) and l.kind = 'alert' and l.severity in ('critical', 'high') and l.read_at is null and l.status in ('sent', 'folded', 'failed')`,
+    [viewers.map((v) => v.email)],
   );
-  for (const r of rows) map.set(r.user_email, Number(r.n));
+  for (const v of viewers) map.set(v.email, rows.filter((r) => r.user_email === v.email).filter(visibleTo(v, v.email)).length);
   return map;
 }
 

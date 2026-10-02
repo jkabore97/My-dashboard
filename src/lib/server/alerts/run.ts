@@ -371,7 +371,7 @@ async function flush(db: Db, now: Date, team: () => Promise<Person[]>): Promise<
   for (const r of keep) if (still.has(r.id)) byPerson.set(r.user_email, [...(byPerson.get(r.user_email) ?? []), r]);
 
   // The app icon badge each push carries: what's unread now plus this batch's urgent alerts.
-  const badges = await urgentUnread([...byPerson.keys()]).catch(() => new Map<string, number>());
+  const badges = await urgentUnread([...byPerson.keys()].flatMap((e) => (members.get(e) ? [members.get(e)!] : []))).catch(() => new Map<string, number>());
   // Each send is recorded as soon as it's made, so a run cut off midway
   // (time limit, background budget) can repeat at most the push in flight.
   await Promise.all(

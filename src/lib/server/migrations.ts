@@ -429,6 +429,11 @@ create index connections_owner_idx on connections (owner_email) where owner_emai
 alter table tasks add column private_to text references users(email) on delete cascade;
 create index tasks_private_idx on tasks (private_to) where private_to is not null;
 alter table events add column private_to text references users(email) on delete cascade;
+create index events_private_idx on events (private_to) where private_to is not null;
+
+-- Claude's reading of a personal message is that person's too.
+alter table email_triage add column private_to text references users(email) on delete cascade;
+create index email_triage_private_idx on email_triage (private_to) where private_to is not null;
 
 -- Delivery-log rows about personal items, kept out of the owner's view of everyone's log.
 alter table alert_log add column private boolean not null default false;

@@ -19,7 +19,9 @@ import { AccountTaken, deleteConnection, listConnectionSummaries, listPersonalSu
 import { collect, deriveTasks, forgetExternalMemory, undecryptableGuards } from "@/lib/aggregate";
 import { persist } from "@/lib/server/sync";
 import { runAlerts } from "@/lib/server/alerts/run";
-import { bellFor, deliveryLog } from "@/lib/server/alerts/store";
+import { bellFor, deliveryLog, urgentUnread } from "@/lib/server/alerts/store";
+import { personalAccounts } from "@/lib/server/credentials";
+import { setMemberDisabled } from "@/lib/server/store/team";
 import { listEvents } from "@/lib/server/store/events";
 import { listTasks, listActivity, recordActivity, upsertEventTask } from "@/lib/server/store/tasks";
 import { buildMorningBrief } from "@/lib/server/reports";
@@ -238,7 +240,7 @@ describe("personal mailboxes end to end (PGlite)", () => {
     vi.stubEnv("MS_CLIENT_ID", "id");
     vi.stubEnv("MS_CLIENT_SECRET", "secret");
     const db = await getDb();
-    await db.exec("truncate tasks, task_activity, events, connections, users, invites, push_subscriptions, settings, alert_log, alert_incidents, audit_log cascade");
+    await db.exec("truncate tasks, task_activity, events, connections, email_triage, users, invites, push_subscriptions, settings, alert_log, alert_incidents, audit_log cascade");
     await db.query(`insert into users (email, notify_prefs) values ('boss@kaj.com', $1::text::jsonb)`, [NO_QUIET]);
     await db.query(
       `insert into users (email, role, businesses, sections, notify_prefs) values
@@ -278,8 +280,10 @@ describe("personal mailboxes end to end (PGlite)", () => {
     expect(msg).toMatchObject({ owner: "bro@kaj.com", severity: "critical" });
     expect(msg.business).toBeUndefined();
     expect(c.calendar.find((e) => e.title === "Dentist")?.owner).toBe("bro@kaj.com");
-    // Nothing personal leaks into the shared connector errors.
+    // Nothing personal leaks into the shared connector errors, or makes the shared Inbox / Agenda look live.
     expect(c.sources.some((s) => s.source === "My mail")).toBe(false);
+    expect(c.modes.inbox).not.toBe("live");
+    expect(c.modes.calendar).not.toBe("live");
 
     // The scoped views.
     const boss = { ...OWNER };
@@ -293,6 +297,11 @@ describe("personal mailboxes end to end (PGlite)", () => {
     expect(view(amy, "amy@kaj.com").emails.some((e) => e.owner)).toBe(false);
     expect(view(bro, "bro@kaj.com").emails.map((e) => e.subject)).toContain("Payment failed on your card");
     expect(view(bro, "bro@kaj.com").calendar.map((e) => e.title)).toContain("Dentist");
+    // His copy reads live (and holds only real mail: no samples mixed in); the owner's doesn't.
+    expect(view(bro, "bro@kaj.com").modes).toMatchObject({ inbox: "live", calendar: "live" });
+    expect(view(bro, "bro@kaj.com").emails.every((e) => e.owner === "bro@kaj.com")).toBe(true);
+    expect(view(boss, "boss@kaj.com").modes.inbox).toBe(c.modes.inbox);
+    expect(view(boss, "boss@kaj.com").personalOwners).toEqual([]);
 
     // Persisted: a private task and a private event.
     await persist(c, { force: true, alerts: false });
@@ -348,6 +357,44 @@ describe("personal mailboxes end to end (PGlite)", () => {
     // A personal one never replaces the shared single-account connection either.
     await saveConnection({ provider: "github", account: "kaj", secret: { token: "t" } });
     expect((await listConnectionSummaries()).map((x) => x.account)).toEqual(["kaj"]);
+  });
+
+  it("reads a personal mailbox only while its owner can sign in and has Inbox or Agenda", async () => {
+    await saveConnection({ provider: "microsoft", account: "bro@kaj.com", secret: { refreshToken: "rt" }, ownerEmail: "bro@kaj.com" });
+    await saveConnection({ provider: "microsoft", account: "amy@kaj.com", secret: { refreshToken: "rt" }, ownerEmail: "amy@kaj.com" });
+    const owners = async () => (await personalAccounts()).microsoft.map((a) => a.owner).sort();
+    expect(await owners()).toEqual(["amy@kaj.com", "bro@kaj.com"]);
+    await setMemberDisabled("amy@kaj.com", true);
+    expect(await owners()).toEqual(["bro@kaj.com"]);
+    await updateMember("bro@kaj.com", { name: null, role: "developer", businesses: null, sections: ["repos"] });
+    expect(await owners()).toEqual([]);
+    // Still stored: access given back resumes it.
+    expect(await listPersonalSummaries()).toHaveLength(2);
+    await updateMember("bro@kaj.com", { name: null, role: "developer", businesses: null, sections: ["agenda"] });
+    expect(await owners()).toEqual(["bro@kaj.com"]);
+  });
+
+  it("keeps Claude's readings of personal mail with the owner, and drops them on disconnect", async () => {
+    await saveConnection({ provider: "microsoft", account: "bro@kaj.com", secret: { refreshToken: "rt" }, ownerEmail: "bro@kaj.com" });
+    const db = await getDb();
+    await db.query("insert into email_triage (message_id, severity, summary, private_to) values ('ms:bro@kaj.com:AAA1', 'high', 'x', 'bro@kaj.com'), ('ms:bro@kaj.com.evil:B', 'high', 'y', 'bro@kaj.com'), ('ms:shared@kaj.com:C', 'low', 'z', null)");
+    const [p] = await listPersonalSummaries("bro@kaj.com");
+    await deleteConnection(p.id, { ownerEmail: "bro@kaj.com" });
+    expect((await db.query<{ message_id: string }>("select message_id from email_triage order by message_id")).map((r) => r.message_id)).toEqual(["ms:bro@kaj.com.evil:B", "ms:shared@kaj.com:C"]);
+    await removeMember("bro@kaj.com");
+    expect((await db.query<{ message_id: string }>("select message_id from email_triage")).map((r) => r.message_id)).toEqual(["ms:shared@kaj.com:C"]);
+  });
+
+  it("counts the app badge after the bell's visibility check", async () => {
+    const amy: Access & { email: string } = { email: "amy@kaj.com", role: "assistant", businesses: null, sections: ["money"] };
+    const db = await getDb();
+    await db.query("update users set sections = '[\"money\"]'::jsonb where email = 'amy@kaj.com'");
+    await upsertEventTask("stripe-dispute:dp_1", { title: "Dispute", severity: "critical", source: "Stripe", business: "Kaj", createdAt: new Date().toISOString() });
+    await runAlerts();
+    expect((await urgentUnread([amy])).get("amy@kaj.com")).toBe(1);
+    // Money taken away again: the row no longer counts.
+    expect((await urgentUnread([{ ...amy, sections: ["inbox"] }])).get("amy@kaj.com")).toBe(0);
+    expect((await bellFor({ ...amy, sections: ["inbox"] })).urgent).toBe(0);
   });
 
   it("removing a member removes their mailbox and its tasks", async () => {
@@ -413,8 +460,10 @@ describe("migration 11", () => {
     expect(c.owner_email).toBeNull();
     const [t] = await db.query<{ private_to: string | null }>("select private_to from tasks");
     expect(t.private_to).toBeNull();
-    const [l] = await db.query<{ n: number }>("select count(*)::int as n from information_schema.columns where table_name = 'alert_log' and column_name = 'private'");
-    expect(Number(l.n)).toBe(1);
+    const [l] = await db.query<{ n: number }>("select count(*)::int as n from information_schema.columns where (table_name = 'alert_log' and column_name = 'private') or (table_name = 'email_triage' and column_name = 'private_to')");
+    expect(Number(l.n)).toBe(2);
+    const idx = (await db.query<{ indexname: string }>("select indexname from pg_indexes where indexname in ('events_private_idx', 'tasks_private_idx', 'connections_owner_idx', 'email_triage_private_idx')")).map((r) => r.indexname).sort();
+    expect(idx).toEqual(["connections_owner_idx", "email_triage_private_idx", "events_private_idx", "tasks_private_idx"]);
     expect((await db.query<{ version: number }>("select version from schema_migrations order by version")).map((r) => Number(r.version)).at(-1)).toBe(11);
     await migrate(db); // idempotent
   });

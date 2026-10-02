@@ -144,5 +144,11 @@ export async function deleteConnection(id: string, scope: "shared" | "personal" 
     `delete from connections where id = $1 and ${where} returning provider, account, owner_email`,
     typeof scope === "object" ? [id, scope.ownerEmail] : [id],
   );
-  return rows[0] ?? null;
+  const gone = rows[0];
+  if (gone?.owner_email) {
+    // Claude's readings of that mailbox's messages (ids are "<mailbox>:<message>") go with it.
+    const prefix = `${gone.provider === "microsoft" ? `ms:${gone.account}` : gone.account}:`;
+    await db.query("delete from email_triage where private_to = $1 and left(message_id, length($2)) = $2", [gone.owner_email, prefix]);
+  }
+  return gone ?? null;
 }
