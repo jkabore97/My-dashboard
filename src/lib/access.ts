@@ -153,7 +153,10 @@ export interface TaskVisibility {
 export function canSeeTask(a: Access, email: string, t: TaskVisibility) {
   if (t.privateTo) return t.privateTo === email && (canSee(a, taskSection(t.sourceKey)) || !!t.sourceKey?.endsWith("/reconnect"));
   if (t.assignee && t.assignee === email) return true;
-  return canSee(a, taskSection(t.sourceKey)) && inBusiness(a, t.business);
+  const section = taskSection(t.sourceKey);
+  // To-dos made from the owner's mailboxes and calendars are the owner's mail: full owners only.
+  if (section === "inbox" || section === "agenda") return isFullOwner(a);
+  return canSee(a, section) && inBusiness(a, t.business);
 }
 
 /** Items carrying an owner (personal mail, calendar events, their notifications) are for that person alone. */

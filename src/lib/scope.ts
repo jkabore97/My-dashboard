@@ -100,8 +100,9 @@ export function scopeFor<T extends Scopable>(full: T, a: Access, email: string, 
     repos,
     hosting: pick("hosting", d.hosting, (h) => h.business),
     databases: pick("databases", d.databases, (x) => x.business),
-    // A person's own mail has no business: it's shown to them (with the Inbox) whatever their businesses.
-    emails: sec("inbox") ? d.emails.filter((e) => (e.owner ? e.owner === email : biz(e.business))) : [],
+    // Members see only their own mailbox. Mailboxes the owner connected on
+    // Platforms (the owner's own mail) are for full owners alone.
+    emails: sec("inbox") ? d.emails.filter((e) => !!e.owner && e.owner === email) : [],
     websites: pick("websites", d.websites, (w) => w.business),
     stripe: pick("money", d.stripe, (s) => s.business),
     records: {
@@ -118,8 +119,8 @@ export function scopeFor<T extends Scopable>(full: T, a: Access, email: string, 
     security: securityVisible
       ? { alerts: d.security.alerts.filter((x) => biz(repoBusiness.get(x.repo)) && (visibleRepos.has(x.repo) || !sec("repos"))), repos: d.security.repos.filter((x) => biz(repoBusiness.get(x.repo))), github2fa: null, githubLogin: null }
       : { alerts: [], repos: [], github2fa: null, githubLogin: null },
-    // Calendars aren't tied to a business: whoever has the Agenda sees them.
-    calendar: sec("agenda") ? d.calendar.filter(ownItem(email)) : [],
+    // Members see only their own calendar; the owner's calendars stay with full owners.
+    calendar: sec("agenda") ? d.calendar.filter((x) => !!x.owner && x.owner === email) : [],
     analytics: pick("analytics", d.analytics, (x) => domainBiz(x.domain)),
     reviews: pick("analytics", d.reviews, (p) => p.business),
     ...(d.bills ? { bills: scopeBills(d.bills, a) } : {}),
@@ -127,7 +128,10 @@ export function scopeFor<T extends Scopable>(full: T, a: Access, email: string, 
     solar: pick("solar", d.solar, (s) => s.business),
     notifications: d.notifications.filter((n) => {
       const s = eventSection(n.source);
-      return (s === "notifications" ? sec("notifications") : sec(s)) && (n.owner ? n.owner === email : biz(n.business));
+      if (n.owner) return n.owner === email && (s === "notifications" ? sec("notifications") : sec(s));
+      // Events from the owner's mailboxes are the owner's mail: never shown to members.
+      if (s === "inbox" || s === "agenda") return false;
+      return (s === "notifications" ? sec("notifications") : sec(s)) && biz(n.business);
     }),
     openTasks: d.openTasks.filter((t) => canSeeTask(a, email, t)),
     derivedTasks: [],

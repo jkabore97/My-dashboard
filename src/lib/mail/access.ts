@@ -7,16 +7,14 @@ import type { MailAddress, MailboxRef, MailGrants, MailPermissions, MailProvider
 // - A personal mailbox is its owner's alone: they read, organise and send
 //   from it (while their access includes the Inbox). Nobody else, full owners
 //   included, ever opens it.
-// - A shared mailbox (connected on Platforms) is readable by whoever has the
-//   Inbox and sees its business (an untagged mailbox needs every business),
-//   exactly like its messages in the summary list (scope.ts). Readers may
-//   mark messages read / unread and flag them; archiving, deleting and
-//   sending are for full owners only.
+// - A mailbox connected on Platforms is the owner's mail: only full owners
+//   open it (members never see it, whatever their sections or businesses).
 
 export function canReadMailbox(a: Access, email: string, mb: Pick<MailboxRef, "owner" | "business">): boolean {
   if (!canSee(a, "inbox")) return false;
   if (mb.owner) return mb.owner === email;
-  return inBusiness(a, mb.business);
+  // Mailboxes connected on Platforms are the owner's mail: full owners only.
+  return isFullOwner(a) && inBusiness(a, mb.business);
 }
 
 export function canSendFrom(a: Access, email: string, mb: Pick<MailboxRef, "owner" | "business">): boolean {

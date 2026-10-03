@@ -4,7 +4,7 @@ import type { Notification, Task } from "../types";
 import { requireUser, type CurrentUser } from "./auth";
 import { businessForDomain, getConfig } from "./config";
 import { scopeFor } from "../scope";
-import { canSeeTask } from "../access";
+import { canSeeTask, eventSection, isFullOwner, taskSection } from "../access";
 import { listEvents } from "./store/events";
 import { listTasks, sortTasks, type StoredTask, type TaskStatus } from "./store/tasks";
 import { persist } from "./sync";
@@ -88,6 +88,18 @@ export const getDashboard = cache(async () => {
     records: { ...narrowed.records, checklist: scoped.records.checklist },
     security: { ...narrowed.security, github2fa: scoped.security.github2fa, githubLogin: scoped.security.githubLogin },
     derivedTasks: scoped.derivedTasks.filter((t) => t.business === visible),
+    // The owner's own mail and calendars are full-owner data too: narrowed to the business, not dropped.
+    ...(isFullOwner(user)
+      ? (() => {
+          const ownerMail = (sourceKey: string | null | undefined) => ["inbox", "agenda"].includes(taskSection(sourceKey));
+          return {
+            emails: scoped.emails.filter((e) => e.owner === user.email || (!e.owner && e.business === visible)),
+            calendar: scoped.calendar,
+            openTasks: [...narrowed.openTasks, ...scoped.openTasks.filter((t) => !t.privateTo && ownerMail(t.sourceKey) && t.business === visible && !narrowed.openTasks.includes(t))],
+            notifications: [...narrowed.notifications, ...scoped.notifications.filter((n) => !n.owner && ["inbox", "agenda"].includes(eventSection(n.source)) && n.business === visible && !narrowed.notifications.includes(n))].sort((x, y) => y.at.localeCompare(x.at)),
+          };
+        })()
+      : {}),
     platforms: scoped.platforms,
     sources: scoped.sources,
     undecryptableConnections: scoped.undecryptableConnections,
