@@ -2,7 +2,7 @@
 
 import { requireSection } from "@/lib/server/auth";
 import { fromKey } from "@/lib/mail/access";
-import { changeMessage, getMessage, MailAccessError, openMailbox, type MailChange } from "@/lib/server/mail";
+import { auditTarget, changeMessage, getMessage, MailAccessError, openMailbox, type MailChange } from "@/lib/server/mail";
 import { AiRefusal, aiEnabled, draftReply } from "@/lib/server/ai";
 import { audit } from "@/lib/server/store/audit";
 import { takeAttempt } from "@/lib/server/store/ratelimit";
@@ -23,7 +23,7 @@ export async function changeMailAction(mailbox: string, message: string, change:
   try {
     const o = await openMailbox(user, mailbox, NEED[c.kind]);
     await changeMessage(o, id, c);
-    if (c.kind === "archive" || c.kind === "delete") await audit(user.email, `mail.${c.kind}`, o.h.address, null).catch(() => {});
+    if (c.kind === "archive" || c.kind === "delete") await audit(user.email, `mail.${c.kind}`, auditTarget(o.h), null).catch(() => {});
     return { ok: true };
   } catch (err) {
     return { error: err instanceof MailAccessError ? err.message : errorMessage(err) };

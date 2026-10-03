@@ -6,8 +6,8 @@ vi.mock("@/lib/server/auth", async (orig) => ({ ...(await orig<object>()), curre
 import { canReadMailbox, canSendFrom, fromKey, mailGrants, mailPermissions, needsReconnect, parseAddressList, toKey } from "@/lib/mail/access";
 import { buildSrcdoc, hasRemoteImages, htmlToText, MAIL_SANDBOX, mailCsp, prependToHtmlBody, sanitizeEmailHtml, textToHtml } from "@/lib/mail/html";
 import { buildOutlookListPath, draftPatch, listOutlookMessages, outlookCursor, sendOutlook, validOutlookCursor } from "@/lib/mail/outlook";
-import { buildGmailListPath, buildMime, gmailSendPayload } from "@/lib/mail/gmail";
-import { parseSendForm, sameOrigin } from "@/lib/mail/compose";
+import { buildGmailListPath, buildMime, gmailSendPayload, gmailWebLink } from "@/lib/mail/gmail";
+import { parseSendForm, readCappedForm, sameOrigin } from "@/lib/mail/compose";
 import { contentDisposition, safeContentType } from "@/lib/mail/download";
 import type { MailMessage, SendRequest } from "@/lib/mail/types";
 import { forgetMsTokens, msToken, MS_READ_SCOPES, MS_SCOPES } from "@/lib/server/microsoft";
@@ -15,7 +15,7 @@ import { authorizeUrl } from "@/lib/server/connect";
 import { GOOGLE_SCOPES, hasGoogleScope } from "@/lib/server/google";
 import { getDb, pgliteDb, useDb } from "@/lib/server/db";
 import { listConnections, saveConnection } from "@/lib/server/store/connections";
-import { mailboxesFor, openMailbox, MailAccessError, replyRecipients, replySubject, sendMail, messageHref } from "@/lib/server/mail";
+import { mailboxesFor, openMailbox, MailAccessError, replyRecipients, replySubject, sendAuditEntry, sendMail, messageHref } from "@/lib/server/mail";
 import { listAudit } from "@/lib/server/store/audit";
 import { GET as attachmentRoute } from "@/app/api/mail/attachment/route";
 import { POST as sendRoute } from "@/app/api/mail/send/route";
@@ -295,6 +295,30 @@ describe("send payloads", () => {
     expect(parseAddressList("a@x.com\nb@y.org")).toEqual({ list: [{ name: "", address: "a@x.com" }, { name: "", address: "b@y.org" }] });
   });
 
+  it("caps the send body whatever Content-Length says", async () => {
+    const big = () => new ReadableStream<Uint8Array>({ start(c) { c.enqueue(new Uint8Array(600)); c.enqueue(new Uint8Array(600)); c.close(); } });
+    const chunked = new Request("http://localhost/x", { method: "POST", body: big(), duplex: "half", headers: { "content-type": "multipart/form-data; boundary=x" } } as RequestInit);
+    expect(await readCappedForm(chunked, 1000)).toEqual({ error: "The message is too large.", status: 413 });
+    const lying = new Request("http://localhost/x", { method: "POST", body: big(), duplex: "half", headers: { "content-length": "10", "content-type": "multipart/form-data; boundary=x" } } as RequestInit);
+    expect(await readCappedForm(lying, 1000)).toMatchObject({ status: 413 });
+    const declared = new Request("http://localhost/x", { method: "POST", body: "x", headers: { "content-length": "5000" } });
+    expect(await readCappedForm(declared, 1000)).toMatchObject({ status: 413 });
+    const fd = new FormData();
+    fd.set("to", "a@x.com");
+    const ok = await readCappedForm(new Request("http://localhost/x", { method: "POST", body: fd }), 100_000);
+    expect("form" in ok && ok.form.get("to")).toBe("a@x.com");
+  });
+
+  it("audits personal mailboxes without addresses or subjects", () => {
+    const r = req({ mode: "reply", cc: [{ name: "", address: "c@x.com" }], subject: "Private matter", attachments: [{ name: "a", contentType: "text/plain", data: new Uint8Array(1) }] });
+    expect(sendAuditEntry({ owner: "bro@kaj.com", address: "bro@kaj.com" }, r)).toEqual({ target: "personal mailbox", detail: { mode: "reply", recipients: 2, attachments: 1 } });
+    expect(sendAuditEntry({ owner: null, address: "office@kaj.com" }, r)).toEqual({
+      target: "office@kaj.com",
+      detail: { mailbox: "office@kaj.com", mode: "reply", recipients: 2, attachments: 1, to: ["ama@x.com"], cc: ["c@x.com"], bcc: [], subject: "Private matter" },
+    });
+    expect(gmailWebLink("T1", "me@kaj.com")).toBe("https://mail.google.com/mail/u/?authuser=me%40kaj.com#all/T1");
+  });
+
   it("default recipients and subjects for replies", () => {
     const m = { from: { name: "Ama", address: "ama@x.com" }, to: [{ name: "Me", address: "ME@kaj.com" }, { name: "Bo", address: "bo@x.com" }], cc: [{ name: "", address: "cc@x.com" }, { name: "", address: "ama@x.com" }], replyTo: [] };
     expect(replyRecipients("reply", m, "me@kaj.com")).toEqual({ to: "Ama <ama@x.com>", cc: "" });
@@ -339,6 +363,12 @@ describe("message HTML is sandboxed", () => {
     expect(hasRemoteImages(evil)).toBe(true);
     expect(hasRemoteImages('<img src="data:image/png;base64,xx">')).toBe(false);
     expect(hasRemoteImages('<div style="background:url(https://t.example/a.png)">')).toBe(true);
+  });
+
+  it("makes every link open a new tab without opener or referrer, and turns off DNS prefetch", () => {
+    const clean = sanitizeEmailHtml(`<a href="https://x.com" target="_self" rel="opener">a</a><A HREF='https://y.com'>b</A><abbr>c</abbr>`);
+    expect(clean).toBe(`<a href="https://x.com" target="_blank" rel="noopener noreferrer">a</a><a HREF='https://y.com' target="_blank" rel="noopener noreferrer">b</A><abbr>c</abbr>`);
+    expect(buildSrcdoc("<p>x</p>", { showImages: false })).toContain('<meta http-equiv="x-dns-prefetch-control" content="off">');
   });
 
   it("converts between text and HTML", () => {
@@ -448,5 +478,11 @@ describe("mail client access end to end (PGlite)", () => {
     // Nobody sends from someone else's personal mailbox.
     expect(await sendMail(boss, toKey("ms:bro@kaj.com"), { mode: "new", to: [{ name: "", address: "a@x.com" }], cc: [], bcc: [], subject: "x", body: "y", attachments: [] })).toMatchObject({ ok: false });
     expect(sameOrigin(new Request("http://localhost/x", { method: "POST" }))).toBe(false);
+    // A personal send is logged without the mailbox, recipients or subject.
+    expect(await sendMail(bro, toKey("ms:bro@kaj.com"), { mode: "new", to: [{ name: "", address: "doctor@x.com" }], cc: [], bcc: [], subject: "My test results", body: "y", attachments: [] })).toMatchObject({ ok: false });
+    const mine = (await listAudit(20)).find((e) => e.actor === "bro@kaj.com")!;
+    expect(mine).toMatchObject({ action: "mail.send_failed", target: "personal mailbox", detail: { mode: "new", recipients: 1, attachments: 0 } });
+    expect(mine.detail).toEqual({ mode: "new", recipients: 1, attachments: 0 });
+    expect(JSON.stringify([mine.target, mine.detail])).not.toMatch(/doctor|test results|bro@kaj/);
   });
 });

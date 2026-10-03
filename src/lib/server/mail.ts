@@ -140,7 +140,7 @@ export async function getMessage(o: OpenMailbox, id: string): Promise<MailMessag
     if (!m) throw new MailApiError(404, "That message no longer exists.");
     return m;
   }
-  return o.h.cred.kind === "outlook" ? getOutlookMessage(o.token, id) : getGmailMessage(o.token, id);
+  return o.h.cred.kind === "outlook" ? getOutlookMessage(o.token, id) : getGmailMessage(o.token, id, o.h.address);
 }
 
 export async function getAttachment(o: OpenMailbox, messageId: string, attachmentId: string) {
@@ -193,26 +193,35 @@ export async function sendMail(user: MailUser, key: string, req: SendRequest, ip
     return { ok: false, error: err instanceof MailAccessError ? err.message : `Couldn't open the mailbox (${errorMessage(err)}).` };
   }
   if ((await takeAttempt(`mail-send:${user.email}`, 3600).catch(() => 0)) > SENDS_PER_HOUR) return { ok: false, error: `You've sent ${SENDS_PER_HOUR} messages from here this hour. Try again later.` };
-  const detail = {
-    mailbox: o.h.address,
-    mode: req.mode,
-    to: req.to.map((a) => a.address),
-    cc: req.cc.map((a) => a.address),
-    bcc: req.bcc.map((a) => a.address),
-    subject: req.subject.slice(0, 200),
-    attachments: req.attachments.length,
-  };
+  const { target, detail } = sendAuditEntry(o.h, req);
   try {
     if (o.h.cred.kind === "demo") demoSend(req);
     else if (o.h.cred.kind === "outlook") await sendOutlook(o.token, req);
     else await sendGmail(o.token, o.h.address, req, { attachmentBudget: MAX_TOTAL_ATTACHMENT_BYTES - req.attachments.reduce((n, a) => n + a.data.length, 0) });
   } catch (err) {
     const error = errorMessage(err);
-    await audit(user.email, "mail.send_failed", o.h.address, { ...detail, error: error.slice(0, 300) }, ip).catch(() => {});
+    await audit(user.email, "mail.send_failed", target, { ...detail, ...(o.h.owner ? {} : { error: error.slice(0, 300) }) }, ip).catch(() => {});
     return { ok: false, error };
   }
-  await audit(user.email, "mail.send", o.h.address, detail, ip).catch((err) => console.error(`[mail] audit failed: ${errorMessage(err)}`));
+  await audit(user.email, "mail.send", target, detail, ip).catch((err) => console.error(`[mail] audit failed: ${errorMessage(err)}`));
   return o.h.cred.kind === "demo" ? { ok: true, demo: true } : { ok: true };
+}
+
+/** What the audit log keeps of a mailbox: a shared one by address; a personal one never named (owners read the log). */
+export const auditTarget = (h: Pick<MailboxRef, "owner" | "address">) => (h.owner ? "personal mailbox" : h.address);
+
+/**
+ * A send's audit entry. Shared mailboxes: mailbox, recipients and subject.
+ * Personal mailboxes: only the kind of message and how many recipients and
+ * attachments, since the log is readable by the dashboard's owners.
+ */
+export function sendAuditEntry(h: Pick<MailboxRef, "owner" | "address">, req: SendRequest) {
+  const counts = { mode: req.mode, recipients: req.to.length + req.cc.length + req.bcc.length, attachments: req.attachments.length };
+  if (h.owner) return { target: auditTarget(h), detail: counts };
+  return {
+    target: auditTarget(h),
+    detail: { mailbox: h.address, ...counts, to: req.to.map((a) => a.address), cc: req.cc.map((a) => a.address), bcc: req.bcc.map((a) => a.address), subject: req.subject.slice(0, 200) },
+  };
 }
 
 /** The summary list's id for a message ("<mailbox>:<provider id>") → its in-app link, when the mailbox is a real one. */

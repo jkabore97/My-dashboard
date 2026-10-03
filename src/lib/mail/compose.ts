@@ -59,3 +59,40 @@ export function sameOrigin(req: Request) {
     return false;
   }
 }
+
+/** Hard cap on a send request's body: attachments plus room for the text fields. */
+export const MAX_SEND_BYTES = MAX_TOTAL_ATTACHMENT_BYTES + 512 * 1024;
+
+/**
+ * Reads a multipart body, refusing it once it passes `max` bytes whatever
+ * Content-Length claimed (it can be missing or wrong with chunked uploads).
+ */
+export async function readCappedForm(req: Request, max = MAX_SEND_BYTES): Promise<{ form: FormData } | { error: string; status: number }> {
+  const declared = req.headers.get("content-length");
+  if (declared !== null && !(Number(declared) <= max)) return { error: "The message is too large.", status: 413 };
+  if (!req.body) return { error: "The message couldn't be read.", status: 400 };
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      await reader.cancel().catch(() => {});
+      return { error: "The message is too large.", status: 413 };
+    }
+    chunks.push(value);
+  }
+  const body = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) {
+    body.set(c, at);
+    at += c.byteLength;
+  }
+  try {
+    return { form: await new Response(body, { headers: { "Content-Type": req.headers.get("content-type") ?? "" } }).formData() };
+  } catch {
+    return { error: "The message couldn't be read.", status: 400 };
+  }
+}

@@ -44,6 +44,8 @@ export function sanitizeEmailHtml(html: string): string {
   out = out.replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "");
   // javascript:, vbscript: and data:text/html URLs in any attribute.
   out = out.replace(/(\s(?:href|src|action|formaction|background|poster|xlink:href|srcset)\s*=\s*["']?)\s*(?:javascript|vbscript|data:text\/html|data:application)[^"'\s>]*/gi, "$1#blocked");
+  // Every link opens a new tab without a referrer or a handle back to the dashboard.
+  out = out.replace(/<a\b([^>]*)>/gi, (_m, attrs: string) => `<a${attrs.replace(/\s(?:target|rel)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")} target="_blank" rel="noopener noreferrer">`);
   // CSS expressions / behaviours (old IE) and @import of remote styles.
   out = out.replace(/expression\s*\(/gi, "blocked(").replace(/@import[^;]*;?/gi, "");
   return out;
@@ -56,7 +58,7 @@ export function hasRemoteImages(html: string): boolean {
 
 /** The full document given to the iframe's srcdoc. */
 export function buildSrcdoc(html: string, opts: { showImages: boolean }): string {
-  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${mailCsp(opts.showImages)}"><meta name="referrer" content="no-referrer"><base target="_blank"><style>html{color-scheme:light}body{margin:0;padding:16px;background:#fff;color:#1b1f24;font:14px/1.5 -apple-system,"Segoe UI",Roboto,Arial,sans-serif;overflow-wrap:anywhere}img{max-width:100%;height:auto}table{max-width:100%}pre{white-space:pre-wrap}a{color:#0b62c4}</style></head><body>${sanitizeEmailHtml(html)}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${mailCsp(opts.showImages)}"><meta name="referrer" content="no-referrer"><meta http-equiv="x-dns-prefetch-control" content="off"><base target="_blank"><style>html{color-scheme:light}body{margin:0;padding:16px;background:#fff;color:#1b1f24;font:14px/1.5 -apple-system,"Segoe UI",Roboto,Arial,sans-serif;overflow-wrap:anywhere}img{max-width:100%;height:auto}table{max-width:100%}pre{white-space:pre-wrap}a{color:#0b62c4}</style></head><body>${sanitizeEmailHtml(html)}</body></html>`;
 }
 
 /** Inline images (src="cid:…") replaced with data: URIs of their attachments. */

@@ -147,6 +147,9 @@ export async function listGmailMessages(token: string, o: { folder: string; sear
   return { items, next: res.nextPageToken ?? null };
 }
 
+export const gmailWebLink = (threadId: string, address?: string) =>
+  `https://mail.google.com/mail/u/${address ? `?authuser=${encodeURIComponent(address)}` : "0/"}#all/${encodeURIComponent(threadId)}`;
+
 // ─── One message ─────────────────────────────────────────────────────────────
 
 const b64url = (s: string) => Buffer.from(s, "base64url");
@@ -171,7 +174,8 @@ function decodeText(buf: Buffer, charset: string) {
   }
 }
 
-export async function getGmailMessage(token: string, id: string): Promise<MailMessage> {
+/** `address` picks the right account in the "Open in Gmail" link when several are signed in. */
+export async function getGmailMessage(token: string, id: string, address?: string): Promise<MailMessage> {
   const m = await call<GmailMsg>(token, "GET", `${msgPath(id)}?format=full`);
   let htmlPart: GmailPart | null = null;
   let textPart: GmailPart | null = null;
@@ -212,7 +216,7 @@ export async function getGmailMessage(token: string, id: string): Promise<MailMe
     html,
     text,
     attachments: attachments.filter((a) => a.id),
-    webLink: `https://mail.google.com/mail/u/0/#all/${m.threadId}`,
+    webLink: gmailWebLink(m.threadId, address),
     threadId: m.threadId,
     messageIdHeader: header(p, "Message-ID") || header(p, "Message-Id") || null,
     references: header(p, "References") || null,
