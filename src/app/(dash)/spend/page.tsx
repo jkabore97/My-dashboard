@@ -39,7 +39,7 @@ export default async function SpendPage({ searchParams }: { searchParams: Promis
   const combined = combinedSpend(d, now);
   const counted = subs.filter((s) => !combined.resolution.excludedSubIds.has(s.id));
   const totals = spendTotals(counted);
-  const apiMonthly = sumByCurrency(combined.resolution.included.flatMap((a) => a.amounts));
+  const apiMonthly = sumByCurrency(combined.resolution.included.map((sl) => ({ currency: sl.currency, amount: sl.amount })));
   const monthlyAll = combined.monthly;
   const yearlyAll = sumByCurrency([...totals.yearly, ...apiMonthly.map((a) => ({ currency: a.currency, amount: a.amount * 12 }))]);
   const cur = monthlyAll[0]?.currency ?? "usd";

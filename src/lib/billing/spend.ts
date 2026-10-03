@@ -32,56 +32,97 @@ export const SPEND_CHOICES_KEY = "spend:sources";
 export interface ApiSpend {
   vendor: ApiVendor;
   name: string;
-  /** What one month costs, per currency (never converted). */
+  /** What one month costs on average, per currency (never converted); yearly = 12 × this. */
   amounts: CurrencyAmount[];
-  /** Where the figure comes from, e.g. "invoice of Sep 2026" or "last 30 days". */
+  /** Where the figure comes from, e.g. "avg Nov 2025 – Oct 2026" or "last 30 days". */
   basis: string;
   byBusiness: { business: string | null; currency: string; amount: number }[];
 }
 
 const monthLabel = (ym: string) => new Date(`${ym}-01T00:00:00Z`).toLocaleDateString("en-US", { timeZone: "UTC", month: "short", year: "numeric" });
+const monthIdx = (ym: string) => Number(ym.slice(0, 4)) * 12 + Number(ym.slice(5, 7)) - 1;
+const idxMonth = (i: number) => `${Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, "0")}`;
 
-/** The last month that's over (before today's month), among those with data; the latest one otherwise. */
+/** The last month that's over (before today's month), among those with data. */
 export function lastCompleteMonth(months: string[], today: string): string | null {
   const current = today.slice(0, 7);
   const done = [...new Set(months)].filter((m) => m < current).sort();
   return done.at(-1) ?? null;
 }
 
-function fromRows(vendor: ApiVendor, rows: { month: string; currency: string; amount: number; business: string | null }[], today: string): ApiSpend | null {
-  const month = lastCompleteMonth(rows.map((r) => r.month), today);
-  if (!month) return null;
-  const inMonth = rows.filter((r) => r.month === month);
-  const amounts = sumByCurrency(inMonth.map((r) => ({ currency: r.currency, amount: r.amount }))).filter((a) => a.amount !== 0);
-  if (!amounts.length) return null;
-  return { vendor, name: API_VENDORS[vendor], amounts, basis: monthLabel(month), byBusiness: inMonth.map((r) => ({ business: r.business, currency: r.currency, amount: r.amount })) };
+/** How many months a billing period covers (an annual plan billed once = 12). At least 1. */
+export function periodMonths(start: string | null | undefined, end: string | null | undefined): number {
+  if (!start || !end) return 1;
+  const days = (Date.parse(`${end.slice(0, 10)}T00:00:00Z`) - Date.parse(`${start.slice(0, 10)}T00:00:00Z`)) / 86_400_000 + 1;
+  return Number.isFinite(days) && days > 0 ? Math.max(1, Math.min(36, Math.round(days / 30.44))) : 1;
+}
+
+export interface Charge {
+  /** YYYY-MM the charge is dated (invoice date / usage month). */
+  month: string;
+  amount: number;
+  currency: string;
+  business: string | null;
+  /** Months the charge pays for: 1 for monthly bills and usage, 12 for an annual plan. */
+  periodMonths: number;
 }
 
 /**
- * One month of each billing API's cost: Microsoft's latest invoice month,
- * Google Cloud's and the other platforms' last complete month, Stripe fees
- * over the last 30 days. Only sources whose mode is live count.
+ * A monthly equivalent over the trailing 12 months, so an annual charge is
+ * never counted as one month's cost. Each charge is spread over the months it
+ * pays for (only the part inside the window counts) and the sum is divided by
+ * the months observed (from the first charge in the window). `discrete`
+ * sources (invoices) may count the current month once its bill exists; usage
+ * sources only count complete months.
+ */
+export function monthlyEquivalent(vendor: ApiVendor, charges: Charge[], today: string, discrete: boolean): ApiSpend | null {
+  const cur = monthIdx(today.slice(0, 7));
+  const valid = charges.filter((c) => /^\d{4}-\d{2}/.test(c.month) && c.amount !== 0);
+  if (!valid.length) return null;
+  const latest = Math.max(...valid.map((c) => monthIdx(c.month)));
+  const end = discrete && latest >= cur ? cur : cur - 1;
+  const inWin = valid.filter((c) => monthIdx(c.month) <= end && monthIdx(c.month) > end - 12);
+  if (!inWin.length) return null;
+  const first = Math.min(...inWin.map((c) => monthIdx(c.month)));
+  const observed = end - first + 1;
+  const per = new Map<string, { business: string | null; currency: string; amount: number }>();
+  for (const c of inWin) {
+    const p = Math.max(1, Math.round(c.periodMonths || 1));
+    const share = (c.amount * Math.min(p, end - monthIdx(c.month) + 1)) / p;
+    const k = `${c.business ?? ""}\u0000${c.currency}`;
+    const prev = per.get(k) ?? { business: c.business, currency: c.currency, amount: 0 };
+    prev.amount += share;
+    per.set(k, prev);
+  }
+  const byBusiness = [...per.values()].map((x) => ({ ...x, amount: Math.round(x.amount / observed) })).filter((x) => x.amount !== 0);
+  const amounts = sumByCurrency(byBusiness.map((x) => ({ currency: x.currency, amount: x.amount })));
+  if (!amounts.length) return null;
+  const spread = inWin.some((c) => c.periodMonths > 1);
+  const basis = `${observed === 1 ? monthLabel(idxMonth(end)) : `avg ${monthLabel(idxMonth(first))} – ${monthLabel(idxMonth(end))}`}${spread ? " · annual charges ÷ 12" : ""}`;
+  return { vendor, name: API_VENDORS[vendor], amounts, basis, byBusiness };
+}
+
+/**
+ * Each billing API's monthly equivalent (trailing 12 months): Microsoft
+ * invoices spread over their billing periods, Google Cloud and usage-based
+ * platforms over complete months, Stripe fees over the last 30 days. Only
+ * sources whose mode is live count.
  */
 export function apiSpend(b: Bills, stripe: StripeAccountSummary[], today: string, live: { microsoft: boolean; google: boolean; platforms: boolean; stripe: boolean }): ApiSpend[] {
   const out: ApiSpend[] = [];
+  const push = (x: ApiSpend | null) => x && out.push(x);
   if (live.microsoft) {
     const inv = b.microsoft.billing.invoices.filter((i) => i.totalMinor !== null && i.currency && i.date && i.status !== "void");
-    const latest = inv.map((i) => i.date!.slice(0, 7)).sort().at(-1);
-    if (latest) {
-      const rows = inv.filter((i) => i.date!.startsWith(latest));
-      const amounts = sumByCurrency(rows.map((i) => ({ currency: i.currency!, amount: i.totalMinor! }))).filter((a) => a.amount !== 0);
-      if (amounts.length) out.push({ vendor: "microsoft", name: API_VENDORS.microsoft, amounts, basis: `invoice of ${monthLabel(latest)}`, byBusiness: rows.map((i) => ({ business: i.business, currency: i.currency!, amount: i.totalMinor! })) });
-    }
+    push(monthlyEquivalent("microsoft", inv.map((i) => ({ month: i.date!.slice(0, 7), amount: i.totalMinor!, currency: i.currency!, business: i.business, periodMonths: periodMonths(i.periodStart, i.periodEnd) })), today, true));
   }
   if (live.google) {
-    const g = fromRows("google-cloud", b.google.costs.map((r) => ({ month: r.month, currency: r.currency, amount: r.netMinor, business: r.business })), today);
-    if (g) out.push(g);
+    push(monthlyEquivalent("google-cloud", b.google.costs.map((r) => ({ month: r.month, amount: r.netMinor, currency: r.currency, business: r.business, periodMonths: 1 })), today, false));
   }
   if (live.platforms) {
     for (const p of b.platforms) {
       if (p.status !== "ok" || !isApiVendor(p.platform)) continue;
-      const s = fromRows(p.platform, p.charges.map((c) => ({ month: c.date.slice(0, 7), currency: c.currency, amount: c.amountMinor, business: c.business })), today);
-      if (s) out.push(s);
+      // Cloudflare's history lists invoices; the others report usage that accrues through the month.
+      push(monthlyEquivalent(p.platform, p.charges.map((c) => ({ month: c.date.slice(0, 7), amount: c.amountMinor, currency: c.currency, business: c.business, periodMonths: c.periodMonths ?? 1 })), today, p.platform === "cloudflare"));
     }
   }
   if (live.stripe) {
@@ -94,32 +135,73 @@ export function apiSpend(b: Bills, stripe: StripeAccountSummary[], today: string
 
 type Sub = Pick<Subscription, "id" | "vendor" | "business" | "amountMinor" | "currency" | "interval" | "active">;
 
-export interface SpendResolution {
-  /** API figures that count in the totals. */
-  included: ApiSpend[];
-  /** Manual entries left out because the owner chose the billing API for their vendor. */
-  excludedSubIds: Set<string>;
-  vendors: { vendor: ApiVendor; name: string; hasManual: boolean; choice: SpendChoice; included: boolean }[];
+/** One business's share of a billing API's monthly figure. */
+export interface ApiSlice {
+  vendor: ApiVendor;
+  name: string;
+  business: string | null;
+  currency: string;
+  amount: number;
 }
 
+export interface VendorResolution {
+  vendor: ApiVendor;
+  name: string;
+  /** Your entries for this vendor that cover the same business as an API amount. */
+  hasManual: boolean;
+  choice: SpendChoice;
+  /** Businesses where your entry and the API overlap (null = unassigned). */
+  overlap: (string | null)[];
+  /** API amounts that count. */
+  counted: CurrencyAmount[];
+  /** API amounts left out because your entry is used for that business. */
+  leftOutApi: CurrencyAmount[];
+  /** Your entries left out because the billing API is used for their business. */
+  leftOutEntries: { id: string; vendor: string; business: string | null }[];
+}
+
+export interface SpendResolution {
+  /** API amounts (per business) that count in the totals. */
+  included: ApiSlice[];
+  /** Manual entries left out because the owner chose the billing API for their vendor and business. */
+  excludedSubIds: Set<string>;
+  vendors: VendorResolution[];
+}
+
+/** An entry or an API amount without a business could be any business's, so it overlaps every one. */
+const sameBusiness = (a: string | null, b: string | null) => a === null || b === null || a === b;
+
 /**
- * The no-double-count rule. A billing API's amount counts only when there's
- * no active manual subscription for the same vendor, unless the owner picked
- * "Use billing API" for it: then the API counts and those entries don't.
+ * The no-double-count rule, per vendor AND business. An API amount for a
+ * business counts unless you have an active entry for the same vendor and
+ * business; then your entry counts, unless you picked "Use billing API" for
+ * that vendor: then the API counts and those overlapping entries don't. API
+ * amounts for businesses your entries don't cover always count.
  */
 export function resolveSpend(subs: Sub[], api: ApiSpend[], choices: SpendChoices): SpendResolution {
   const excluded = new Set<string>();
-  const included: ApiSpend[] = [];
-  const vendors: SpendResolution["vendors"] = [];
+  const included: ApiSlice[] = [];
+  const vendors: VendorResolution[] = [];
   for (const a of api) {
     const manual = subs.filter((s) => s.active && vendorKey(s.vendor) === a.vendor);
-    const choice: SpendChoice = manual.length ? (choices[a.vendor] ?? "manual") : "api";
-    const use = choice === "api";
-    if (use) {
-      included.push(a);
-      for (const s of manual) excluded.add(s.id);
-    }
-    vendors.push({ vendor: a.vendor, name: a.name, hasManual: manual.length > 0, choice, included: use });
+    const slices = a.byBusiness.map((x) => ({ vendor: a.vendor, name: a.name, business: x.business, currency: x.currency, amount: x.amount }));
+    const overlapped = (sl: ApiSlice) => manual.some((s) => sameBusiness(s.business, sl.business));
+    const overlapEntries = manual.filter((s) => slices.some((sl) => sameBusiness(s.business, sl.business)));
+    const hasManual = overlapEntries.length > 0;
+    const choice: SpendChoice = hasManual ? (choices[a.vendor] ?? "manual") : "api";
+    const counted = choice === "api" ? slices : slices.filter((sl) => !overlapped(sl));
+    included.push(...counted);
+    if (choice === "api") for (const s of overlapEntries) excluded.add(s.id);
+    vendors.push({
+      vendor: a.vendor,
+      name: a.name,
+      hasManual,
+      choice,
+      overlap: [...new Set(slices.filter(overlapped).map((sl) => sl.business))],
+      counted: sumByCurrency(counted.map((sl) => ({ currency: sl.currency, amount: sl.amount }))),
+      leftOutApi: choice === "api" ? [] : sumByCurrency(slices.filter(overlapped).map((sl) => ({ currency: sl.currency, amount: sl.amount }))),
+      leftOutEntries: choice === "api" ? overlapEntries.map((s) => ({ id: s.id, vendor: s.vendor, business: s.business })) : [],
+    });
   }
   return { included, excludedSubIds: excluded, vendors };
 }
@@ -133,21 +215,18 @@ export interface MonthlyLine {
   source: "manual" | "api";
 }
 
-/** Every line that makes up the monthly total: manual entries (minus overridden ones) plus included API figures. */
+/** Every line that makes up the monthly total: manual entries (minus overridden ones) plus included API amounts. */
 export function monthlyLines(subs: Sub[], r: SpendResolution): MonthlyLine[] {
   const manual = subs
     .filter((s) => s.active && !r.excludedSubIds.has(s.id))
     .map((s) => ({ id: s.id, vendor: s.vendor, business: s.business, monthly: Math.round(toMonthly(s.amountMinor, s.interval)), currency: s.currency, source: "manual" as const }));
-  const api = r.included.flatMap((a) => {
-    const per = new Map<string, MonthlyLine>();
-    for (const x of a.byBusiness) {
-      const k = `${x.business ?? ""}:${x.currency}`;
-      const prev = per.get(k);
-      per.set(k, { id: `api:${a.vendor}:${k}`, vendor: a.name, business: x.business, monthly: (prev?.monthly ?? 0) + x.amount, currency: x.currency, source: "api" });
-    }
-    return [...per.values()].filter((l) => l.monthly !== 0);
-  });
-  return [...manual, ...api];
+  const api = new Map<string, MonthlyLine>();
+  for (const sl of r.included) {
+    const k = `${sl.vendor}:${sl.business ?? ""}:${sl.currency}`;
+    const prev = api.get(k);
+    api.set(k, { id: `api:${k}`, vendor: sl.name, business: sl.business, monthly: (prev?.monthly ?? 0) + sl.amount, currency: sl.currency, source: "api" });
+  }
+  return [...manual, ...[...api.values()].filter((l) => l.monthly !== 0)];
 }
 
 export const monthlyTotal = (lines: MonthlyLine[]) => sumByCurrency(lines.map((l) => ({ currency: l.currency, amount: l.monthly })));
@@ -168,6 +247,7 @@ export const emptyBills = (): Bills => ({
   google: { serviceAccount: null, billingAccounts: [], projects: [], costs: [], export: { table: null, status: null, error: null, checkedAt: null } },
   platforms: [],
   email: [],
+  pending: [],
 });
 
 /**
@@ -186,6 +266,7 @@ export function scopeBills(b: Bills, a: Access): Bills {
     google: { ...e.google, projects: b.google.projects.filter((p) => mine(p.business)), costs: b.google.costs.filter((c) => mine(c.business)), export: { ...e.google.export, status: b.google.export.status, checkedAt: b.google.export.checkedAt } },
     platforms: b.platforms.map((p): PlatformBilling => ({ ...p, message: null, plan: null, charges: p.charges.filter((c) => mine(c.business)) })),
     email: b.email.filter((x) => mine(x.business)),
+    pending: b.pending ?? [],
   };
 }
 

@@ -10,7 +10,9 @@ import { getUser } from "@/lib/server/store/users";
 import { env } from "@/lib/source";
 import { MS_SCOPES, msClient, msTenant } from "@/lib/server/microsoft";
 import { decodeJwtPayload, msIdentity, ownMicrosoftAccount } from "@/lib/server/ms-identity";
-import { ARM_SCOPE, GRAPH_ADMIN_SCOPES, msAdminAuthorizeUrl, msTokenUrl, redeemRefreshToken } from "@/lib/server/msadmin";
+import { ARM_SCOPE, GRAPH_ADMIN_SCOPES, msAdminAuthorizeUrl, msTokenUrl, redeemRefreshToken, sameMsAccount } from "@/lib/server/msadmin";
+import { billingCachesFor } from "@/lib/server/billing-refresh";
+import { clearSlowCaches } from "@/lib/server/slow-cache";
 import { armTokenMessage } from "@/lib/billing/microsoft";
 
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -47,6 +49,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ provider: strin
       const r = await connectMsAdmin(code, redirectUri);
       if ("error" in r) return back(`error=${encodeURIComponent(r.error)}`);
       await auditConnection(user.email, provider, r.account, "oauth", r.replaced);
+      // Reconnecting (e.g. after granting a billing role) re-reads Microsoft billing; nothing else.
+      await clearSlowCaches(billingCachesFor("msadmin")).catch(() => {});
       revalidatePath("/", "layout");
       await invalidateExternal();
       // Billing wasn't consented with the first sign-in: ask for it now, automatically.
@@ -227,9 +231,10 @@ async function msAdminBillingStep(url: URL, redirectUri: string, user: CurrentUs
   const id = msClaimsIdentity(t.id_token);
   if ("error" in id) return back(`error=${encodeURIComponent(id.error)}`);
   const stored = (await listConnections<{ refreshToken: string }>("msadmin")).filter((c) => !c.ownerEmail).at(-1);
-  if (!stored || stored.account !== id.email) return back(`error=${encodeURIComponent(`Approve billing with the same admin account${stored ? ` (${stored.account})` : ""}.`)}`);
+  if (!stored || !sameMsAccount(stored.meta, id)) return back(`error=${encodeURIComponent(`Approve billing with the same admin account${stored ? ` (${stored.account})` : ""}.`)}`);
   await saveConnection({ provider: "msadmin", account: stored.account, secret: { refreshToken: t.refresh_token }, meta: { ...stored.meta, arm: "ok" } });
   await auditConnection(user.email, "msadmin", `${stored.account} (billing)`, "oauth", []);
+  await clearSlowCaches(billingCachesFor("msadmin")).catch(() => {});
   revalidatePath("/", "layout");
   await invalidateExternal();
   return back(`connected=${encodeURIComponent("Microsoft 365 admin with billing")}`);

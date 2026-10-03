@@ -1,5 +1,6 @@
 import { createHash, sign } from "node:crypto";
 import { GCP_SCOPES, type ServiceAccountKey } from "../billing/google";
+import { callSignal } from "../source";
 
 // Google Cloud with a service-account key: a self-signed RS256 JWT is
 // exchanged at Google's token endpoint for a one-hour access token
@@ -26,6 +27,7 @@ export async function exchangeJwt(assertion: string): Promise<{ accessToken: str
     headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
     body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion }),
     cache: "no-store",
+    signal: callSignal(10_000),
   });
   const t = (await res.json().catch(() => ({}))) as { access_token?: string; expires_in?: number; error?: string; error_description?: string };
   if (!res.ok || !t.access_token) {
@@ -55,12 +57,13 @@ export class GcpApiError extends Error {
 }
 
 /** Authorized JSON call to a Google Cloud API. */
-export async function gcpApi<T>(token: string, url: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
+export async function gcpApi<T>(token: string, url: string, init: { method?: string; body?: unknown; signal?: AbortSignal; timeoutMs?: number } = {}): Promise<T> {
   const res = await fetch(url, {
     method: init.method ?? "GET",
     headers: { Authorization: `Bearer ${token}`, Accept: "application/json", ...(init.body ? { "Content-Type": "application/json" } : {}) },
     ...(init.body ? { body: JSON.stringify(init.body) } : {}),
     cache: "no-store",
+    signal: callSignal(init.timeoutMs ?? 10_000, init.signal),
   });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: { message?: string } };

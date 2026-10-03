@@ -61,3 +61,6 @@ export function env(name: string): string | undefined {
   const v = process.env[name];
   return v && v.trim() ? v.trim() : undefined;
 }
+
+/** An abort signal for one outbound call: `ms` at most, and never past `outer` (a whole job's deadline). */
+export const callSignal = (ms = 10_000, outer?: AbortSignal) => (outer ? AbortSignal.any([outer, AbortSignal.timeout(ms)]) : AbortSignal.timeout(ms));

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { env } from "../source";
+import { callSignal, env } from "../source";
 import { updateConnectionSecret } from "./store/connections";
 
 // Microsoft 365 (Outlook mail + calendar) through Microsoft Graph. Refresh
@@ -50,10 +50,12 @@ async function refresh(key: string, account: { account: string; refreshToken: st
   return t.access_token;
 }
 
-export async function graph<T>(token: string, path: string, headers: Record<string, string> = {}): Promise<T> {
+export async function graph<T>(token: string, path: string, headers: Record<string, string> = {}, signal?: AbortSignal): Promise<T> {
   const res = await fetch(`https://graph.microsoft.com/v1.0${path}`, {
     headers: { Authorization: `Bearer ${token}`, Accept: "application/json", ...headers },
     cache: "no-store",
+    // A slow mailbox or admin API never holds a refresh for long.
+    signal: callSignal(15_000, signal),
   });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: { message?: string } };

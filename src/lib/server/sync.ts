@@ -11,6 +11,7 @@ import { runAlertsSafe } from "./alerts/run";
 import { sendScheduledReports } from "./reports";
 import { triagePending } from "./triage";
 import { errorMessage } from "../source";
+import { claimBillingRefresh, refreshBilling } from "./billing-refresh";
 
 const PAGE_SYNC_SECONDS = 60;
 
@@ -116,6 +117,7 @@ async function recordWebsite(w: Website) {
 // when at least 20 s remain.
 const DOMAIN_BUDGET_MS = 35_000;
 const TRIAGE_LATEST_START_MS = 40_000;
+const BILLING_DEADLINE_MS = 30_000;
 
 /** Cron entry point: sync, then notifications, then the slow optional work. */
 export async function runScheduledChecks() {
@@ -123,12 +125,16 @@ export async function runScheduledChecks() {
   // Cron looks at the platforms afresh (without emptying the shared copy),
   // unless the 5-minute tick just did: then the saved copy is fresh already.
   if (await claimRefetch()) refetchExternal();
+  // This run refreshes billing itself, after alerts (see below).
+  const billingClaimed = await claimBillingRefresh();
   const c = await collect();
   await persist(c, { force: true, alerts: false });
   // Alerts and the brief come right after the sync, before anything slow can
   // use up the time limit. They never fail the run.
   const alerts = await runAlertsSafe();
   const reports = await sendScheduledReports(c).catch((err) => (console.error(`[reports] ${errorMessage(err)}`), [] as string[]));
+  // Billing (Azure invoices, BigQuery, other platforms, mailbox search): its own step, capped.
+  const bills = billingClaimed ? await refreshBilling({ deadline: started + BILLING_DEADLINE_MS }).catch((err) => (console.error(`[billing] ${errorMessage(err)}`), [] as string[])) : [];
   // Domain checks hit RDAP/DNS/TLS within the remaining budget; whatever is
   // left waits for the next run.
   const { domains, dkimSelectors } = await getConfig();
@@ -149,5 +155,6 @@ export async function runScheduledChecks() {
     triaged,
     alerts,
     reports,
+    bills,
   };
 }

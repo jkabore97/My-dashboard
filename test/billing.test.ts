@@ -10,7 +10,11 @@ import { armTokenMessage, billingErrorMessage, licenceWaste, parseBillingAccount
 import { fetchMsBilling } from "@/lib/connectors/msadmin";
 import { forgetMsAdminTokens } from "@/lib/server/msadmin";
 import { amountsIn, detectBill, detectBills, vendorKey } from "@/lib/billing/email";
-import { apiSpend, billingUnobserved, combinedSpend, deriveBillingTasks, emptyBills, lastCompleteMonth, monthlyLines, monthlyTotal, resolveSpend, scopeBills, type ApiSpend } from "@/lib/billing/spend";
+import { apiSpend, billingUnobserved, combinedSpend, deriveBillingTasks, emptyBills, lastCompleteMonth, monthlyEquivalent, monthlyLines, monthlyTotal, periodMonths, resolveSpend, scopeBills, type ApiSpend } from "@/lib/billing/spend";
+import { BILLING_KEYS, billingCachesFor, claimBillingRefresh, readBilling, refreshBilling } from "@/lib/server/billing-refresh";
+import { sameMsAccount } from "@/lib/server/msadmin";
+import { mergeBillEmails, searchBillEmails } from "@/lib/connectors/billmail";
+import { senderAuth } from "@/lib/billing/email";
 import { parseAnthropicCost, parseCloudflareHistory, parseCloudflareSubscriptions, parseGithubUsage, parseVercelCharges, supabasePlans, vercelPlan } from "@/lib/billing/platforms";
 import { cloudflareBilling, githubBilling, vercelBilling } from "@/lib/connectors/platform-billing";
 import { billCoverage } from "@/lib/billing/coverage";
@@ -20,7 +24,7 @@ import type { Bills, GcpCostRow, MsAdminData } from "@/lib/billing/types";
 import type { EmailMessage, StripeAccountSummary } from "@/lib/types";
 import { getDb, pgliteDb, useDb } from "@/lib/server/db";
 import { listConnectionSummaries, saveConnection } from "@/lib/server/store/connections";
-import { clearSlowCaches, slowCached } from "@/lib/server/slow-cache";
+import { clearSlowCaches, readSlow, slowCached } from "@/lib/server/slow-cache";
 import { collect, forgetExternalMemory } from "@/lib/aggregate";
 import { persist } from "@/lib/server/sync";
 import { listTasks } from "@/lib/server/store/tasks";
@@ -457,35 +461,64 @@ describe("platform billing parsers", () => {
 const sub = (o: { id: string; vendor: string; amountMinor?: number; currency?: string; interval?: "month" | "year"; active?: boolean; business?: string | null }) => ({ amountMinor: 1000, currency: "usd", interval: "month" as const, active: true, business: null, ...o });
 const api = (vendor: ApiSpend["vendor"], amount: number, business: string | null = null): ApiSpend => ({ vendor, name: vendor, amounts: [{ currency: "usd", amount }], basis: "test", byBusiness: [{ business, currency: "usd", amount }] });
 
-describe("double-count rule", () => {
-  it("counts a billing API only when there's no manual entry for that vendor, unless the owner picks the API", () => {
-    const subs = [sub({ id: "m365", vendor: "Microsoft 365 Business Standard", amountMinor: 12500 }), sub({ id: "gh", vendor: "GitHub", amountMinor: 400 }), sub({ id: "old", vendor: "Azure", active: false })];
-    const apis = [api("microsoft", 11250), api("google-cloud", 3000), api("github", 1000)];
+describe("double-count rule (per vendor and business)", () => {
+  it("counts a billing API only where no entry covers the same vendor and business, unless the owner picks the API", () => {
+    const subs = [sub({ id: "m365", vendor: "Microsoft 365 Business Standard", amountMinor: 12500, business: "Kaj Store" }), sub({ id: "gh", vendor: "GitHub", amountMinor: 400 }), sub({ id: "old", vendor: "Azure", active: false, business: "Kaj Store" })];
+    const ms2: ApiSpend = { vendor: "microsoft", name: "Microsoft", amounts: [{ currency: "usd", amount: 15000 }], basis: "t", byBusiness: [{ business: "Kaj Store", currency: "usd", amount: 11250 }, { business: "Kaj Consulting", currency: "usd", amount: 3750 }] };
+    const apis = [ms2, api("google-cloud", 3000), api("github", 1000)];
 
     const auto = resolveSpend(subs, apis, {});
-    expect(auto.included.map((a) => a.vendor)).toEqual(["google-cloud"]);
+    // Kaj Store: your entry counts; Kaj Consulting's Microsoft bill still counts. GitHub's entry (no business) covers its API amount.
+    expect(auto.included.map((sl) => [sl.vendor, sl.business, sl.amount])).toEqual([["microsoft", "Kaj Consulting", 3750], ["google-cloud", null, 3000]]);
     expect(auto.excludedSubIds.size).toBe(0);
-    expect(monthlyTotal(monthlyLines(subs, auto))).toEqual([{ currency: "usd", amount: 12500 + 400 + 3000 }]);
-    expect(auto.vendors.find((v) => v.vendor === "microsoft")).toMatchObject({ hasManual: true, choice: "manual", included: false });
+    expect(monthlyTotal(monthlyLines(subs, auto))).toEqual([{ currency: "usd", amount: 12500 + 400 + 3750 + 3000 }]);
+    expect(auto.vendors.find((v) => v.vendor === "microsoft")).toMatchObject({ hasManual: true, choice: "manual", overlap: ["Kaj Store"], leftOutApi: [{ currency: "usd", amount: 11250 }], counted: [{ currency: "usd", amount: 3750 }] });
 
     const picked = resolveSpend(subs, apis, { microsoft: "api" });
-    expect(picked.included.map((a) => a.vendor).sort()).toEqual(["google-cloud", "microsoft"]);
     expect([...picked.excludedSubIds]).toEqual(["m365"]);
-    expect(monthlyTotal(monthlyLines(subs, picked))).toEqual([{ currency: "usd", amount: 11250 + 400 + 3000 }]);
+    expect(picked.vendors.find((v) => v.vendor === "microsoft")!.leftOutEntries).toEqual([{ id: "m365", vendor: "Microsoft 365 Business Standard", business: "Kaj Store" }]);
+    expect(monthlyTotal(monthlyLines(subs, picked))).toEqual([{ currency: "usd", amount: 400 + 15000 + 3000 }]);
 
+    // An entry for another business doesn't hide this business's API amount.
+    const other = resolveSpend([sub({ id: "x", vendor: "Microsoft 365", business: "Kaj Bookings" })], [api("microsoft", 5000, "Kaj Store")], {});
+    expect(other.included).toHaveLength(1);
+    expect(other.vendors[0].hasManual).toBe(false);
     // A stored "manual" choice for a vendor with no entry doesn't hide the API.
     expect(resolveSpend([], [api("microsoft", 11250)], { microsoft: "manual" }).included).toHaveLength(1);
   });
 
-  it("takes Microsoft's latest invoice month and the last complete month elsewhere; only live sources", () => {
+  it("spreads annual charges over 12 months (never counts one as a month), from billing periods", () => {
+    const today = "2026-10-03";
+    expect(periodMonths("2026-09-01", "2027-08-31")).toBe(12);
+    expect(periodMonths("2026-08-05", "2026-09-04")).toBe(1);
+    expect(periodMonths(null, null)).toBe(1);
+    // A Microsoft annual plan invoiced once in September: $1,200 → $100/mo, yearly $1,200.
+    const annual = monthlyEquivalent("microsoft", [{ month: "2026-09", amount: 120_000, currency: "usd", business: null, periodMonths: 12 }], today, true)!;
+    expect(annual.amounts).toEqual([{ currency: "usd", amount: 10_000 }]);
+    expect(annual.basis).toMatch(/annual charges ÷ 12/);
+    // Monthly invoices for 12 months plus a domain renewal once a year.
+    const months = ["2025-10", "2025-11", "2025-12", "2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09"];
+    const monthly = months.map((month) => ({ month, amount: 500, currency: "usd", business: null, periodMonths: 1 }));
+    const cf = monthlyEquivalent("cloudflare", [...monthly, { month: "2026-03", amount: 1200, currency: "usd", business: null, periodMonths: 12 }], today, true)!;
+    // Window Oct 2025 – Sep 2026 (October's bill isn't in yet): 12 × $5, plus the 7 months of the $12 renewal inside it, over 12 months.
+    expect(cf.amounts[0].amount).toBe(Math.round((500 * 12 + (1200 * 7) / 12) / 12));
+    expect(cf.amounts[0].amount * 12).toBeLessThan(500 * 12 + 1200 + 12); // yearly = 12 × monthly, never 12 × an annual charge
+    // Usage sources only count complete months; a single month of usage is that month.
+    expect(monthlyEquivalent("google-cloud", [{ month: "2026-10", amount: 500, currency: "usd", business: null, periodMonths: 1 }], today, false)).toBeNull();
+    expect(monthlyEquivalent("google-cloud", [{ month: "2026-09", amount: 2000, currency: "usd", business: null, periodMonths: 1 }], today, false)!.amounts).toEqual([{ currency: "usd", amount: 2000 }]);
+    // Cloudflare registrar renewals and yearly plans are annual charges.
+    const hist = parseCloudflareHistory([{ id: "r", type: "charge", description: "Registrar renewal kaj.com", occurred_at: "2026-09-01T00:00:00Z", amount: 10.44, currency: "USD" }, { id: "p", type: "charge", description: "Pro Plan", occurred_at: "2026-09-01T00:00:00Z", amount: 240, currency: "USD" }, { id: "w", type: "charge", description: "Workers Paid", occurred_at: "2026-09-02T00:00:00Z", amount: 5, currency: "USD" }], () => null, ["Pro Plan"]);
+    expect(hist.map((h) => h.periodMonths)).toEqual([12, 12, 1]);
+  });
+
+  it("uses the same monthly equivalent everywhere; only live sources; e-mails never count", () => {
     const today = "2026-10-03";
     expect(lastCompleteMonth(["2026-10", "2026-08", "2026-09"], today)).toBe("2026-09");
-    expect(lastCompleteMonth(["2026-10"], today)).toBeNull();
     const b: Bills = {
       ...emptyBills(),
       microsoft: ms({ billing: { ...emptyBills().microsoft.billing, invoices: parseInvoices("a", [
-        { name: "G2", properties: { invoiceDate: "2026-09-05", status: "Due", totalAmount: { currency: "USD", value: 112.5 }, billingProfileDisplayName: "Kaj Store" } },
-        { name: "G1", properties: { invoiceDate: "2026-08-05", status: "Paid", totalAmount: { currency: "USD", value: 98.4 } } },
+        { name: "G2", properties: { invoiceDate: "2026-09-05", invoicePeriodStartDate: "2026-08-05", invoicePeriodEndDate: "2026-09-04", status: "Due", totalAmount: { currency: "USD", value: 112.5 }, billingProfileDisplayName: "Kaj Store" } },
+        { name: "G1", properties: { invoiceDate: "2026-08-05", invoicePeriodStartDate: "2026-07-05", invoicePeriodEndDate: "2026-08-04", status: "Paid", totalAmount: { currency: "USD", value: 98.4 } } },
       ], today, () => "Kaj Store") } }),
       google: { ...emptyBills().google, costs: [
         { month: "2026-10", projectId: "p", projectName: "p", service: "Run", currency: "usd", costMinor: 500, creditsMinor: 0, netMinor: 500, business: null },
@@ -495,17 +528,12 @@ describe("double-count rule", () => {
     };
     const stripe = [{ id: "acct", business: "Kaj Store", livemode: true, revenue: [{ currency: "usd", gross: 100000, refunds: 0, fees: 3200, net: 96800 }] }] as unknown as StripeAccountSummary[];
     const all = apiSpend(b, stripe, today, { microsoft: true, google: true, platforms: true, stripe: true });
-    expect(all.map((a) => [a.vendor, a.amounts[0].amount, a.basis])).toEqual([
-      ["microsoft", 11250, "invoice of Sep 2026"],
-      ["google-cloud", 2000, "Sep 2026"],
-      ["cloudflare", 500, "Sep 2026"],
-      ["stripe", 3200, "last 30 days"],
-    ]);
+    // Microsoft: Aug and Sep invoices over the months observed (Aug–Oct, Oct's not issued yet → Aug–Sep).
+    expect(all.map((a) => [a.vendor, a.amounts[0].amount])).toEqual([["microsoft", Math.round((11250 + 9840) / 2)], ["google-cloud", 2000], ["cloudflare", 500], ["stripe", 3200]]);
     expect(apiSpend(b, stripe, today, { microsoft: false, google: false, platforms: false, stripe: false })).toEqual([]);
-    // Detected e-mails never count, tracked or not.
-    const withMail = { ...b, email: [{ id: "e", vendor: "Resend", vendorKey: "resend", amountMinor: 2000, currency: "usd", date: "2026-09-30", interval: "month" as const, subject: "", account: "", business: null, url: null }] };
+    const withMail = { ...b, email: [{ id: "e", vendor: "Resend", vendorKey: "resend", amountMinor: 2000, currency: "usd", date: "2026-09-30", interval: "month" as const, verified: true, subject: "", account: "", business: null, url: null }] };
     const total = combinedSpend({ records: { subscriptions: [] }, bills: withMail, stripe, modes: { msadmin: "live", gcloud: "live", billing: "live", stripe: "live" } }, today);
-    expect(total.monthly).toEqual([{ currency: "usd", amount: 11250 + 2000 + 500 + 3200 }]);
+    expect(total.monthly).toEqual([{ currency: "usd", amount: Math.round((11250 + 9840) / 2) + 2000 + 500 + 3200 }]);
   });
 });
 
@@ -523,7 +551,8 @@ describe("billing access scoping", () => {
       { month: "2026-09", projectId: null, projectName: null, service: "Support", currency: "usd", costMinor: 1, creditsMinor: 0, netMinor: 1, business: null },
     ], export: { table: "p.d.t", status: "ok", error: null, checkedAt: null } },
     platforms: [{ platform: "github", vendor: "GitHub", status: "ok", message: "fix it", plan: "pro", checkedAt: null, charges: [{ id: "g", date: "2026-09-01", description: "Copilot", amountMinor: 1, currency: "usd", business: null }] }],
-    email: [{ id: "e1", vendor: "Resend", vendorKey: "resend", amountMinor: 1, currency: "usd", date: "2026-09-01", interval: "month", subject: "s", account: "Store", business: "Kaj Store", url: null }, { id: "e2", vendor: "Zoom", vendorKey: "zoom", amountMinor: 1, currency: "usd", date: "2026-09-01", interval: "month", subject: "s", account: "x", business: null, url: null }],
+    email: [{ id: "e1", vendor: "Resend", vendorKey: "resend", amountMinor: 1, currency: "usd", date: "2026-09-01", interval: "month", verified: true, subject: "s", account: "Store", business: "Kaj Store", url: null }, { id: "e2", vendor: "Zoom", vendorKey: "zoom", amountMinor: 1, currency: "usd", date: "2026-09-01", interval: "month", verified: true, subject: "s", account: "x", business: null, url: null }],
+    pending: [],
   };
 
   it("a full owner sees everything", () => {
@@ -565,7 +594,7 @@ describe("billing access scoping", () => {
   it("bill coverage lists each connected platform with how its bill is known", () => {
     const rows = billCoverage({
       connected: [{ id: "microsoft", mode: "live" }, { id: "msadmin", mode: "live" }, { id: "cloudflare", mode: "live" }, { id: "github", mode: "live" }, { id: "gmail", mode: "live" }, { id: "websites", mode: "live" }, { id: "resend", mode: "live" }],
-      bills: { ...emptyBills(), platforms: [{ platform: "cloudflare", vendor: "Cloudflare", status: "permission", message: "Add \"Billing: Read\" to the Cloudflare API token to read invoices.", plan: null, charges: [], checkedAt: null }], email: [{ id: "e", vendor: "Resend", vendorKey: "resend", amountMinor: 1, currency: "usd", date: "2026-09-30", interval: "month", subject: "", account: "", business: null, url: null }] },
+      bills: { ...emptyBills(), platforms: [{ platform: "cloudflare", vendor: "Cloudflare", status: "permission", message: "Add \"Billing: Read\" to the Cloudflare API token to read invoices.", plan: null, charges: [], checkedAt: null }], email: [{ id: "e", vendor: "Resend", vendorKey: "resend", amountMinor: 1, currency: "usd", date: "2026-09-30", interval: "month", verified: true, subject: "", account: "", business: null, url: null }] },
       api: [api("github", 1000)],
       subs: [{ vendor: "Microsoft 365", active: true }],
     });
@@ -587,6 +616,8 @@ describe("billing end to end (PGlite)", () => {
     vi.stubEnv("MS_TENANT_ID", "kaj.onmicrosoft.com");
     vi.stubEnv("BUSINESS_TIMEZONE", "UTC");
     vi.stubEnv("SAMPLE_DATA", "off");
+    // Only the connections made in each test (no platform tokens from the environment).
+    for (const k of ["GITHUB_TOKEN", "VERCEL_TOKEN", "SUPABASE_ACCESS_TOKEN", "CLOUDFLARE_API_TOKEN", "ANTHROPIC_ADMIN_KEY", "GMAIL_ACCOUNTS", "GOOGLE_CLIENT_ID"]) vi.stubEnv(k, "");
     const db = await getDb();
     await db.exec("truncate tasks, task_activity, events, connections, settings, audit_log cascade");
     forgetExternalMemory();
@@ -602,8 +633,16 @@ describe("billing end to end (PGlite)", () => {
     const db = await getDb();
     const [row] = await db.query<{ value: { data: string } }>("select value from settings where key = 'cache:slow:t'");
     expect(JSON.stringify(row.value)).not.toContain('"b"'); // inputs are hashed, data encrypted
-    await clearSlowCaches();
+    await clearSlowCaches(["other"]);
+    expect(await slowCached("t", ["b"], async () => ++n, () => 60_000)).toBe(2); // only the named caches go
+    await clearSlowCaches(["t"]);
     expect(await slowCached("t", ["b"], async () => ++n, () => 60_000)).toBe(3);
+    // Which caches a connection change clears: only that platform's; personal mailboxes none.
+    expect(billingCachesFor("msadmin")).toEqual([BILLING_KEYS.microsoft]);
+    expect(billingCachesFor("gcloud")).toEqual([BILLING_KEYS.google]);
+    expect(billingCachesFor("cloudflare")).toEqual([BILLING_KEYS.platforms]);
+    expect(billingCachesFor("microsoft", true)).toEqual([]);
+    expect(billingCachesFor("hikvision")).toEqual([]);
   });
 
   it("stores the Google Cloud key encrypted and shows only the export table", async () => {
@@ -634,21 +673,115 @@ describe("billing end to end (PGlite)", () => {
       if (url.includes("/organization")) return json({ value: [{ displayName: "Kaj" }] });
       if (url.includes("management.azure.com")) return json({ value: [] });
       // Each mailbox's own messages: the personal one would detect too, if it were ever read.
-      if (url.includes("/me/mailFolders/inbox/messages") || url.includes("/me/messages?")) return json({ value: [invoiceMail(auth.includes("rt-bro") ? "BRO1" : "OFF1")] });
+      if (url.includes("/me/mailFolders/inbox/messages")) return json({ value: [invoiceMail(auth.includes("rt-bro") ? "BRO1" : "OFF1")] });
+      if (url.includes("/me/messages?")) {
+        expect(url).toContain("internetMessageHeaders");
+        return json({ value: [{ ...invoiceMail(auth.includes("rt-bro") ? "BRO1" : "OFF1"), internetMessageHeaders: [{ name: "Authentication-Results", value: "spf=pass smtp.mailfrom=google.com; dkim=pass header.d=google.com; dmarc=pass header.from=google.com" }] }] });
+      }
       if (url.includes("/me/calendarView")) return json({ value: [] });
       return json({ message: "not stubbed" }, 404);
     });
+    expect(await claimBillingRefresh()).toBe(true); // keep the after-response refresh out of this test
+    let calls: string[] = [];
+    const real = globalThis.fetch;
+    vi.stubGlobal("fetch", async (input: string | URL, init?: RequestInit) => (calls.push(String(input)), real(input, init)));
+    const first = await collect();
+    // The page never waits for billing: nothing billing-related is called; it reads as pending.
+    expect(calls.some((u) => u.includes("management.azure.com") || u.includes("/me/messages?"))).toBe(false);
+    expect(first.bills.pending).toEqual(expect.arrayContaining(["Microsoft invoices", "e-mail receipts"]));
+    expect(first.bills.microsoft.billing.checkedAt).toBeNull();
+    expect(first.unobserved).toContain("msbilling/");
+    expect(first.bills.email.map((b) => [b.id, b.verified])).toEqual([["ms:office@kaj.com:OFF1", false]]); // inbox copy: no headers
+
+    calls = [];
+    expect((await refreshBilling()).sort()).toEqual([BILLING_KEYS.mail, BILLING_KEYS.microsoft].sort());
+    expect(calls.some((u) => u.includes("management.azure.com"))).toBe(true);
+    forgetExternalMemory();
     const c = await collect();
+    expect(c.bills.pending).toEqual([]);
     expect(c.modes.msadmin).toBe("live");
     expect(c.bills.microsoft.licences[0]).toMatchObject({ unassigned: 2 });
     expect(c.bills.microsoft.billing.error).toMatch(/sees no billing account/);
     expect(c.derivedTasks.find((t) => t.id === "msadmin/licences:O365_BUSINESS_PREMIUM")).toMatchObject({ title: "2 unassigned Microsoft 365 Business Standard licences", live: true });
     expect(c.unobserved).toContain("msbilling/");
     expect(c.bills.email.map((b) => b.id)).toEqual(["ms:office@kaj.com:OFF1"]);
-    expect(c.bills.email[0]).toMatchObject({ vendor: "Google Workspace", amountMinor: 3600, business: "Kaj Consulting" });
+    expect(c.bills.email[0]).toMatchObject({ vendor: "Google Workspace", amountMinor: 3600, business: "Kaj Consulting", verified: true });
+    // Fresh caches: nothing more to refresh.
+    expect(await refreshBilling()).toEqual([]);
 
     await persist(c, { force: true, alerts: false });
     const open = await listTasks("open");
     expect(open.find((t) => t.sourceKey === "msadmin/licences:O365_BUSINESS_PREMIUM")).toMatchObject({ severity: "low" });
+  });
+});
+
+describe("billing review fixes", () => {
+  beforeAll(async () => {
+    await useDb(await pgliteDb());
+  });
+
+  it("approves the billing step only for the same Microsoft account id (tid:oid), not the e-mail", () => {
+    expect(sameMsAccount({ msSubject: "tid1:oid1" }, { subject: "tid1:oid1" })).toBe(true);
+    expect(sameMsAccount({ msSubject: "tid1:oid1" }, { subject: "tid1:oid2" })).toBe(false);
+    expect(sameMsAccount({}, { subject: "tid1:oid1" })).toBe(false);
+  });
+
+  it("checks the sender with Authentication-Results: drops failures, marks missing headers unverified", () => {
+    expect(senderAuth("mx.microsoft.com; dmarc=pass action=none header.from=google.com", "google.com")).toBe("pass");
+    expect(senderAuth("spf=pass smtp.mailfrom=bounce.vercel.com; dkim=none", "vercel.com")).toBe("pass");
+    expect(senderAuth("dkim=pass header.d=evil.example; spf=fail smtp.mailfrom=google.com; dmarc=fail", "google.com")).toBe("fail");
+    expect(senderAuth(null, "google.com")).toBe("unknown");
+    const base = { id: "x", from: "payments-noreply@google.com", subject: "Google Workspace: Your invoice is available", snippet: "Total $36.00", receivedAt: "2026-10-01T00:00:00Z", account: "Office", business: "Kaj Consulting", url: null as unknown as undefined };
+    expect(detectBill({ ...base, auth: "spf=fail smtp.mailfrom=google.com; dmarc=fail header.from=google.com" })).toBeNull();
+    expect(detectBill({ ...base, auth: "dmarc=pass" })!.verified).toBe(true);
+    expect(detectBill(base)!.verified).toBe(false);
+    // A spoofed message found by the search stays out even when the inbox listing (no headers) has it too.
+    const merged = mergeBillEmails({ bills: [], rejected: ["x"] }, [base]);
+    expect(merged).toEqual([]);
+  });
+
+  it("the mailbox search drops spoofed senders and never reads personal mailboxes", async () => {
+    vi.stubEnv("MS_CLIENT_ID", "id");
+    vi.stubEnv("MS_CLIENT_SECRET", "secret");
+    vi.stubGlobal("fetch", async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes("login.microsoftonline.com")) return json({ access_token: "a", expires_in: 3600 });
+      const m = (id: string, auth: string) => ({ id, subject: "Your Microsoft invoice is ready", bodyPreview: "Amount due: 112.50 USD", receivedDateTime: "2026-10-01T00:00:00Z", isRead: true, importance: "normal", webLink: "w", from: { emailAddress: { address: "microsoft-noreply@microsoft.com" } }, internetMessageHeaders: [{ name: "Authentication-Results", value: auth }] });
+      return json({ value: [m("ok", "dmarc=pass"), m("spoof", "spf=fail smtp.mailfrom=microsoft.com; dmarc=fail")] });
+    });
+    const found = await searchBillEmails([{ account: "office@kaj.com", label: "Office", business: null, refreshToken: "rt" }], []);
+    expect(found.bills.map((b) => [b.id, b.verified])).toEqual([["ms:office@kaj.com:ok", true]]);
+    expect(found.rejected).toEqual(["ms:office@kaj.com:spoof"]);
+  });
+
+  it("re-reads Google Cloud costs when the key is rotated (key id in the cache inputs)", async () => {
+    const db = await getDb();
+    await db.exec("truncate connections, settings cascade");
+    forgetGcpTokens();
+    vi.stubEnv("SAMPLE_DATA", "off");
+    const secret = { clientEmail: "sa@p.iam.gserviceaccount.com", privateKey: PEM, privateKeyId: "aaaa1111", projectId: "p", exportTable: null };
+    await saveConnection({ provider: "gcloud", account: secret.clientEmail, secret });
+    vi.stubGlobal("fetch", async () => json({ access_token: "t", expires_in: 3600 }));
+    expect(await refreshBilling({ only: [BILLING_KEYS.google] })).toEqual([BILLING_KEYS.google]);
+    expect((await readBilling([])).google?.export.status).toBe("none");
+    expect(await refreshBilling({ only: [BILLING_KEYS.google] })).toEqual([]); // fresh
+    await saveConnection({ provider: "gcloud", account: secret.clientEmail, secret: { ...secret, privateKeyId: "bbbb2222" } });
+    expect((await readBilling([])).google).toBeNull(); // rotated key: the old cache no longer applies
+    expect(await refreshBilling({ only: [BILLING_KEYS.google] })).toEqual([BILLING_KEYS.google]);
+    expect((await readSlow("gcpcosts", null)).value).toBeNull(); // inputs are required to read
+  });
+
+  it("gives every billing call a time limit", async () => {
+    const seen: (AbortSignal | undefined | null)[] = [];
+    vi.stubGlobal("fetch", async (_: string | URL, init?: RequestInit) => (seen.push(init?.signal), json({}, 403)));
+    await cloudflareBilling({ token: "t", accountId: "a".repeat(32) }, []);
+    await githubBilling("t", [], "2026-10-03");
+    await fetchGcpCosts("tok", "kaj-billing.ds.t", [], "2026-10-03");
+    vi.stubEnv("MS_CLIENT_ID", "id");
+    vi.stubEnv("MS_CLIENT_SECRET", "secret");
+    forgetMsAdminTokens();
+    await fetchMsBilling({ account: "a@b.c", refreshToken: "r" }, [], "2026-10-03");
+    expect(seen.length).toBeGreaterThan(3);
+    expect(seen.every((s) => s instanceof AbortSignal)).toBe(true);
   });
 });

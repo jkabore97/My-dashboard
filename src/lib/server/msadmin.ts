@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { msClient, msTenant } from "./microsoft";
 import { updateConnectionSecret } from "./store/connections";
+import { callSignal } from "../source";
 
 // Microsoft 365 admin: a separate, owner-only connection on the same Entra
 // app as the mailboxes. One delegated sign-in grants Graph (licences, service
@@ -55,6 +56,7 @@ export async function redeemRefreshToken(refreshToken: string, resource: MsResou
     headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
     body: new URLSearchParams({ client_id: client.id, client_secret: client.secret, refresh_token: refreshToken, grant_type: "refresh_token", scope: SCOPE[resource] }),
     cache: "no-store",
+    signal: callSignal(10_000),
   });
   const t = (await res.json().catch(() => ({}))) as TokenResponse;
   if (!res.ok || !t.access_token) throw new MsTokenError(t.error ?? String(res.status), `${t.error ?? res.status}: ${(t.error_description ?? "").split("\r\n")[0].slice(0, 240)}`);
@@ -94,12 +96,22 @@ export class ArmError extends Error {
 }
 
 /** GET on Azure Resource Manager. */
-export async function armGet<T>(token: string, pathOrUrl: string): Promise<T> {
+export async function armGet<T>(token: string, pathOrUrl: string, signal?: AbortSignal): Promise<T> {
   const url = pathOrUrl.startsWith("https://management.azure.com/") ? pathOrUrl : `https://management.azure.com${pathOrUrl}`;
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }, cache: "no-store" });
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }, cache: "no-store", signal: callSignal(10_000, signal) });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: { code?: string; message?: string } };
     throw new ArmError(res.status, body.error?.code, `${res.status} from Azure billing${body.error?.code ? ` (${body.error.code})` : ""}`);
   }
   return res.json() as Promise<T>;
+}
+
+/**
+ * Whether the account approving billing (second step) is the one that
+ * connected: the stable Microsoft id (tid:oid) pinned at the first step, never
+ * the e-mail (which a tenant admin can reassign).
+ */
+export function sameMsAccount(storedMeta: Record<string, unknown> | null | undefined, signedIn: { subject: string }): boolean {
+  const pinned = typeof storedMeta?.msSubject === "string" ? storedMeta.msSubject : null;
+  return !!pinned && pinned === signedIn.subject;
 }

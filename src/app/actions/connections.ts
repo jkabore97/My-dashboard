@@ -13,6 +13,11 @@ import { deleteConnection, listConnections, listConnectionSummaries, saveConnect
 import { parseExportTable, parseServiceAccountKey } from "@/lib/billing/google";
 import { gcpAccessToken, gcpApi, GcpApiError } from "@/lib/server/gcloud";
 import type { GcloudSecret } from "@/lib/server/credentials";
+import { billingCachesFor } from "@/lib/server/billing-refresh";
+import { clearSlowCaches } from "@/lib/server/slow-cache";
+
+/** Re-saving a connection (e.g. after adding a billing permission to the same token) re-reads only that platform's bills. */
+const refreshBillsFor = (provider: string) => clearSlowCaches(billingCachesFor(provider)).catch(() => {});
 
 export interface ConnectState {
   error?: string;
@@ -52,6 +57,7 @@ export async function saveTokenConnection(_prev: ConnectState, form: FormData): 
       secret = { token, accountId };
       const replaced = await saveConnection({ provider, account, label: res.result.name, secret, meta: { via: "token" } });
       await auditConnection(user.email, provider, account, "token", replaced);
+      await refreshBillsFor(provider);
       await invalidateExternal();
       revalidatePath("/", "layout");
       return { ok: `Connected Cloudflare (${res.result.name})${replacedNote(replaced)}.` };
@@ -77,6 +83,7 @@ export async function saveTokenConnection(_prev: ConnectState, form: FormData): 
       const status = await fetchSite({ id: account, label, business, ...site });
       await saveConnection({ provider, account, label, business, secret: site, meta: { via: "token", model: status.device.model } });
       await auditConnection(user.email, provider, account, "token", []);
+      await refreshBillsFor(provider);
       await invalidateExternal();
       revalidatePath("/", "layout");
       return { ok: `Connected ${label}: ${status.device.model ?? "Hikvision device"} with ${status.channels.length} camera${status.channels.length === 1 ? "" : "s"}.` };
@@ -95,6 +102,7 @@ export async function saveTokenConnection(_prev: ConnectState, form: FormData): 
       if (existing) return { error: `This Stripe account is already connected (${existing.business ?? existing.label ?? account}). Disconnect it first to replace its key.` };
       await saveConnection({ provider, account, label: business, business, secret, meta: { via: "token" } });
       await auditConnection(user.email, provider, account, "token", []);
+      await refreshBillsFor(provider);
       await invalidateExternal();
       revalidatePath("/", "layout");
       return { ok: `Connected Stripe for ${business}.` };
@@ -103,6 +111,7 @@ export async function saveTokenConnection(_prev: ConnectState, form: FormData): 
     }
     const replaced = await saveConnection({ provider, account, label: account, secret, meta: { via: "token" } });
     await auditConnection(user.email, provider, account, "token", replaced);
+    await refreshBillsFor(provider);
     await invalidateExternal();
       revalidatePath("/", "layout");
     return { ok: `Connected ${account}${replacedNote(replaced)}.` };
@@ -183,6 +192,7 @@ export async function saveGoogleCloudConnection(_prev: ConnectState, form: FormD
     }
     const replaced = await saveConnection({ provider: "gcloud", account: secret.clientEmail, label: secret.projectId, secret, meta: { via: "key", projectId: secret.projectId, exportTable: secret.exportTable } });
     await auditConnection(user.email, "gcloud", secret.clientEmail, "token", replaced);
+    await refreshBillsFor("gcloud");
     await invalidateExternal();
     revalidatePath("/", "layout");
     return { ok: `Connected Google Cloud as ${secret.clientEmail}${secret.exportTable ? ` with billing export ${secret.exportTable}` : " (no billing export table yet)"}${replacedNote(replaced)}.${warning}` };

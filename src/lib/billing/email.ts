@@ -91,8 +91,28 @@ export function amountsIn(text: string): { currency: string; amountMinor: number
 const onDomain = (domain: string, base: string) => domain === base || domain.endsWith(`.${base}`);
 const senderAddress = (from: string) => (/<([^>]+)>/.exec(from)?.[1] ?? from).trim().toLowerCase();
 
-/** A bill in one e-mail, or null when it isn't one or the amount isn't unambiguous. */
-export function detectBill(e: Pick<EmailMessage, "id" | "from" | "subject" | "snippet" | "receivedAt" | "account" | "url" | "business" | "owner">): DetectedBill | null {
+/**
+ * Whether the message's Authentication-Results vouch for the From domain:
+ * DMARC pass, or a passing DKIM signature / SPF check aligned with it. "unknown"
+ * when no header was available (the inbox listing doesn't carry headers).
+ */
+export function senderAuth(header: string | null | undefined, fromDomain: string): "pass" | "fail" | "unknown" {
+  if (!header || !header.trim()) return "unknown";
+  const h = header.toLowerCase();
+  if (/\bdmarc=pass\b/.test(h)) return "pass";
+  const aligned = (d: string) => !!d && (fromDomain === d || fromDomain.endsWith(`.${d}`) || d.endsWith(`.${fromDomain}`));
+  for (const m of h.matchAll(/\bdkim=pass\b[^;]*?header\.[di]=@?([a-z0-9.-]+)/g)) if (aligned(m[1])) return "pass";
+  for (const m of h.matchAll(/\bspf=pass\b[^;]*?smtp\.mailfrom=(?:[^@\s;]*@)?([a-z0-9.-]+)/g)) if (aligned(m[1])) return "pass";
+  return "fail";
+}
+
+export type BillInput = Pick<EmailMessage, "id" | "from" | "subject" | "snippet" | "receivedAt" | "account" | "url" | "business" | "owner"> & {
+  /** Authentication-Results header(s), when the mailbox API returned them. */
+  auth?: string | null;
+};
+
+/** A bill in one e-mail, or null when it isn't one, the amount isn't unambiguous, or the sender failed authentication. */
+export function detectBill(e: BillInput): DetectedBill | null {
   if (e.owner) return null; // someone's own mailbox: never
   const address = senderAddress(e.from);
   const domain = address.split("@")[1] ?? "";
@@ -109,6 +129,8 @@ export function detectBill(e: Pick<EmailMessage, "id" | "from" | "subject" | "sn
     if (s && (!s.subject || s.subject.test(e.subject))) vendor = s.vendor(text);
   }
   if (!vendor) return null;
+  const auth = senderAuth(e.auth, domain);
+  if (auth === "fail") return null; // spoofed or unauthenticated sender
 
   const amounts = amountsIn(text).filter((a) => a.amountMinor > 0);
   if (amounts.length !== 1) return null; // none, or several: ambiguous
@@ -121,6 +143,7 @@ export function detectBill(e: Pick<EmailMessage, "id" | "from" | "subject" | "sn
     currency,
     date: e.receivedAt.slice(0, 10),
     interval: /\b(annual|yearly|per year|\/yr|12 months)\b/i.test(text) ? "year" : "month",
+    verified: auth === "pass",
     subject: e.subject.slice(0, 160),
     account: e.account,
     business: e.business ?? null,
@@ -129,7 +152,7 @@ export function detectBill(e: Pick<EmailMessage, "id" | "from" | "subject" | "sn
 }
 
 /** Bills from a list of messages: shared mailboxes only, newest first, one per message. */
-export function detectBills(emails: Parameters<typeof detectBill>[0][]): DetectedBill[] {
+export function detectBills(emails: BillInput[]): DetectedBill[] {
   const seen = new Set<string>();
   const out: DetectedBill[] = [];
   for (const e of emails) {

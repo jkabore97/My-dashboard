@@ -14,6 +14,7 @@ import { samplesEnabled } from "@/lib/source";
 import type { SourceMode } from "@/lib/types";
 import { ReactorLegend } from "@/components/command/Reactor";
 import { ReactorDial } from "@/components/command/ReactorDial";
+import { knownBusinesses } from "@/lib/server/reports";
 import { CameraTiles, MoneyCell, QueueRow, SolarSummary, Sparkline, UptimeRow } from "@/components/command/OverviewPanels";
 import { businessRing, topLines, type UptimePoint } from "@/components/command/logic";
 import { KV } from "@/components/command/hud";
@@ -54,6 +55,7 @@ export default async function Overview({ searchParams }: { searchParams: Promise
   const samples = { samples: s.modes.stripe !== "live" };
   const m = moneyOverview(s.stripe, s.records, now, samples);
   const daily = dailyRevenue(s.stripe, now, samples);
+  const focusable = await knownBusinesses().catch(() => [] as string[]);
   const businesses = [...new Set([...[...s.repos, ...s.hosting, ...s.databases, ...s.websites, ...s.openTasks].map((x) => x.business ?? "Unassigned"), ...m.spend.map((l) => l.business ?? "Unassigned"), ...s.stripe.map((a) => a.business)])].sort();
   const ring = businessRing(businesses, s.openTasks);
 
@@ -93,7 +95,7 @@ export default async function Overview({ searchParams }: { searchParams: Promise
   const spendCurrency = platformSpend.monthly[0]?.currency;
   const spendLines = topLines(platformSpend.lines.filter((l) => l.currency === spendCurrency).map((l) => ({ vendor: l.vendor, amount: l.monthly })), 5);
   const manualCount = platformSpend.lines.filter((l) => l.source === "manual").length;
-  const apiCount = platformSpend.resolution.included.length;
+  const apiCount = new Set(platformSpend.resolution.included.map((sl) => sl.vendor)).size;
   const spendAll = spendLines.top.reduce((n, l) => n + l.amount, 0) + spendLines.restAmount;
   const oldest = Math.max(0, ...m.receivables.map((r) => r.daysLate ?? 0));
   const activeSubs = s.stripe.filter((a) => (a.livemode && !a.sample) || (samples.samples && a.sample)).reduce((n, a) => n + a.activeSubscriptions, 0);
@@ -107,7 +109,7 @@ export default async function Overview({ searchParams }: { searchParams: Promise
         <Card title="System core" action={`${businesses.length} business${businesses.length === 1 ? "" : "es"}`} accent="cyan" flush>
           <div className="grid place-items-center px-6 pb-3 pt-5">
             {businesses.length ? (
-              <ReactorDial segments={ring} attention={critical + high} critical={critical} focused={s.business ?? null} />
+              <ReactorDial segments={ring} attention={critical + high} critical={critical} focused={s.business ?? null} focusable={focusable} />
             ) : (
               <Empty>No businesses yet.</Empty>
             )}

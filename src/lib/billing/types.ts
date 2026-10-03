@@ -139,6 +139,8 @@ export interface PlatformCharge {
   amountMinor: number;
   currency: string;
   business: string | null;
+  /** Months the charge pays for (12 for an annual plan or a domain renewal); 1 when missing. */
+  periodMonths?: number;
 }
 
 export interface PlatformBilling {
@@ -168,6 +170,12 @@ export interface DetectedBill {
   /** YYYY-MM-DD the e-mail arrived. */
   date: string;
   interval: "month" | "year";
+  /**
+   * The sender's domain passed SPF/DKIM/DMARC per the message's
+   * Authentication-Results; false when the headers weren't available
+   * (shown as "unverified sender"). Failing messages are dropped.
+   */
+  verified: boolean;
   subject: string;
   account: string;
   business: string | null;
@@ -180,4 +188,6 @@ export interface Bills {
   google: GcpData;
   platforms: PlatformBilling[];
   email: DetectedBill[];
+  /** Billing reads not done yet (they run in the background): names to show as "reading…". */
+  pending: string[];
 }

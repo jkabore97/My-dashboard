@@ -97,7 +97,8 @@ export function costQueryBody(t: ExportTable, today: string, location: string | 
       ...(partitioned ? [{ name: "since", parameterType: { type: "DATE" }, parameterValue: { value: w.since } }] : []),
     ],
     ...(location ? { location } : {}),
-    timeoutMs: 25_000,
+    // BigQuery answers within this or returns a job to poll once; the HTTP call itself is capped too.
+    timeoutMs: 10_000,
     maxResults: 5000,
     // A hard ceiling: the query fails rather than scanning more than 2 GB.
     maximumBytesBilled: "2000000000",

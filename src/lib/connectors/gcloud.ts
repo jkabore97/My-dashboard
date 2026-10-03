@@ -4,13 +4,14 @@ import type { GcpBillingAccount, GcpCostRow, GcpData, GcpExport, GcpProject } fr
 import { businessFor, type BusinessRule } from "../server/config";
 import { gcloudConnection, type GcloudSecret } from "../server/credentials";
 import { gcpAccessToken, gcpApi, GcpApiError } from "../server/gcloud";
-import { HOUR, slowCached } from "../server/slow-cache";
 import { errorMessage, fromSource } from "../source";
 
 // Google Cloud / Firebase through a service account: billing accounts,
 // projects (with their billing link), Firebase projects for console links,
 // and, when a BigQuery billing-export table is set, cost per month, project
-// and service (read every few hours; the query is capped at 2 GB scanned).
+// and service. The cost query runs in the background every few hours
+// (server/billing-refresh.ts; capped at 2 GB scanned and ~30 s); this source
+// carries a placeholder that collect() fills from that cache.
 
 const BILLING = "https://cloudbilling.googleapis.com/v1";
 
@@ -22,26 +23,31 @@ interface BqQueryResponse {
 }
 
 /** Runs the cost query on the export table. Never throws: problems become `error`. */
-export async function fetchGcpCosts(token: string, tableText: string | null, rules: BusinessRule[], today: string): Promise<{ rows: GcpCostRow[]; export: GcpExport }> {
+export interface GcpCosts {
+  rows: GcpCostRow[];
+  export: GcpExport;
+}
+
+export async function fetchGcpCosts(token: string, tableText: string | null, rules: BusinessRule[], today: string, signal?: AbortSignal): Promise<GcpCosts> {
   const checkedAt = new Date().toISOString();
   if (!tableText) return { rows: [], export: { table: null, status: "none", error: null, checkedAt } };
   const t = parseExportTable(tableText);
   if (!t) return { rows: [], export: { table: tableText, status: "error", error: "The export table id should look like project.dataset.gcp_billing_export_v1_XXXXXX.", checkedAt } };
   const fail = (error: string) => ({ rows: [], export: { table: t.id, status: "error" as const, error, checkedAt } });
   try {
-    const ds = await gcpApi<{ location?: string }>(token, `https://bigquery.googleapis.com/bigquery/v2/projects/${t.project}/datasets/${t.dataset}`);
+    const ds = await gcpApi<{ location?: string }>(token, `https://bigquery.googleapis.com/bigquery/v2/projects/${t.project}/datasets/${t.dataset}`, { signal });
     const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${t.project}/queries`;
     let res: BqQueryResponse;
     try {
-      res = await gcpApi<BqQueryResponse>(token, url, { method: "POST", body: costQueryBody(t, today, ds.location ?? null) });
+      res = await gcpApi<BqQueryResponse>(token, url, { method: "POST", body: costQueryBody(t, today, ds.location ?? null), signal, timeoutMs: 15_000 });
     } catch (err) {
       // Tables made before export partitioning have no _PARTITIONTIME.
       if (!(err instanceof GcpApiError && /_PARTITIONTIME/i.test(err.message))) throw err;
-      res = await gcpApi<BqQueryResponse>(token, url, { method: "POST", body: costQueryBody(t, today, ds.location ?? null, false) });
+      res = await gcpApi<BqQueryResponse>(token, url, { method: "POST", body: costQueryBody(t, today, ds.location ?? null, false), signal, timeoutMs: 15_000 });
     }
     if (!res.jobComplete && res.jobReference?.jobId) {
-      const q = new URLSearchParams({ timeoutMs: "20000", maxResults: "5000", ...(res.jobReference.location ? { location: res.jobReference.location } : {}) });
-      res = await gcpApi<BqQueryResponse>(token, `${url}/${encodeURIComponent(res.jobReference.jobId)}?${q}`);
+      const q = new URLSearchParams({ timeoutMs: "8000", maxResults: "5000", ...(res.jobReference.location ? { location: res.jobReference.location } : {}) });
+      res = await gcpApi<BqQueryResponse>(token, `${url}/${encodeURIComponent(res.jobReference.jobId)}?${q}`, { signal, timeoutMs: 12_000 });
     }
     if (!res.jobComplete) return fail("The cost query took too long; it will be retried.");
     const rows = parseCostRows(res, (n) => businessFor(n, rules) ?? null);
@@ -82,14 +88,12 @@ export async function getGoogleCloud(rules: BusinessRule[]) {
       }));
       // Which project bills to which account (needs Billing Account Viewer).
       const links = new Map<string, { account: string; enabled: boolean }>();
-      for (const a of billingAccounts.filter((x) => x.open).slice(0, 5)) {
-        try {
-          const r = await gcpApi<{ projectBillingInfo?: { projectId?: string; billingEnabled?: boolean }[] }>(token, `${BILLING}/billingAccounts/${encodeURIComponent(a.id)}/projects?pageSize=200`);
-          for (const p of r.projectBillingInfo ?? []) if (p.projectId) links.set(p.projectId, { account: a.id, enabled: p.billingEnabled !== false });
-        } catch (err) {
-          fail(`billing:${a.id}`, `Projects on billing account ${a.name}: ${errorMessage(err)}`);
-        }
-      }
+      const open = billingAccounts.filter((x) => x.open).slice(0, 5);
+      const linked = await Promise.allSettled(open.map((a) => gcpApi<{ projectBillingInfo?: { projectId?: string; billingEnabled?: boolean }[] }>(token, `${BILLING}/billingAccounts/${encodeURIComponent(a.id)}/projects?pageSize=200`)));
+      linked.forEach((r, i) => {
+        if (r.status === "rejected") return fail(`billing:${open[i].id}`, `Projects on billing account ${open[i].name}: ${errorMessage(r.reason)}`);
+        for (const p of r.value.projectBillingInfo ?? []) if (p.projectId) links.set(p.projectId, { account: open[i].id, enabled: p.billingEnabled !== false });
+      });
       const firebase = new Map((firebaseRes.status === "fulfilled" ? firebaseRes.value.results ?? [] : []).filter((p) => p.state !== "DELETED").map((p) => [p.projectId, p.displayName ?? p.projectId]));
       const listed = projectsRes.status === "fulfilled" ? (projectsRes.value.projects ?? []).filter((p) => !p.lifecycleState || p.lifecycleState === "ACTIVE") : [];
       const ids = new Set([...listed.map((p) => p.projectId), ...firebase.keys(), ...links.keys()]);
@@ -99,13 +103,14 @@ export async function getGoogleCloud(rules: BusinessRule[]) {
         return { projectId: id, name, number: p?.projectNumber ?? null, billingAccount: links.get(id)?.account ?? null, billingEnabled: links.has(id) ? links.get(id)!.enabled : null, firebase: firebase.has(id), business: businessOf(name, id) };
       }).sort((a, b) => a.name.localeCompare(b.name));
 
-      const today = todayFn();
-      const costs = await slowCached("gcpcosts", [key.clientEmail, key.exportTable, rules], () => fetchGcpCosts(token, key.exportTable, rules, today), (r) => (r.export.status === "ok" ? 6 * HOUR : HOUR));
-      return { serviceAccount: key.clientEmail, billingAccounts, projects, costs: costs.rows, export: costs.export };
+      return { serviceAccount: key.clientEmail, billingAccounts, projects, costs: [], export: pendingGcpExport(key.exportTable) };
     },
     demoGoogleCloud,
   );
 }
+
+/** Costs not read yet: "none" without a table, otherwise status null (reading in the background). */
+export const pendingGcpExport = (table: string | null): GcpExport => ({ table, status: table ? null : "none", error: null, checkedAt: null });
 
 export function demoGoogleCloud(): GcpData {
   const t = todayFn();

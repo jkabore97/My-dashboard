@@ -22,7 +22,14 @@ interface CfBillingItem {
 }
 
 /** GET /user/billing/history → charges (refunds negative). */
-export function parseCloudflareHistory(items: CfBillingItem[] | undefined, businessOf: (name: string) => string | null = () => null): PlatformCharge[] {
+const ANNUAL = /\b(annual|annually|yearly|per year|1 year|12 months|registrar|registration|domain renewal)\b/i;
+
+/**
+ * GET /user/billing/history → charges (refunds negative). A charge pays for a
+ * year when it's a domain registration / renewal, says annual, or matches a
+ * yearly subscription by name (`yearly`).
+ */
+export function parseCloudflareHistory(items: CfBillingItem[] | undefined, businessOf: (name: string) => string | null = () => null, yearly: string[] = []): PlatformCharge[] {
   return (items ?? []).flatMap((i) => {
     const date = ymd(i.occurred_at);
     const currency = (i.currency ?? "").toLowerCase();
@@ -30,7 +37,9 @@ export function parseCloudflareHistory(items: CfBillingItem[] | undefined, busin
     if (!date || !/^[a-z]{3}$/.test(currency) || !Number.isFinite(amount) || amount === 0) return [];
     const sign = i.type === "refund" ? -1 : 1;
     const zone = i.zone?.name ?? null;
-    return [{ id: `cf:${i.id ?? `${date}:${amount}`}`, date, description: [i.description || i.action || "Cloudflare charge", zone].filter(Boolean).join(" · "), amountMinor: sign * toMinor(Math.abs(amount), currency), currency, business: zone ? businessOf(zone) : null }];
+    const text = `${i.description ?? ""} ${i.action ?? ""}`;
+    const annual = ANNUAL.test(text) || yearly.some((y) => y && text.toLowerCase().includes(y.toLowerCase()));
+    return [{ id: `cf:${i.id ?? `${date}:${amount}`}`, date, description: [i.description || i.action || "Cloudflare charge", zone].filter(Boolean).join(" · "), amountMinor: sign * toMinor(Math.abs(amount), currency), currency, business: zone ? businessOf(zone) : null, periodMonths: annual ? 12 : 1 }];
   });
 }
 
@@ -101,15 +110,17 @@ export function parseVercelCharges(body: string, businessOf: (name: string) => s
       continue;
     }
     const date = ymd(r.ChargePeriodStart ?? r.BillingPeriodStart);
+    const until = ymd(r.ChargePeriodEnd ?? r.BillingPeriodEnd);
+    const months = date && until ? Math.max(1, Math.min(36, Math.round((Date.parse(until) - Date.parse(date)) / 86_400_000 / 30.44))) : 1;
     const currency = String(r.BillingCurrency ?? "USD").toLowerCase();
     const cost = Number(r.BilledCost ?? r.EffectiveCost ?? 0);
     if (!date || !/^[a-z]{3}$/.test(currency) || !Number.isFinite(cost) || cost === 0) continue;
     const month = date.slice(0, 7);
     const service = String(r.ServiceName ?? r.ChargeDescription ?? "Vercel");
     const project = typeof r.Tags === "object" && r.Tags ? String((r.Tags as Record<string, unknown>).ProjectName ?? "") : "";
-    const key = `${month}:${service}:${currency}`;
+    const key = `${month}:${service}:${currency}:${months}`;
     const prev = by.get(key);
-    by.set(key, { id: `vercel:${key}`, date: `${month}-01`, description: service, amountMinor: (prev?.amountMinor ?? 0) + toMinor(cost, currency), currency, business: prev?.business ?? (project ? businessOf(project) : null) });
+    by.set(key, { id: `vercel:${key}`, date: `${month}-01`, description: service, amountMinor: (prev?.amountMinor ?? 0) + toMinor(cost, currency), currency, business: prev?.business ?? (project ? businessOf(project) : null), periodMonths: months });
   }
   return [...by.values()].filter((c) => c.amountMinor !== 0).sort((a, b) => b.date.localeCompare(a.date) || b.amountMinor - a.amountMinor);
 }

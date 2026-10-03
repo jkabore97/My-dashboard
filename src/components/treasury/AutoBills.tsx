@@ -41,12 +41,20 @@ function Block({ title, tags, right, children }: { title: ReactNode; tags?: Reac
   );
 }
 
+const bizList = (list: (string | null)[]) => list.map((b) => b ?? "unassigned").join(", ");
+
+/** What of this vendor counts in the monthly total, and exactly what is left out (per business). */
 function Counted({ vendor, r, owner }: { vendor: string; r: SpendResolution; owner: boolean }) {
   const v = r.vendors.find((x) => x.vendor === vendor);
   if (!v) return null;
+  const text = !v.hasManual
+    ? `${formatTotals(v.counted)}/mo counts in the total (no entry of yours for it)`
+    : v.choice === "api"
+      ? `Billing API counts (${formatTotals(v.counted)}/mo). Left out: your ${v.leftOutEntries.map((e) => `"${e.vendor}"${e.business ? ` (${e.business})` : ""}`).join(", ")}`
+      : `Your entr${v.overlap.length === 1 ? "y" : "ies"} count for ${bizList(v.overlap)}; the API's ${formatTotals(v.leftOutApi)}/mo for ${v.overlap.length === 1 ? "it" : "them"} is left out${v.counted.length ? `. ${formatTotals(v.counted)}/mo for other businesses still counts` : ""}`;
   return (
     <>
-      <span className="text-[11px] text-muted">{v.included ? "Counts in the monthly total" : "Not in the total: your own entry is used"}</span>
+      <span className="max-w-full text-[11px] text-muted">{text}.</span>
       {owner && v.hasManual && <SpendChoice vendor={vendor} choice={v.choice} />}
     </>
   );
@@ -65,11 +73,12 @@ function Stat({ label, value, hint }: { label: string; value: ReactNode; hint?: 
 export function AutomaticBills({ bills, modes, api, resolution, owner, today }: { bills: Bills; modes: Record<string, SourceMode>; api: ApiSpend[]; resolution: SpendResolution; owner: boolean; today: string }) {
   const ms = bills.microsoft;
   const g = bills.google;
-  const showMs = showSource(modes.msadmin) && (ms.billing.invoices.length > 0 || ms.billing.accounts.length > 0 || !!ms.billing.error);
-  const showG = showSource(modes.gcloud) && (g.costs.length > 0 || g.projects.length > 0 || !!g.export.status);
+  const pending = bills.pending ?? [];
+  const showMs = showSource(modes.msadmin) && (ms.billing.invoices.length > 0 || ms.billing.accounts.length > 0 || !!ms.billing.error || pending.includes("Microsoft invoices"));
+  const showG = showSource(modes.gcloud) && (g.costs.length > 0 || g.projects.length > 0 || !!g.export.status || pending.includes("Google Cloud costs"));
   const others = showSource(modes.billing) ? bills.platforms.filter((p) => p.status) : [];
   const stripeFees = api.find((a) => a.vendor === "stripe");
-  const nothing = !showMs && !showG && !others.length && !stripeFees;
+  const nothing = !showMs && !showG && !others.length && !stripeFees && !pending.length;
 
   return (
     <Card flush accent="cyan" title="Automatic bills" action="read from billing APIs · never converted">
@@ -101,6 +110,11 @@ export function AutomaticBills({ bills, modes, api, resolution, owner, today }: 
               </Block>
             );
           })}
+          {pending.includes("platform billing") && (
+            <Block title="Other platforms" tags={API_TAG}>
+              <p className="text-xs text-muted">Reading Cloudflare, GitHub, Vercel and other billing in the background; it shows here within a few minutes.</p>
+            </Block>
+          )}
           {stripeFees && (
             <Block title="Stripe processing fees" tags={<Tag color="#ffd84d">Stripe balance</Tag>} right={<Counted vendor="stripe" r={resolution} owner={owner} />}>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -134,6 +148,7 @@ function MicrosoftBlock({ bills, sample, resolution, owner, today, api }: { bill
   return (
     <Block title="Microsoft 365 / Azure" tags={<>{API_TAG}{sample && SAMPLE_TAG}</>} right={api ? <Counted vendor="microsoft" r={resolution} owner={owner} /> : null}>
       {b.error && <p className="mb-3 text-xs text-high">{b.error}</p>}
+      {!b.error && !b.checkedAt && !inv.length && <p className="mb-3 text-xs text-muted">Reading invoices from Azure billing in the background; they show here within a few minutes.</p>}
       {inv.length > 0 && (
         <>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -174,6 +189,7 @@ function GoogleBlock({ bills, sample, resolution, owner, today, api }: { bills: 
   const lastM = months[months.length - 2];
   return (
     <Block title="Google Cloud / Firebase" tags={<>{API_TAG}{sample && SAMPLE_TAG}</>} right={api ? <Counted vendor="google-cloud" r={resolution} owner={owner} /> : null}>
+      {g.export.status === null && g.export.table && <p className="mb-3 text-xs text-muted">Reading costs from the billing export in the background; they show here within a few minutes.</p>}
       {g.export.status === "none" && owner && <p className="mb-3 text-xs text-muted">No billing export table yet, so costs aren&apos;t known. In the Cloud console: Billing → Billing export → BigQuery export → Standard usage cost, pick a dataset, then add the table on Platforms → Google Cloud.</p>}
       {(g.export.status === "empty" || g.export.status === "error") && g.export.error && <p className={`mb-3 text-xs ${g.export.status === "error" ? "text-high" : "text-muted"}`}>{g.export.error}</p>}
       {s.months.length > 0 && (
@@ -256,6 +272,7 @@ export function DetectedBills({ bills, subs, businesses, sample }: { bills: Bill
               <div className="flex flex-wrap items-center gap-2 text-sm">
                 <span className="font-medium">{b.vendor}</span>
                 <Tag color="#a98bff" title="Read from an e-mail: check it before tracking">From e-mail</Tag>
+                {!b.verified && <Tag title="The sender's domain couldn't be verified (no SPF/DKIM/DMARC result available). Check the e-mail before tracking.">Unverified sender</Tag>}
                 {sample && SAMPLE_TAG}
                 <span className="ml-auto font-mono tabular-nums">{formatMoney(b.amountMinor, b.currency)}</span>
               </div>

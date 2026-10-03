@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useTransition, type KeyboardEvent, type PointerEvent } from "react";
+import { useRouter } from "next/navigation";
 import type { RingSegment } from "./logic";
 import { SEV_COLOR, SEV_WORD } from "./hud";
 import { businessColor } from "@/components/ui";
@@ -33,7 +34,8 @@ function nearest(rotation: number, n: number) {
   return ((Math.round(norm(-rotation) / g - 0.5) % n) + n) % n;
 }
 
-export function ReactorDial({ segments, attention, critical, focused }: { segments: RingSegment[]; attention: number; critical: number; focused: string | null }) {
+export function ReactorDial({ segments, attention, critical, focused, focusable }: { segments: RingSegment[]; attention: number; critical: number; focused: string | null; /** Businesses the top-bar filter accepts; others (e.g. Unassigned) open their to-dos instead. */ focusable: string[] }) {
+  const router = useRouter();
   const n = segments.length;
   const g = n ? TAU / n : 0;
   const pad = n > 1 ? Math.min(0.025, g * 0.08) : 0;
@@ -97,8 +99,9 @@ export function ReactorDial({ segments, attention, critical, focused }: { segmen
 
   const choose = () => {
     if (!selected || pending) return;
-    const next = focused === selected.business ? null : selected.business;
-    startTransition(() => setBusinessFilter(next));
+    if (focused === selected.business) return startTransition(() => setBusinessFilter(null));
+    if (!focusable.includes(selected.business)) return router.push(`/tasks?business=${encodeURIComponent(selected.business)}`);
+    startTransition(() => setBusinessFilter(selected.business));
   };
   const onKey = (e: KeyboardEvent<SVGSVGElement>) => {
     if (!n) return;
@@ -118,7 +121,7 @@ export function ReactorDial({ segments, attention, critical, focused }: { segmen
       <svg
         ref={svgRef}
         viewBox="-172 -172 344 344"
-        className="h-auto w-full max-w-[330px] cursor-grab touch-pan-y select-none overflow-visible outline-none active:cursor-grabbing"
+        className="h-auto w-full max-w-[330px] cursor-grab touch-pan-y select-none overflow-visible rounded-full outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-cyan active:cursor-grabbing"
         role="group"
         tabIndex={0}
         aria-label={`Business dial: ${n} businesses. Use arrow keys to turn, Enter to focus the dashboard on the business at the top.`}
@@ -208,7 +211,7 @@ export function ReactorDial({ segments, attention, critical, focused }: { segmen
                 {selected.critical ? `${selected.critical} CRITICAL · ` : selected.high ? `${selected.high} HIGH · ` : ""}OPEN
               </text>
               <text y="42" textAnchor="middle" fill={isFocused ? "#ffd84d" : "#3fd0ff"} fontFamily="var(--font-display)" fontWeight="700" fontSize="7.5" letterSpacing="1.5">
-                {pending ? "…" : isFocused ? "TAP FOR ALL" : "TAP TO FOCUS"}
+                {pending ? "…" : isFocused ? "TAP FOR ALL" : focusable.includes(selected.business) ? "TAP TO FOCUS" : "TAP FOR TO-DOS"}
               </text>
             </>
           ) : (

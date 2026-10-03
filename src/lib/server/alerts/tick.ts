@@ -3,6 +3,7 @@ import { errorMessage } from "../../source";
 import { randomToken, safeEqual, sha256Hex } from "../crypto";
 import { claimInterval, getSetting, lastRun, setSetting } from "../store/settings";
 import { claimRefetch, persist } from "../sync";
+import { claimBillingRefresh, refreshBilling } from "../billing-refresh";
 import { emptySummary, runAlertsSafe, type AlertRunSummary } from "./run";
 
 // The 5-minute scheduler. Vercel Hobby runs crons once a day, so a free
@@ -46,11 +47,15 @@ export interface TickResult {
   ms: number;
   synced?: boolean | "timeout";
   alerts?: AlertRunSummary | null;
+  /** Billing caches refreshed in this run. */
+  bills?: string[];
   error?: string;
 }
 
 /** The platform sync gets this long; the alert passes run regardless. */
 const SYNC_BUDGET_MS = 35_000;
+/** Billing reads start only after alerts, and only while this much of the 60 s function is left. */
+const BILLING_END_MS = 55_000;
 
 const add = (a: AlertRunSummary | null, b: AlertRunSummary | null): AlertRunSummary | null => {
   if (!a || !b) return a ?? b;
@@ -69,6 +74,8 @@ export async function runTick(): Promise<TickResult> {
   const started = Date.now();
   if (!(await claimInterval("job:tick", TICK_LEASE_SECONDS))) return { ok: true, skipped: "another run is in progress or ran under 4 minutes ago", ms: Date.now() - started };
   const first = await runAlertsSafe();
+  // Billing is refreshed by this run, after alerts (not by the page-style background refresh inside collect()).
+  const billing = await claimBillingRefresh();
   let error: string | undefined;
   const sync = (async () => {
     if (await claimRefetch()) refetchExternal();
@@ -84,5 +91,7 @@ export async function runTick(): Promise<TickResult> {
   const synced = await Promise.race([sync, new Promise<"timeout">((r) => (timer = setTimeout(() => r("timeout"), SYNC_BUDGET_MS)))]);
   clearTimeout(timer);
   const second = synced === true ? await runAlertsSafe() : null;
-  return { ok: !error, ms: Date.now() - started, synced, alerts: add(first, second), ...(error ? { error } : {}) };
+  // Its own step, with whatever time is left: never eats into the sync budget.
+  const bills = billing && synced !== "timeout" ? await refreshBilling({ deadline: started + BILLING_END_MS }).catch((err) => (console.error(`[tick] billing: ${errorMessage(err)}`), [] as string[])) : [];
+  return { ok: !error, ms: Date.now() - started, synced, alerts: add(first, second), ...(bills.length ? { bills } : {}), ...(error ? { error } : {}) };
 }

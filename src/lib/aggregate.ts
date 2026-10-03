@@ -28,13 +28,14 @@ import { getConfig } from "./server/config";
 import { connectionHealth } from "./server/credentials";
 import { claimInterval, deleteSetting, getSetting, setSetting } from "./server/store/settings";
 import { decryptJson, encryptJson } from "./server/crypto";
-import { getMsAdmin } from "./connectors/msadmin";
-import { getGoogleCloud } from "./connectors/gcloud";
-import { getPlatformBilling } from "./connectors/platform-billing";
-import { getBillEmails } from "./connectors/billmail";
+import { getMsAdmin, pendingMsBilling } from "./connectors/msadmin";
+import { getGoogleCloud, pendingGcpExport } from "./connectors/gcloud";
+import { demoPlatformBilling } from "./connectors/platform-billing";
+import { demoBillEmails, mergeBillEmails } from "./connectors/billmail";
+import { readBilling, scheduleBillingRefresh } from "./server/billing-refresh";
+import { samplesEnabled } from "./source";
 import { billingUnobserved, deriveBillingTasks, emptyBills, SPEND_CHOICES_KEY, type BillingScope, type SpendChoices } from "./billing/spend";
-import type { Bills } from "./billing/types";
-import { clearSlowCaches } from "./server/slow-cache";
+import type { Bills, PlatformBilling } from "./billing/types";
 import type { CalendarEvent, Database, EmailMessage, HostingProject, Notification, Repo, SourceMode, SourceResult, Task, Website } from "./types";
 
 const DAY = 86_400_000;
@@ -51,7 +52,7 @@ type Config = Awaited<ReturnType<typeof getConfig>>;
 
 /** Everything that comes from other platforms (APIs, uptime probes, recorders). */
 async function fetchExternal({ businessRules, sites }: Config) {
-  const [repos, ghNotes, vercel, workers, supabase, d1, gmail, stripe, outlook, calendar, analytics, reviews, cameras, personal, msadmin, gcloud, platformBilling] = await Promise.all([
+  const [repos, ghNotes, vercel, workers, supabase, d1, gmail, stripe, outlook, calendar, analytics, reviews, cameras, personal, msadmin, gcloud] = await Promise.all([
     getRepos(businessRules),
     getGithubNotifications(),
     getVercelProjects(businessRules),
@@ -68,17 +69,15 @@ async function fetchExternal({ businessRules, sites }: Config) {
     // People's own mailboxes and calendars: cached here with the rest (encrypted),
     // every item tagged with its owner; scope.ts gives each to its owner alone.
     getPersonal(),
-    // Bills: Microsoft 365 admin (licences, health, Azure invoices), Google
-    // Cloud, other platforms' billing APIs. The slow parts are cached for hours.
+    // Microsoft 365 admin (licences, service health) and Google Cloud
+    // (projects, Firebase). Their billing, and every other bill, is read in
+    // the background and merged in collect(), so it never slows this down.
     getMsAdmin(businessRules),
     getGoogleCloud(businessRules),
-    getPlatformBilling(businessRules),
   ]);
-  // Invoices and receipts in the shared mailboxes (real mail only, never personal).
-  const billMail = await getBillEmails([...(gmail.mode === "live" ? gmail.data : []), ...(outlook.mode === "live" ? outlook.data : [])]);
   const hosting = mergeSources([vercel, workers]).data;
   const [security, websiteResult] = await Promise.all([getSecurity(repos.data, repos.mode === "live"), getWebsites(sites, hosting)]);
-  return { repos, ghNotes, vercel, workers, supabase, d1, gmail, stripe, outlook, calendar, analytics, reviews, cameras, security, websiteResult, personal, msadmin, gcloud, platformBilling, billMail };
+  return { repos, ghNotes, vercel, workers, supabase, d1, gmail, stripe, outlook, calendar, analytics, reviews, cameras, security, websiteResult, personal, msadmin, gcloud };
 }
 
 // Other platforms are slow (uptime probes wait up to 5 s, mail and calendars
@@ -107,7 +106,6 @@ export function refetchExternal() {
 export async function invalidateExternal() {
   external = null;
   await deleteSetting(SNAPSHOT_KEY).catch(() => {});
-  await clearSlowCaches().catch(() => {});
 }
 
 /** Tests: drop this instance's copy, as a fresh server instance would start. */
@@ -174,13 +172,16 @@ export const collect = cache(async () => {
   const config = await getConfig();
   const { sites, domains: watchedDomains } = config;
   // Your own records come straight from the database, so edits show at once.
-  const [{ at: externalAt, value: ext }, records, domains, solarAll, spendChoices] = await Promise.all([
+  const [{ at: externalAt, value: ext }, records, domains, solarAll, spendChoices, billing] = await Promise.all([
     externalData(config),
     getRecords(),
     getDomains(watchedDomains),
     getSolar(),
     getSetting<SpendChoices>(SPEND_CHOICES_KEY, {}).catch(() => ({}) as SpendChoices),
+    // Cached billing only (never a platform call); stale parts refresh after the response.
+    readBilling(config.businessRules).catch(() => null),
   ]);
+  if (billing?.stale) scheduleBillingRefresh();
   const { repos, ghNotes, vercel, workers, supabase, d1, gmail, stripe, outlook, calendar: sharedCalendar, analytics, reviews, cameras, security, websiteResult } = ext;
   // A snapshot saved before personal mailboxes existed has none.
   const personal = ext.personal ?? { source: "My mail", mode: "demo" as SourceMode, data: { emails: [], calendar: [], problems: [] }, fetchedAt: new Date().toISOString() };
@@ -190,14 +191,30 @@ export const collect = cache(async () => {
   const blank = emptyBills();
   const msadmin = ext.msadmin ?? { source: "Microsoft 365 admin", mode: "demo" as SourceMode, data: blank.microsoft, fetchedAt: now0 };
   const gcloud = ext.gcloud ?? { source: "Google Cloud", mode: "demo" as SourceMode, data: blank.google, fetchedAt: now0 };
-  const platformBilling = ext.platformBilling ?? { source: "Platform billing", mode: "demo" as SourceMode, data: [], fetchedAt: now0 };
-  const billMail = ext.billMail ?? { source: "Billing e-mails", mode: "demo" as SourceMode, data: [], fetchedAt: now0 };
-  const bills: Bills = { microsoft: msadmin.data, google: gcloud.data, platforms: platformBilling.data, email: billMail.data };
+  const samples = samplesEnabled();
+  const pending: string[] = [];
+  const awaiting = <T,>(name: string, v: T) => (pending.push(name), v);
+  const conf = billing?.configured ?? { microsoft: false, google: false, platforms: false, mail: false };
+  // Microsoft invoices and Google costs come from the billing cache once their connection exists.
+  const msBilling = conf.microsoft ? (billing?.microsoft ?? awaiting("Microsoft invoices", pendingMsBilling())) : msadmin.data.billing;
+  const msadminData = { ...msadmin.data, billing: msBilling };
+  // Invoice tasks only from invoices actually read (not while the first read is pending).
+  const msBillingMode: SourceMode = msadmin.mode === "live" && msBilling.checkedAt ? "live" : msadmin.mode === "live" ? "error" : msadmin.mode;
+  const gcp = conf.google ? (billing?.google ?? awaiting("Google Cloud costs", { rows: [], export: pendingGcpExport(gcloud.data.export?.table ?? null) })) : { rows: gcloud.data.costs, export: gcloud.data.export };
+  const gcloudData = { ...gcloud.data, costs: gcp.rows, export: gcp.export };
+  const platformBilling = conf.platforms
+    ? { mode: "live" as SourceMode, data: billing?.platforms ?? awaiting("platform billing", [] as PlatformBilling[]) }
+    : { mode: "demo" as SourceMode, data: samples ? demoPlatformBilling() : [] };
   // Gmail and Outlook share one inbox; each message keeps its mailbox id.
   // People's own mail and events ride along (tagged with their owner) but
   // never change the shared modes: an owner with no shared mailbox still sees
   // "not connected", and only each person's scoped copy counts theirs (scope.ts).
   const shared = mergeSources<EmailMessage>([gmail, outlook]);
+  // Bills in shared mailboxes: the background search, plus anything in the inbox listing (real mail only, never personal).
+  const billMail = conf.mail
+    ? { mode: "live" as SourceMode, data: mergeBillEmails(billing?.mail ?? awaiting("e-mail receipts", null), [...(gmail.mode === "live" ? gmail.data : []), ...(outlook.mode === "live" ? outlook.data : [])]) }
+    : { mode: "demo" as SourceMode, data: samples ? demoBillEmails() : [] };
+  const bills: Bills = { microsoft: msadminData, google: gcloudData, platforms: platformBilling.data, email: billMail.data, pending };
   const personalLive = personal.mode === "live";
   const ownMail: EmailMessage[] = personalLive ? personal.data.emails : [];
   const ownEvents: CalendarEvent[] = personalLive ? personal.data.calendar : [];
@@ -249,7 +266,7 @@ export const collect = cache(async () => {
     cameras: cameras.mode,
     solar: solar.mode,
     msadmin: msadmin.mode,
-    msbilling: msadmin.mode,
+    msbilling: msBillingMode,
     gcloud: gcloud.mode,
     billing: platformBilling.mode,
     billmail: billMail.mode,
@@ -288,7 +305,7 @@ export const collect = cache(async () => {
     partial: { cameras: (cameras.partial ?? []).map((p) => p.key) },
   });
 
-  const billingTasks = deriveBillingTasks({ microsoft: msadmin.data, modes: { msadmin: msadmin.mode, msbilling: msadmin.mode } });
+  const billingTasks = deriveBillingTasks({ microsoft: msadminData, modes: { msadmin: msadmin.mode, msbilling: msBillingMode } });
 
   const tasks: DerivedTask[] = [...deriveTasks({ repos: repos.data, hosting, databases, emails: emails.data, websites: websites.data, sources, modes, personalProblems: personal.data.problems }), ...risk.tasks, ...growth.tasks, ...devices.tasks, ...billingTasks];
 
@@ -351,7 +368,7 @@ export const collect = cache(async () => {
       gcloud: gcloud.mode,
     }),
     sources: sources.map(({ source, mode, error, partial, fetchedAt }) => ({ source, mode, error, partial, fetchedAt })),
-    unobserved: [...unobservedKeys({ gmail: gmail.partial, supabase: supabase.partial, github: repos.partial, mymail: personal.partial }), ...guards.unobserved, ...risk.unobserved, ...growth.unobserved, ...devices.unobserved, ...billingUnobserved(msadmin.partial, msadmin.mode === "live" ? msadmin.data.billing.error : null), ...(outlook.partial ?? []).map((p) => `outlook/${encodeURIComponent(p.key)}/`)],
+    unobserved: [...unobservedKeys({ gmail: gmail.partial, supabase: supabase.partial, github: repos.partial, mymail: personal.partial }), ...guards.unobserved, ...risk.unobserved, ...growth.unobserved, ...devices.unobserved, ...billingUnobserved(msadmin.partial, msadmin.mode === "live" ? (msBilling.error ?? (msBilling.checkedAt ? null : "not read yet")) : null), ...(outlook.partial ?? []).map((p) => `outlook/${encodeURIComponent(p.key)}/`)],
     /** Personal accounts that couldn't be read; each is shown to its owner only. */
     personalProblems: personal.data.problems,
     /** Who has a personal mailbox being read (each viewer's copy keeps only themselves). */

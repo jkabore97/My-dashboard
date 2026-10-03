@@ -5,18 +5,20 @@ import { businessFor, type BusinessRule } from "../server/config";
 import { msAdminConnection } from "../server/credentials";
 import { graph, msClient } from "../server/microsoft";
 import { ArmError, armGet, msAdminToken, MsTokenError } from "../server/msadmin";
-import { HOUR, slowCached } from "../server/slow-cache";
+import { HOUR } from "../server/slow-cache";
 import { errorMessage, fromSource } from "../source";
 
 // Microsoft 365 admin: licences and service health from Graph on every
-// refresh; invoices from Azure billing every few hours (slow cache).
+// refresh. Invoices (Azure billing) are slow to page through: they're read
+// in the background every few hours (server/billing-refresh.ts) and merged
+// in collect(); this source only carries a placeholder for them.
 
 const API = "api-version=2024-04-01";
 
 type Conn = { account: string; refreshToken: string };
 
 /** Billing accounts, the last 12 months of invoices and billing subscriptions. Never throws: problems become `error`. */
-export async function fetchMsBilling(conn: Conn, rules: BusinessRule[], today: string): Promise<MsBilling> {
+export async function fetchMsBilling(conn: Conn, rules: BusinessRule[], today: string, signal?: AbortSignal): Promise<MsBilling> {
   const checkedAt = new Date().toISOString();
   const empty = (error: string): MsBilling => ({ accounts: [], invoices: [], subscriptions: [], error, checkedAt });
   let token: string;
@@ -27,7 +29,7 @@ export async function fetchMsBilling(conn: Conn, rules: BusinessRule[], today: s
   }
   let accounts;
   try {
-    accounts = parseBillingAccounts((await armGet<{ value?: [] }>(token, `/providers/Microsoft.Billing/billingAccounts?${API}`)).value);
+    accounts = parseBillingAccounts((await armGet<{ value?: [] }>(token, `/providers/Microsoft.Billing/billingAccounts?${API}`, signal)).value);
   } catch (err) {
     return empty(err instanceof ArmError ? billingErrorMessage(err.status, err.code, conn.account) : `Azure billing couldn't be reached (${errorMessage(err)}).`);
   }
@@ -42,7 +44,7 @@ export async function fetchMsBilling(conn: Conn, rules: BusinessRule[], today: s
     try {
       let url: string | null = `${base}/invoices?periodStartDate=${start}&periodEndDate=${today}&${API}`;
       for (let page = 0; url && page < 4; page++) {
-        const res: { value?: []; nextLink?: string } = await armGet(token, url);
+        const res: { value?: []; nextLink?: string } = await armGet(token, url, signal);
         invoices.push(...parseInvoices(a.name, res.value, today, (n) => businessOf(n) ?? businessOf(a.displayName)));
         url = res.nextLink && res.nextLink.startsWith("https://management.azure.com/") ? res.nextLink : null;
       }
@@ -51,7 +53,7 @@ export async function fetchMsBilling(conn: Conn, rules: BusinessRule[], today: s
     }
     // Cheap extra: what's on the account (not every account type supports it).
     try {
-      const res = await armGet<{ value?: { name?: string; properties?: { displayName?: string; status?: string; subscriptionBillingStatus?: string; productName?: string } }[] }>(token, `${base}/billingSubscriptions?${API}`);
+      const res = await armGet<{ value?: { name?: string; properties?: { displayName?: string; status?: string; subscriptionBillingStatus?: string; productName?: string } }[] }>(token, `${base}/billingSubscriptions?${API}`, signal);
       for (const s of res.value ?? []) {
         const name = s.properties?.displayName ?? s.properties?.productName ?? s.name ?? "Subscription";
         subscriptions.push({ name, status: s.properties?.status ?? s.properties?.subscriptionBillingStatus ?? "unknown", business: businessOf(name) });
@@ -62,6 +64,9 @@ export async function fetchMsBilling(conn: Conn, rules: BusinessRule[], today: s
   }
   return { accounts, invoices: invoices.sort((x, y) => (y.date ?? "").localeCompare(x.date ?? "")), subscriptions, error: errors.length && !invoices.length ? errors[0] : null, checkedAt };
 }
+
+/** Not read yet (the background billing read fills it in). */
+export const pendingMsBilling = (): MsBilling => ({ accounts: [], invoices: [], subscriptions: [], error: null, checkedAt: null });
 
 export async function getMsAdmin(rules: BusinessRule[]) {
   const conn = await msAdminConnection();
@@ -78,19 +83,12 @@ export async function getMsAdmin(rules: BusinessRule[]) {
       ]);
       if (skus.status === "rejected") fail("licences", `Licences: ${errorMessage(skus.reason)}`);
       if (health.status === "rejected") fail("health", `Service health: ${errorMessage(health.reason)}`);
-      const today = todayFn();
-      const billing = await slowCached(
-        "msbilling",
-        [c.account, rules],
-        () => fetchMsBilling(c, rules, today),
-        (b) => (b.error ? HOUR : 6 * HOUR),
-      );
       return {
         tenant: org.status === "fulfilled" ? (org.value.value?.[0]?.displayName ?? null) : null,
         account: c.account,
         licences: skus.status === "fulfilled" ? parseSkus(skus.value.value) : [],
         health: health.status === "fulfilled" ? parseHealthIssues(health.value.value) : [],
-        billing,
+        billing: pendingMsBilling(),
       };
     },
     demoMsAdmin,
