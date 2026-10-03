@@ -121,6 +121,8 @@ const SCOPE_SECTION: Record<string, Section> = {
   gmail: "inbox", outlook: "inbox", mymail: "inbox", websites: "websites", stripe: "money", invoices: "money", subscriptions: "money",
   deadlines: "deadlines", checklist: "security", domains: "domains", security: "security", pipeline: "clients",
   reviews: "analytics", analytics: "analytics", cameras: "cameras", solar: "solar",
+  // Microsoft 365 admin: service health and licences are platform admin; invoices are money.
+  msadmin: "platforms", msbilling: "money",
 };
 const EVENT_PREFIX: [string, Section][] = [
   ["github-ci:", "repos"], ["github-dependabot:", "security"], ["github-secret:", "security"],

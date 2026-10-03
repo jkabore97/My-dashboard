@@ -139,3 +139,57 @@ console.anthropic.com → **API Keys → Create** → Vercel settings: `ANTHROPI
 ## 16. Invite your team
 
 **Team → Invite**: their Microsoft sign-in address, a role and their businesses. They open the site and choose **Sign in with Microsoft**.
+
+---
+
+## 17. Bills: Microsoft 365 admin (licences, service health, invoices)
+
+A separate, owner-only connection on the same Entra app as Outlook. Your mailboxes keep working as they are.
+
+1. **entra.microsoft.com → Identity → Applications → App registrations →** your dashboard app (the one whose ID is in `MS_CLIENT_ID`) **→ API permissions → Add a permission**:
+   - **Microsoft Graph → Delegated permissions**: tick `Organization.Read.All` and `ServiceHealth.Read.All` → **Add permissions**.
+   - **Add a permission → Azure Service Management** (under "Microsoft APIs") **→ Delegated → `user_impersonation`** → **Add permissions**.
+2. Still on **API permissions**, click **Grant admin consent for <your organization>** and confirm. All rows show a green tick.
+3. Give the admin who will connect a **billing role**, or invoices stay unreadable (licences and service health still work):
+   - **admin.microsoft.com → Billing → Billing accounts →** your account **→ Roles** (or **Billing account roles**) **→ Add → Billing account reader**, *or*
+   - **portal.azure.com → Cost Management + Billing → Billing scopes →** your account **→ Access control (IAM) → Add → Billing account reader**.
+   Role changes can take a few minutes.
+4. In the dashboard: **Platforms → Microsoft 365 admin → Connect Microsoft 365 admin**, sign in as that admin and accept. If Microsoft asks a second time (for Azure billing), accept again; the dashboard does this step automatically when needed.
+
+What you get: paid licences purchased vs assigned (unassigned seats become a low task), open service incidents (tasks), and the last 12 months of Microsoft invoices on **Platform spend → Automatic bills**. If billing can't be read, the card says exactly why (no billing role, consent missing).
+
+## 18. Bills: Google Cloud / Firebase
+
+Read-only, with a service account (no Google sign-in needed).
+
+1. **console.cloud.google.com →** project picker **→ New project** `kaj-dashboard` (any project works; a dedicated one keeps it tidy).
+2. **APIs & Services → Library**, enable in that project: **Cloud Billing API**, **Cloud Resource Manager API**, **BigQuery API**, **Firebase Management API**.
+3. **IAM & Admin → Service accounts → Create service account** `kaj-dashboard` → **Done** (no roles here).
+4. Give it read-only roles (use the service account's e-mail, `kaj-dashboard@kaj-dashboard.iam.gserviceaccount.com`):
+   - **Billing → (each billing account) → Account management → Add principal → Billing Account Viewer**.
+   - **IAM** at the organization (or on each project) **→ Grant access → Browser** (or **Viewer**) and **Firebase Viewer**.
+   - On the project that holds the billing-export dataset: **BigQuery Data Viewer** and **BigQuery Job User**.
+5. Turn on the cost export (skip to see projects only): **Billing → Billing export → BigQuery export → Standard usage cost → Edit settings**, pick the project and create a dataset (e.g. `billing_export`) → **Save**. The table `gcp_billing_export_v1_XXXXXX_XXXXXX_XXXXXX` appears in that dataset; **data shows up about a day later**.
+6. **Service accounts → kaj-dashboard → Keys → Add key → Create new key → JSON**. A file downloads.
+7. Dashboard: **Platforms → Google Cloud / Firebase**: paste the whole JSON file into the key box, and the table id `project.dataset.gcp_billing_export_v1_XXXXXX…` into the second box → **Connect Google Cloud**. The key is checked with Google, stored encrypted and never shown again; delete the downloaded file afterwards. To change only the table later, leave the key box empty.
+
+Costs show per month, project and service (net of credits) on **Platform spend**; projects map to businesses with the rules from step 1. The Platforms page also gets console links per project and per Firebase app.
+
+## 19. Bills from every other platform
+
+The dashboard reads bills wherever a platform has a billing API, using the tokens you already connected. Extra permissions are **optional**: without them that platform's bill comes from e-mail receipts or your own entry, and **Platform spend → Bill coverage** says which.
+
+| Platform | What's read | Optional extra permission |
+| --- | --- | --- |
+| Cloudflare | Billing history (invoices, domain renewals) and plan prices | Add **Billing: Read** to the API token (dash.cloudflare.com → My Profile → API Tokens → Edit), or create a new token with it and paste it on Platforms. |
+| GitHub | Enhanced billing usage (Copilot, Actions, storage) for you and your orgs | Fine-grained token → **Account permissions → Plan: read** (org billing needs an org owner's token). |
+| Vercel | Billing charges (Pro/Enterprise teams, incl. Marketplace add-ons like Neon) | None; on the Hobby plan nothing is billed and it says so. |
+| Supabase | Plan per organization (no amounts: Supabase has no billing-amount API) | None. Amounts come from receipts or your entry. |
+| Stripe | Processing fees (last 30 days, per business) from the balance you already read | None. |
+| Anthropic (Claude API) | Monthly cost report | Optional Vercel setting `ANTHROPIC_ADMIN_KEY` = an **Admin API key** (`sk-ant-admin…`, console.anthropic.com → Settings → Admin keys). Not the normal API key. |
+
+Re-creating tokens is optional; nothing stops working if you don't.
+
+**Workspace, Resend, Twilio, domains, Starlink and the rest** have no billing API for customers: invoices and receipts that reach a **shared** mailbox (never a personal one) from Google payments, Microsoft, Vercel, Supabase, GitHub, Cloudflare, Anthropic, Resend, Twilio, Namecheap, GoDaddy, Squarespace, Starlink, Apple, Zoom, Canva, QuickBooks and Stripe receipts are recognised and listed under **Platform spend → Detected from e-mail · check** when the amount is unambiguous. They never count in totals until you click **Track as subscription**.
+
+**No double counting:** a billing API's amount counts in the monthly total only when you have no subscription entry for the same vendor. If you have one, the vendor's row on Platform spend offers **Use billing API** or **Use my entry**.

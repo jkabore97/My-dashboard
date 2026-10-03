@@ -163,3 +163,20 @@ export const googleClient = () => {
   const secret = env("GOOGLE_CLIENT_SECRET");
   return id && secret ? { id, secret } : null;
 };
+
+/** The Microsoft 365 admin connection (licences, service health, billing): one per tenant, owner-only. */
+export const msAdminConnection = cache(async () => {
+  const c = await first<{ refreshToken: string }>("msadmin");
+  return c ? { account: c.account, refreshToken: c.secret.refreshToken, meta: c.meta } : null;
+});
+
+export interface GcloudSecret {
+  clientEmail: string;
+  privateKey: string;
+  privateKeyId: string | null;
+  projectId: string;
+  exportTable: string | null;
+}
+
+/** The Google Cloud service account (billing, projects, Firebase, BigQuery billing export). */
+export const gcloudConnection = cache(async () => (await first<GcloudSecret>("gcloud"))?.secret ?? null);

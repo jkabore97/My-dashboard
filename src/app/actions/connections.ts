@@ -9,7 +9,10 @@ import { getAuthed } from "@/lib/server/oauth";
 import { fetchSite } from "@/lib/connectors/hikvision";
 import { assertPublicHost, siteAccount, validateSiteUrl } from "@/lib/server/site-credentials";
 import { audit } from "@/lib/server/store/audit";
-import { deleteConnection, listConnectionSummaries, saveConnection, updateConnectionLabel, type Provider } from "@/lib/server/store/connections";
+import { deleteConnection, listConnections, listConnectionSummaries, saveConnection, updateConnectionLabel, type Provider } from "@/lib/server/store/connections";
+import { parseExportTable, parseServiceAccountKey } from "@/lib/billing/google";
+import { gcpAccessToken, gcpApi, GcpApiError } from "@/lib/server/gcloud";
+import type { GcloudSecret } from "@/lib/server/credentials";
 
 export interface ConnectState {
   error?: string;
@@ -144,4 +147,46 @@ export async function disconnectPersonal(id: string) {
   await audit(user.email, "connection.remove_personal", `${removed.provider}:${removed.account}`, { of: removed.owner_email }, await clientIp());
   await invalidateExternal();
   revalidatePath("/", "layout");
+}
+
+/**
+ * Google Cloud: a pasted service-account JSON key (checked, then stored
+ * encrypted; never sent back) and an optional BigQuery billing-export table.
+ * With a key already saved, the key may be left empty to change only the table.
+ */
+export async function saveGoogleCloudConnection(_prev: ConnectState, form: FormData): Promise<ConnectState> {
+  const user = await requireOwner();
+  const keyText = String(form.get("key") ?? "");
+  const tableText = field(form, "exportTable").slice(0, 300);
+  const table = tableText ? parseExportTable(tableText) : null;
+  if (tableText && !table) return { error: "The export table id should look like project.dataset.gcp_billing_export_v1_XXXXXX." };
+  let secret: GcloudSecret;
+  if (keyText.trim()) {
+    const parsed = parseServiceAccountKey(keyText);
+    if ("error" in parsed) return { error: parsed.error };
+    secret = { ...parsed.key, exportTable: table?.id ?? null };
+  } else {
+    const existing = (await listConnections<GcloudSecret>("gcloud")).filter((c) => !c.ownerEmail).at(-1);
+    if (!existing) return { error: "Paste the service account's JSON key." };
+    secret = { ...existing.secret, exportTable: table?.id ?? null };
+  }
+  try {
+    // Proves the key works before saving it.
+    const token = await gcpAccessToken(secret);
+    let warning = "";
+    if (table) {
+      await gcpApi(token, `https://bigquery.googleapis.com/bigquery/v2/projects/${table.project}/datasets/${table.dataset}/tables/${table.table}`).catch((err: unknown) => {
+        warning = err instanceof GcpApiError && (err.status === 403 || err.status === 404)
+          ? ` The export table isn't readable yet (${err.status}): grant BigQuery Data Viewer on the dataset and BigQuery Job User on ${table.project}.`
+          : ` The export table couldn't be checked (${err instanceof Error ? err.message : "error"}).`;
+      });
+    }
+    const replaced = await saveConnection({ provider: "gcloud", account: secret.clientEmail, label: secret.projectId, secret, meta: { via: "key", projectId: secret.projectId, exportTable: secret.exportTable } });
+    await auditConnection(user.email, "gcloud", secret.clientEmail, "token", replaced);
+    await invalidateExternal();
+    revalidatePath("/", "layout");
+    return { ok: `Connected Google Cloud as ${secret.clientEmail}${secret.exportTable ? ` with billing export ${secret.exportTable}` : " (no billing export table yet)"}${replacedNote(replaced)}.${warning}` };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Google Cloud rejected the key." };
+  }
 }

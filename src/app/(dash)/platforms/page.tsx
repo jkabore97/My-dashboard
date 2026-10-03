@@ -12,7 +12,10 @@ import { WEBHOOK_ENV } from "@/lib/server/webhooks";
 import { hasGoogleScope, type GoogleFeature } from "@/lib/server/google";
 import { env } from "@/lib/source";
 import { btn, ModePill, PageHeader, SeverityIcon, StatStrip, Tag, timeAgo } from "@/components/ui";
-import { DisconnectButton, RelabelForm, TokenForm, WebhookSecretForm } from "@/components/platforms/forms";
+import { DisconnectButton, GoogleCloudForm, RelabelForm, TokenForm, WebhookSecretForm } from "@/components/platforms/forms";
+import { ConsoleCards, ConsoleStrip } from "@/components/platforms/consoles";
+import { emptyBills } from "@/lib/billing/spend";
+import { msClient } from "@/lib/server/microsoft";
 import { CodeBox, HeadPanel, Monogram, PLATFORM_COLOR } from "@/components/admin/bits";
 import { SectionRule } from "@/components/sites/bits";
 import type { SourceMode } from "@/lib/types";
@@ -28,7 +31,7 @@ const WEBHOOK_NAME = { github: "GitHub", vercel: "Vercel", stripe: "Stripe", sup
 const WEBHOOK_COLOR = { github: "#a98bff", vercel: "#3fd0ff", stripe: "#ffd84d", supabase: "#3df5a0", hikvision: "#c6f432" } as const;
 
 /** Card order on the page (others follow in definition order). */
-const ORDER = ["microsoft", "github", "vercel", "supabase", "cloudflare", "stripe", "websites", "hikvision", "solar", "resend", "gmail", "claude", "reviews"];
+const ORDER = ["microsoft", "msadmin", "gcloud", "github", "vercel", "supabase", "cloudflare", "stripe", "websites", "hikvision", "solar", "resend", "gmail", "claude", "reviews"];
 
 const GOOGLE_FEATURES: [GoogleFeature, string][] = [["gmail", "Gmail"], ["calendar", "Calendar"], ["analytics", "Analytics"], ["searchConsole", "Search Console"]];
 
@@ -41,6 +44,29 @@ function GoogleGrants({ scopes }: { scopes: string[] | null }) {
         <span key={f} className={`px-1.5 py-0.5 font-mono text-[10.5px] ${hasGoogleScope(scopes, f) ? "bg-emerald/10 text-emerald" : "bg-line/40 text-muted line-through"}`}>{label}</span>
       ))}
       {missing.length > 0 && <span className="text-[10.5px] text-muted">Reconnect to grant the rest.</span>}
+    </div>
+  );
+}
+
+function MsAdminSummary({ bills }: { bills: ReturnType<typeof emptyBills> }) {
+  const m = bills.microsoft;
+  const paid = m.licences.filter((l) => !l.free);
+  const unassigned = paid.reduce((n, l) => n + l.unassigned, 0);
+  return (
+    <div className="mt-1 text-xs text-muted">
+      {paid.length > 0 && <span>{paid.reduce((n, l) => n + l.purchased, 0)} paid seats, {unassigned} unassigned · </span>}
+      {m.health.length > 0 ? <span className="text-high">{m.health.length} open service issue{m.health.length === 1 ? "" : "s"} · </span> : null}
+      {m.billing.error ? <span className="text-high">Billing: {m.billing.error}</span> : m.billing.accounts.length ? <span>Billing: {m.billing.invoices.length} invoices in 12 months</span> : <span>Billing not read yet</span>}
+    </div>
+  );
+}
+
+function GcloudSummary({ bills, table }: { bills: ReturnType<typeof emptyBills>; table: string | null }) {
+  const g = bills.google;
+  return (
+    <div className="mt-1 text-xs text-muted">
+      {g.projects.length} project{g.projects.length === 1 ? "" : "s"} ({g.projects.filter((p) => p.firebase).length} Firebase) · {g.billingAccounts.length} billing account{g.billingAccounts.length === 1 ? "" : "s"} · {table ? <span className="font-mono">{table}</span> : "no billing export table"}
+      {g.export.error && <div className={g.export.status === "error" ? "text-high" : ""}>{g.export.error}</div>}
     </div>
   );
 }
@@ -70,6 +96,9 @@ export default async function PlatformsPage({ searchParams }: { searchParams: Pr
   };
   const counts = { live: defs.filter((p) => state(p.id) === "live").length, error: defs.filter((p) => state(p.id) === "error").length, off: defs.filter((p) => state(p.id) === "demo").length };
   const cronOn = !!env("CRON_SECRET");
+  const bills = d.bills ?? emptyBills();
+  const gcloudConn = connections.find((c) => c.provider === "gcloud");
+  const gcloudTable = gcloudConn?.exportTable ?? null;
 
   return (
     <>
@@ -91,6 +120,8 @@ export default async function PlatformsPage({ searchParams }: { searchParams: Pr
           <p className="text-sm">Connected {connected}.</p>
         </div>
       )}
+
+      <ConsoleStrip />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {defs.map((p) => {
@@ -132,6 +163,8 @@ export default async function PlatformsPage({ searchParams }: { searchParams: Pr
                       </div>
                       <div className="text-xs text-muted">{c.business ? `${c.business} · ` : ""}connected {timeAgo(c.createdAt)}</div>
                       {p.provider === "gmail" && <GoogleGrants scopes={c.scopes} />}
+                      {p.provider === "msadmin" && <MsAdminSummary bills={bills} />}
+                      {p.provider === "gcloud" && <GcloudSummary bills={bills} table={gcloudTable} />}
                       {multi && <RelabelForm id={c.id} label={c.label} business={c.business} />}
                     </li>
                   ))}
@@ -140,6 +173,7 @@ export default async function PlatformsPage({ searchParams }: { searchParams: Pr
               {mine.length === 0 && envSet && <p className="mt-3 text-xs text-muted">Using environment variables ({p.envKeys.join(", ")}).</p>}
 
               <div className="mt-auto pt-4">
+                {!d.dbError && p.form === "gcloud" && <GoogleCloudForm connected={mine.length > 0} exportTable={gcloudTable} />}
                 {!d.dbError && (p.oauth || p.token) && (
                   <>
                     {p.oauth && (oauthConfigured(p.oauth) ? (
@@ -147,7 +181,7 @@ export default async function PlatformsPage({ searchParams }: { searchParams: Pr
                         {mine.length && multi ? "Connect another account" : mine.length ? "Reconnect or replace" : `Connect ${p.name}`}
                       </a>
                     ) : (
-                      <p className="text-xs text-muted">One-click connect needs {p.oauth === "github" ? "GITHUB_OAUTH_CLIENT_ID/SECRET" : p.oauth === "gmail" ? "GOOGLE_CLIENT_ID/SECRET" : p.oauth === "microsoft" ? "MS_CLIENT_ID/SECRET" : "VERCEL_INTEGRATION_SLUG and VERCEL_CLIENT_ID/SECRET"} (see README).</p>
+                      <p className="text-xs text-muted">One-click connect needs {p.oauth === "github" ? "GITHUB_OAUTH_CLIENT_ID/SECRET" : p.oauth === "gmail" ? "GOOGLE_CLIENT_ID/SECRET" : p.oauth === "microsoft" || p.oauth === "msadmin" ? "MS_CLIENT_ID/SECRET" : "VERCEL_INTEGRATION_SLUG and VERCEL_CLIENT_ID/SECRET"} (see README).</p>
                     ))}
                     {mine.length > 0 && !multi && <p className="mt-2 text-xs text-muted">One {p.name} account at a time: connecting another replaces this one.</p>}
                     {p.token && (
@@ -164,6 +198,9 @@ export default async function PlatformsPage({ searchParams }: { searchParams: Pr
           );
         })}
       </div>
+
+      <SectionRule className="mt-10">Consoles</SectionRule>
+      <ConsoleCards bills={bills} modes={d.modes} msadminConnected={connections.some((c) => c.provider === "msadmin")} gcloudConnected={!!gcloudConn} msAppConfigured={!!msClient()} />
 
       <SectionRule className="mt-10">Personal mailboxes</SectionRule>
       <HeadPanel accent="#3fd0ff" title="Personal mail & calendars" status={<Tag color={personal.length ? "#3fd0ff" : "#7f97ab"}>{personal.length} connected</Tag>} bodyClassName="!p-0">

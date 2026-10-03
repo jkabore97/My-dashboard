@@ -28,11 +28,18 @@ import { getConfig } from "./server/config";
 import { connectionHealth } from "./server/credentials";
 import { claimInterval, deleteSetting, getSetting, setSetting } from "./server/store/settings";
 import { decryptJson, encryptJson } from "./server/crypto";
+import { getMsAdmin } from "./connectors/msadmin";
+import { getGoogleCloud } from "./connectors/gcloud";
+import { getPlatformBilling } from "./connectors/platform-billing";
+import { getBillEmails } from "./connectors/billmail";
+import { billingUnobserved, deriveBillingTasks, emptyBills, SPEND_CHOICES_KEY, type BillingScope, type SpendChoices } from "./billing/spend";
+import type { Bills } from "./billing/types";
+import { clearSlowCaches } from "./server/slow-cache";
 import type { CalendarEvent, Database, EmailMessage, HostingProject, Notification, Repo, SourceMode, SourceResult, Task, Website } from "./types";
 
 const DAY = 86_400_000;
 
-export type Scope = "connector" | "github" | "vercel" | "workers" | "supabase" | "d1" | "gmail" | "outlook" | "mymail" | "websites" | RiskScope | GrowthScope | DeviceScope;
+export type Scope = "connector" | "github" | "vercel" | "workers" | "supabase" | "d1" | "gmail" | "outlook" | "mymail" | "websites" | RiskScope | GrowthScope | DeviceScope | BillingScope;
 
 /**
  * A task generated from platform data. `scope` is the source it came from;
@@ -44,7 +51,7 @@ type Config = Awaited<ReturnType<typeof getConfig>>;
 
 /** Everything that comes from other platforms (APIs, uptime probes, recorders). */
 async function fetchExternal({ businessRules, sites }: Config) {
-  const [repos, ghNotes, vercel, workers, supabase, d1, gmail, stripe, outlook, calendar, analytics, reviews, cameras, personal] = await Promise.all([
+  const [repos, ghNotes, vercel, workers, supabase, d1, gmail, stripe, outlook, calendar, analytics, reviews, cameras, personal, msadmin, gcloud, platformBilling] = await Promise.all([
     getRepos(businessRules),
     getGithubNotifications(),
     getVercelProjects(businessRules),
@@ -61,10 +68,17 @@ async function fetchExternal({ businessRules, sites }: Config) {
     // People's own mailboxes and calendars: cached here with the rest (encrypted),
     // every item tagged with its owner; scope.ts gives each to its owner alone.
     getPersonal(),
+    // Bills: Microsoft 365 admin (licences, health, Azure invoices), Google
+    // Cloud, other platforms' billing APIs. The slow parts are cached for hours.
+    getMsAdmin(businessRules),
+    getGoogleCloud(businessRules),
+    getPlatformBilling(businessRules),
   ]);
+  // Invoices and receipts in the shared mailboxes (real mail only, never personal).
+  const billMail = await getBillEmails([...(gmail.mode === "live" ? gmail.data : []), ...(outlook.mode === "live" ? outlook.data : [])]);
   const hosting = mergeSources([vercel, workers]).data;
   const [security, websiteResult] = await Promise.all([getSecurity(repos.data, repos.mode === "live"), getWebsites(sites, hosting)]);
-  return { repos, ghNotes, vercel, workers, supabase, d1, gmail, stripe, outlook, calendar, analytics, reviews, cameras, security, websiteResult, personal };
+  return { repos, ghNotes, vercel, workers, supabase, d1, gmail, stripe, outlook, calendar, analytics, reviews, cameras, security, websiteResult, personal, msadmin, gcloud, platformBilling, billMail };
 }
 
 // Other platforms are slow (uptime probes wait up to 5 s, mail and calendars
@@ -93,6 +107,7 @@ export function refetchExternal() {
 export async function invalidateExternal() {
   external = null;
   await deleteSetting(SNAPSHOT_KEY).catch(() => {});
+  await clearSlowCaches().catch(() => {});
 }
 
 /** Tests: drop this instance's copy, as a fresh server instance would start. */
@@ -159,11 +174,25 @@ export const collect = cache(async () => {
   const config = await getConfig();
   const { sites, domains: watchedDomains } = config;
   // Your own records come straight from the database, so edits show at once.
-  const [{ at: externalAt, value: ext }, records, domains, solarAll] = await Promise.all([externalData(config), getRecords(), getDomains(watchedDomains), getSolar()]);
+  const [{ at: externalAt, value: ext }, records, domains, solarAll, spendChoices] = await Promise.all([
+    externalData(config),
+    getRecords(),
+    getDomains(watchedDomains),
+    getSolar(),
+    getSetting<SpendChoices>(SPEND_CHOICES_KEY, {}).catch(() => ({}) as SpendChoices),
+  ]);
   const { repos, ghNotes, vercel, workers, supabase, d1, gmail, stripe, outlook, calendar: sharedCalendar, analytics, reviews, cameras, security, websiteResult } = ext;
   // A snapshot saved before personal mailboxes existed has none.
   const personal = ext.personal ?? { source: "My mail", mode: "demo" as SourceMode, data: { emails: [], calendar: [], problems: [] }, fetchedAt: new Date().toISOString() };
   const solar = solarAll.result;
+  // A snapshot saved before billing existed has none of these.
+  const now0 = new Date().toISOString();
+  const blank = emptyBills();
+  const msadmin = ext.msadmin ?? { source: "Microsoft 365 admin", mode: "demo" as SourceMode, data: blank.microsoft, fetchedAt: now0 };
+  const gcloud = ext.gcloud ?? { source: "Google Cloud", mode: "demo" as SourceMode, data: blank.google, fetchedAt: now0 };
+  const platformBilling = ext.platformBilling ?? { source: "Platform billing", mode: "demo" as SourceMode, data: [], fetchedAt: now0 };
+  const billMail = ext.billMail ?? { source: "Billing e-mails", mode: "demo" as SourceMode, data: [], fetchedAt: now0 };
+  const bills: Bills = { microsoft: msadmin.data, google: gcloud.data, platforms: platformBilling.data, email: billMail.data };
   // Gmail and Outlook share one inbox; each message keeps its mailbox id.
   // People's own mail and events ride along (tagged with their owner) but
   // never change the shared modes: an owner with no shared mailbox still sees
@@ -193,7 +222,7 @@ export const collect = cache(async () => {
   const guards = undecryptableGuards(undecryptable);
 
   // Shared sources only: a personal mailbox's trouble goes to its owner (personalProblems), never into these.
-  const sources: SourceResult<unknown>[] = [repos, vercel, workers, supabase, d1, gmail, outlook, websites, stripe, domains, security, records, sharedCalendar, analytics, reviews, cameras, solar];
+  const sources: SourceResult<unknown>[] = [repos, vercel, workers, supabase, d1, gmail, outlook, websites, stripe, domains, security, records, sharedCalendar, analytics, reviews, cameras, solar, msadmin, gcloud];
   const modes = {
     github: repos.mode,
     githubNotes: ghNotes.mode,
@@ -219,6 +248,11 @@ export const collect = cache(async () => {
     security: security.mode,
     cameras: cameras.mode,
     solar: solar.mode,
+    msadmin: msadmin.mode,
+    msbilling: msadmin.mode,
+    gcloud: gcloud.mode,
+    billing: platformBilling.mode,
+    billmail: billMail.mode,
   };
 
   const risk = deriveRiskTasks({
@@ -254,7 +288,9 @@ export const collect = cache(async () => {
     partial: { cameras: (cameras.partial ?? []).map((p) => p.key) },
   });
 
-  const tasks: DerivedTask[] = [...deriveTasks({ repos: repos.data, hosting, databases, emails: emails.data, websites: websites.data, sources, modes, personalProblems: personal.data.problems }), ...risk.tasks, ...growth.tasks, ...devices.tasks];
+  const billingTasks = deriveBillingTasks({ microsoft: msadmin.data, modes: { msadmin: msadmin.mode, msbilling: msadmin.mode } });
+
+  const tasks: DerivedTask[] = [...deriveTasks({ repos: repos.data, hosting, databases, emails: emails.data, websites: websites.data, sources, modes, personalProblems: personal.data.problems }), ...risk.tasks, ...growth.tasks, ...devices.tasks, ...billingTasks];
 
   const live = (m: SourceMode) => m === "live";
   const notifications: (Notification & { live: boolean })[] = [
@@ -294,6 +330,8 @@ export const collect = cache(async () => {
     cameras: cameras.data,
     solar: solar.data,
     solarConfig: solarAll.config,
+    bills,
+    spendChoices,
     derivedTasks: tasks,
     notifications,
     modes,
@@ -309,9 +347,11 @@ export const collect = cache(async () => {
       reviews: reviews.mode,
       hikvision: cameras.mode,
       solar: solar.mode,
+      msadmin: msadmin.mode,
+      gcloud: gcloud.mode,
     }),
     sources: sources.map(({ source, mode, error, partial, fetchedAt }) => ({ source, mode, error, partial, fetchedAt })),
-    unobserved: [...unobservedKeys({ gmail: gmail.partial, supabase: supabase.partial, github: repos.partial, mymail: personal.partial }), ...guards.unobserved, ...risk.unobserved, ...growth.unobserved, ...devices.unobserved, ...(outlook.partial ?? []).map((p) => `outlook/${encodeURIComponent(p.key)}/`)],
+    unobserved: [...unobservedKeys({ gmail: gmail.partial, supabase: supabase.partial, github: repos.partial, mymail: personal.partial }), ...guards.unobserved, ...risk.unobserved, ...growth.unobserved, ...devices.unobserved, ...billingUnobserved(msadmin.partial, msadmin.mode === "live" ? msadmin.data.billing.error : null), ...(outlook.partial ?? []).map((p) => `outlook/${encodeURIComponent(p.key)}/`)],
     /** Personal accounts that couldn't be read; each is shown to its owner only. */
     personalProblems: personal.data.problems,
     /** Who has a personal mailbox being read (each viewer's copy keeps only themselves). */
@@ -435,7 +475,7 @@ export function unobservedKeys(p: { gmail?: { key: string }[]; supabase?: { key:
   ];
 }
 
-const PROVIDER_SCOPES: Record<string, Scope[]> = { github: ["github"], vercel: ["vercel"], supabase: ["supabase"], cloudflare: ["workers", "d1"], hikvision: ["cameras"] };
+const PROVIDER_SCOPES: Record<string, Scope[]> = { github: ["github"], vercel: ["vercel"], supabase: ["supabase"], cloudflare: ["workers", "d1"], hikvision: ["cameras"], msadmin: ["msadmin", "msbilling"] };
 
 /**
  * A stored connection that no longer decrypts is an account we can't see, even

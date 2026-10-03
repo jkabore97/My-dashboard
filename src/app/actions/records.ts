@@ -13,6 +13,7 @@ import { getSetting, setSetting } from "@/lib/server/store/settings";
 import { isDate, today, type Recurrence } from "@/lib/dates";
 import { decimals, parseAmount } from "@/lib/money";
 import { ACCOUNT_CHECKLIST } from "@/lib/security-checklist";
+import { isApiVendor, SPEND_CHOICES_KEY, type SpendChoices } from "@/lib/billing/spend";
 
 export interface RecordState {
   error?: string;
@@ -227,4 +228,16 @@ export async function confirmChecklistAction(itemId: string, confirmed: boolean)
   await setSetting("security_checklist", next);
   await audit(user.email, confirmed ? "security.checklist.confirm" : "security.checklist.unconfirm", itemId);
   await refresh();
+}
+
+// ─── Automatic bills ─────────────────────────────────────────────────────────
+
+/** Per vendor: count the billing API's amount ("api") or your own subscription entry ("manual") in totals. */
+export async function setSpendChoiceAction(vendor: string, choice: "api" | "manual") {
+  const user = await requireOwner();
+  if (!isApiVendor(vendor) || (choice !== "api" && choice !== "manual")) return;
+  const current = await getSetting<SpendChoices>(SPEND_CHOICES_KEY, {});
+  await setSetting(SPEND_CHOICES_KEY, { ...current, [vendor]: choice });
+  await audit(user.email, "spend.source", vendor, { choice });
+  revalidatePath("/", "layout");
 }

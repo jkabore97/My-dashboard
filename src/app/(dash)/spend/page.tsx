@@ -2,12 +2,20 @@ import { requireSection } from "@/lib/server/auth";
 import { getDashboard } from "@/lib/server/dashboard";
 import { daysBetween, formatDate, relativeDays, today } from "@/lib/dates";
 import { formatMoney, formatTotals, toInputAmount } from "@/lib/money";
+import type { SourceMode } from "@/lib/types";
 import { moneyOverview } from "@/lib/money-summary";
 import { BizLabel, Card, Empty, PageHeader, Tag, businessColor } from "@/components/ui";
 import { SubscriptionForm, SubscriptionRow } from "@/components/records";
 import { AlertRow, FilterChip, Meter, Metrics, Monogram, StackBar } from "@/components/treasury/ui";
 import { act, primary } from "@/components/treasury/styles";
-import { monthlyOf, nextDate, recentChanges, renewalsWithin, spendByBusiness, spendProblems, spendShare, spendTotals, spendTrend } from "@/components/treasury/spend";
+import { AutomaticBills, BillCoverage, DetectedBills, showSource } from "@/components/treasury/AutoBills";
+import { combinedSpend, emptyBills } from "@/lib/billing/spend";
+import { billCoverage } from "@/lib/billing/coverage";
+import { configStatus, PLATFORM_DEFS } from "@/lib/platforms";
+import { env } from "@/lib/source";
+import { isFullOwner } from "@/lib/access";
+import { sumByCurrency } from "@/lib/money";
+import { monthlyOf, nextDate, recentChanges, renewalsWithin, spendProblems, spendShare, spendTotals, spendTrend } from "@/components/treasury/spend";
 
 const FILTERS = { all: "All", month: "Monthly", year: "Yearly", free: "Free", stopped: "Stopped" } as const;
 type Filter = keyof typeof FILTERS;
@@ -25,27 +33,47 @@ export default async function SpendPage({ searchParams }: { searchParams: Promis
   const active = subs.filter((s) => s.active);
   const businesses = [...new Set([...d.stripe.map((a) => a.business), ...subs.map((s) => s.business), ...d.openTasks.map((t) => t.business)].filter(Boolean))].sort() as string[];
 
-  const totals = spendTotals(subs);
-  const cur = totals.monthly[0]?.currency ?? "usd";
-  const main = totals.monthly[0]?.amount ?? 0;
+  // Billing APIs join the total only where they don't double-count your own entries (see resolveSpend).
+  const bills = d.bills ?? emptyBills();
+  const owner = isFullOwner(d.user);
+  const combined = combinedSpend(d, now);
+  const counted = subs.filter((s) => !combined.resolution.excludedSubIds.has(s.id));
+  const totals = spendTotals(counted);
+  const apiMonthly = sumByCurrency(combined.resolution.included.flatMap((a) => a.amounts));
+  const monthlyAll = combined.monthly;
+  const yearlyAll = sumByCurrency([...totals.yearly, ...apiMonthly.map((a) => ({ currency: a.currency, amount: a.amount * 12 }))]);
+  const cur = monthlyAll[0]?.currency ?? "usd";
+  const main = monthlyAll[0]?.amount ?? 0;
   const renewals = renewalsWithin(subs, now, 30);
   const renewTotal = renewals.filter((r) => r.autoRenew && r.currency === cur).reduce((n, r) => n + r.amount, 0);
   const renewOther = [...new Set(renewals.filter((r) => r.currency !== cur).map((r) => r.currency.toUpperCase()))];
   const problems = spendProblems(subs, now);
   const problemIds = new Set(problems.map((p) => p.id));
-  const perBusiness = spendByBusiness(subs);
+  const perBusiness = [...new Set(combined.lines.map((l) => l.business ?? "Unassigned"))]
+    .map((business) => ({ business, totals: sumByCurrency(combined.lines.filter((l) => (l.business ?? "Unassigned") === business).map((l) => ({ currency: l.currency, amount: l.monthly }))) }))
+    .sort((a, b) => (b.totals[0]?.amount ?? 0) - (a.totals[0]?.amount ?? 0) || a.business.localeCompare(b.business));
   const maxBiz = Math.max(1, ...perBusiness.map((b) => b.totals.find((t) => t.currency === cur)?.amount ?? 0));
   const trend = spendTrend(subs, now, cur);
   const changes = recentChanges(subs, now, 30);
   // Spend vs revenue only when the revenue is real (never against sample Stripe data).
   const stripeLive = d.modes.stripe === "live";
-  const share = stripeLive ? spendShare(totals.monthly, moneyOverview(d.stripe, d.records, now).gross30d) : null;
+  const share = stripeLive ? spendShare(monthlyAll, moneyOverview(d.stripe, d.records, now).gross30d) : null;
 
   const byCost = [...active].sort((a, b) => monthlyOf(b) - monthlyOf(a) || a.vendor.localeCompare(b.vendor));
   const list = (show === "stopped" ? subs.filter((s) => !s.active) : byCost).filter((s) => (show === "month" || show === "year" ? s.interval === show && s.amountMinor > 0 : show === "free" ? s.amountMinor === 0 : true));
-  const listTotal = formatTotals(spendTotals(list.map((s) => ({ ...s, active: true }))).monthly);
-  const stack = byCost.filter((s) => s.currency === cur && s.amountMinor > 0);
-  const stackParts = [...stack.slice(0, 7).map((s) => ({ value: monthlyOf(s), color: businessColor(s.vendor), title: s.vendor })), { value: stack.slice(7).reduce((n, s) => n + monthlyOf(s), 0), color: "#5e7a8f", title: "Others" }];
+  const listTotal = formatTotals(spendTotals(list.filter((s) => !combined.resolution.excludedSubIds.has(s.id)).map((s) => ({ ...s, active: true }))).monthly);
+  const stack = combined.lines.filter((l) => l.currency === cur && l.monthly > 0).sort((a, b) => b.monthly - a.monthly);
+  const stackParts = [...stack.slice(0, 7).map((l) => ({ value: l.monthly, color: businessColor(l.vendor), title: l.vendor })), { value: stack.slice(7).reduce((n, l) => n + l.monthly, 0), color: "#5e7a8f", title: "Others" }];
+  // Every connected platform, for "Bill coverage" (owners only: it names setup problems).
+  const connected = owner
+    ? PLATFORM_DEFS.filter((p) => p.available).flatMap((p) => {
+        if (p.configOnly) return configStatus(p, (k) => !!env(k)).on ? [{ id: p.id, mode: "live" as const }] : [];
+        const mode = (d.platforms as { id: string; mode: SourceMode | null }[]).find((x) => x.id === p.id)?.mode ?? null;
+        return mode === "live" || mode === "error" ? [{ id: p.id, mode }] : [];
+      })
+    : [];
+  const coverage = owner ? billCoverage({ connected, bills, api: combined.api, subs }) : [];
+  const sampleMail = d.modes.billmail !== "live";
   const trendMax = Math.max(1, ...trend.months.map((m) => m.amount));
   const withData = trend.months.filter((m) => m.amount > 0);
   const savedMonthly = formatTotals(spendTotals(changes.stopped.map((s) => ({ ...s, active: true }))).monthly);
@@ -97,14 +125,22 @@ export default async function SpendPage({ searchParams }: { searchParams: Promis
         <Metrics
           cols={5}
           items={[
-            { label: "Monthly total", value: <>{formatMoney(main, cur)}<small className="text-sm">/mo</small></>, tone: "pink", hint: totals.monthly.length > 1 ? `+ ${formatTotals(totals.monthly.slice(1))}/mo` : "yearly plans spread over 12 months", extra: <StackBar parts={stackParts} label="Monthly cost by platform" /> },
-            { label: "Yearly run-rate", value: formatMoney(totals.yearly[0]?.amount ?? 0, cur), tone: "gold", hint: totals.yearly.length > 1 ? `+ ${formatTotals(totals.yearly.slice(1))} · at today's prices` : "at today's prices" },
+            { label: "Monthly total", value: <>{formatMoney(main, cur)}<small className="text-sm">/mo</small></>, tone: "pink", hint: [monthlyAll.length > 1 ? `+ ${formatTotals(monthlyAll.slice(1))}/mo` : null, apiMonthly.length ? `incl. ${formatTotals(apiMonthly)} from billing APIs` : monthlyAll.length <= 1 ? "yearly plans spread over 12 months" : null].filter(Boolean).join(" · "), extra: <StackBar parts={stackParts} label="Monthly cost by platform" /> },
+            { label: "Yearly run-rate", value: formatMoney(yearlyAll.find((y) => y.currency === cur)?.amount ?? 0, cur), tone: "gold", hint: yearlyAll.length > 1 ? `+ ${formatTotals(yearlyAll.filter((y) => y.currency !== cur))} · at today's prices` : "at today's prices" },
             { label: "Renewing · 30 days", value: formatMoney(renewTotal, cur), tone: "cyan", hint: renewals.length ? `${renewals.filter((r) => r.autoRenew).length} charge${renewals.filter((r) => r.autoRenew).length === 1 ? "" : "s"}, ${short(renewals[0].date)} – ${short(renewals[renewals.length - 1].date)}${renewOther.length ? ` · also ${renewOther.join(", ")}` : ""}` : "nothing renews in 30 days" },
             { label: "Paid platforms", value: <>{totals.paid}<small className="text-sm"> / {totals.count}</small></>, tone: "emerald", hint: totals.count - totals.paid ? `${totals.count - totals.paid} on a free tier` : "entered by hand" },
             { label: "% of revenue", value: share ? `${share.pct}%` : "—", tone: "lime", hint: share ? `${formatMoney(share.spend, share.currency)} of ${formatMoney(share.revenue, share.currency)} (30d)` : stripeLive ? `no ${cur.toUpperCase()} revenue in 30 days` : "needs live Stripe revenue" },
           ]}
         />
       </Card>
+
+      <div className="mt-5 grid items-start gap-5 xl:grid-cols-[1.45fr_1fr]">
+        <div className="min-w-0"><AutomaticBills bills={bills} modes={d.modes} api={combined.api} resolution={combined.resolution} owner={owner} today={now} /></div>
+        <div className="grid min-w-0 gap-5">
+          {(showSource(d.modes.billmail) || bills.email.length > 0) && <DetectedBills bills={bills} subs={subs} businesses={businesses} sample={sampleMail} />}
+          {owner && <BillCoverage rows={coverage} />}
+        </div>
+      </div>
 
       <div className="mt-5 grid items-start gap-5 xl:grid-cols-[1.45fr_1fr]">
         <div className="grid min-w-0 gap-5">
@@ -182,6 +218,7 @@ export default async function SpendPage({ searchParams }: { searchParams: Promis
                           {s.url ? <a href={s.url} target="_blank" rel="noreferrer" className="hover:text-cyan">{s.vendor}</a> : s.vendor}
                           {flag && <Tag color={days !== null && days < 0 ? "#ff3d6e" : "#ff9f1c"}>{days !== null && days < 0 ? "Ended" : "Ends soon"}</Tag>}
                           {!s.active && <Tag>Not tracked</Tag>}
+                          {combined.resolution.excludedSubIds.has(s.id) && <Tag color="#3fd0ff" title="You chose the billing API's amount for this vendor; this entry isn't counted">Billing API counts instead</Tag>}
                         </div>
                         <div className="truncate text-xs text-muted">{[s.plan, free ? "Free tier" : null].filter(Boolean).join(" · ") || "—"}</div>
                         <div className="text-xs text-muted lg:hidden">

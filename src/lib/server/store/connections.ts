@@ -1,7 +1,7 @@
 import { getDb } from "../db";
 import { decryptJson, encryptJson } from "../crypto";
 
-export type Provider = "github" | "vercel" | "supabase" | "cloudflare" | "gmail" | "stripe" | "microsoft" | "hikvision";
+export type Provider = "github" | "vercel" | "supabase" | "cloudflare" | "gmail" | "stripe" | "microsoft" | "hikvision" | "msadmin" | "gcloud";
 
 /** Providers that keep several accounts side by side (one per mailbox / business). */
 export const MULTI_ACCOUNT: Provider[] = ["gmail", "stripe", "microsoft", "hikvision"];
@@ -66,6 +66,8 @@ export async function listConnectionSummaries() {
     createdAt: new Date(r.created_at).toISOString(),
     /** OAuth scopes granted, when recorded (Google). */
     scopes: Array.isArray(r.meta?.scopes) ? (r.meta.scopes as string[]) : null,
+    /** Google Cloud: the BigQuery billing-export table (not a secret). */
+    exportTable: typeof r.meta?.exportTable === "string" ? r.meta.exportTable : null,
   }));
 }
 

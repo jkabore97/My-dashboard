@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { combinedSpend } from "@/lib/billing/spend";
 import type { CSSProperties } from "react";
 import { getDashboard } from "@/lib/server/dashboard";
 import { snapshotHistory } from "@/lib/server/store/snapshots";
@@ -11,7 +12,8 @@ import { dailyRevenue, moneyOverview } from "@/lib/money-summary";
 import { canSee } from "@/lib/access";
 import { samplesEnabled } from "@/lib/source";
 import type { SourceMode } from "@/lib/types";
-import { Reactor, ReactorLegend } from "@/components/command/Reactor";
+import { ReactorLegend } from "@/components/command/Reactor";
+import { ReactorDial } from "@/components/command/ReactorDial";
 import { CameraTiles, MoneyCell, QueueRow, SolarSummary, Sparkline, UptimeRow } from "@/components/command/OverviewPanels";
 import { businessRing, topLines, type UptimePoint } from "@/components/command/logic";
 import { KV } from "@/components/command/hud";
@@ -85,9 +87,13 @@ export default async function Overview({ searchParams }: { searchParams: Promise
   const revenue = money(m.gross30d);
   const mrr = money(m.mrr);
   const balance = money(m.available);
-  const spendTotal = money(m.monthlySpend);
-  const spendCurrency = m.monthlySpend[0]?.currency;
-  const spendLines = topLines(m.spend.filter((l) => l.currency === spendCurrency).map((l) => ({ vendor: l.vendor, amount: l.monthly })), 5);
+  // The same monthly total as Platform spend: manual entries plus billing APIs, without double counting.
+  const platformSpend = combinedSpend(s, now);
+  const spendTotal = money(platformSpend.monthly);
+  const spendCurrency = platformSpend.monthly[0]?.currency;
+  const spendLines = topLines(platformSpend.lines.filter((l) => l.currency === spendCurrency).map((l) => ({ vendor: l.vendor, amount: l.monthly })), 5);
+  const manualCount = platformSpend.lines.filter((l) => l.source === "manual").length;
+  const apiCount = platformSpend.resolution.included.length;
   const spendAll = spendLines.top.reduce((n, l) => n + l.amount, 0) + spendLines.restAmount;
   const oldest = Math.max(0, ...m.receivables.map((r) => r.daysLate ?? 0));
   const activeSubs = s.stripe.filter((a) => (a.livemode && !a.sample) || (samples.samples && a.sample)).reduce((n, a) => n + a.activeSubscriptions, 0);
@@ -101,7 +107,7 @@ export default async function Overview({ searchParams }: { searchParams: Promise
         <Card title="System core" action={`${businesses.length} business${businesses.length === 1 ? "" : "es"}`} accent="cyan" flush>
           <div className="grid place-items-center px-6 pb-3 pt-5">
             {businesses.length ? (
-              <Reactor segments={ring} attention={critical + high} critical={critical} href={(b) => `/tasks?business=${encodeURIComponent(b)}`} />
+              <ReactorDial segments={ring} attention={critical + high} critical={critical} focused={s.business ?? null} />
             ) : (
               <Empty>No businesses yet.</Empty>
             )}
@@ -209,8 +215,8 @@ export default async function Overview({ searchParams }: { searchParams: Promise
             <MoneyCell label="Balance" value={balance.main} c1="#ffd84d" c2="#ff9f6b" href="/money" className="col-span-2 xl:col-span-1">
               <div className="text-xs text-muted">{balance.more ?? "available in Stripe"}</div>
             </MoneyCell>
-            <MoneyCell label="Platform spend" value={<>{spendTotal.main}{m.monthlySpend.length > 0 && <small className="text-sm">/mo</small>}</>} c1="#ff5fd7" c2="#a98bff" href="/spend" className="col-span-2 xl:col-span-1">
-              <div className="text-xs text-muted">{spendTotal.more ? `${spendTotal.more} · ` : ""}{m.spend.length} active subscription{m.spend.length === 1 ? "" : "s"}</div>
+            <MoneyCell label="Platform spend" value={<>{spendTotal.main}{platformSpend.monthly.length > 0 && <small className="text-sm">/mo</small>}</>} c1="#ff5fd7" c2="#a98bff" href="/spend" className="col-span-2 xl:col-span-1">
+              <div className="text-xs text-muted">{spendTotal.more ? `${spendTotal.more} · ` : ""}{manualCount} active subscription{manualCount === 1 ? "" : "s"}{apiCount ? ` + ${apiCount} billing API${apiCount === 1 ? "" : "s"}` : ""}</div>
               {spendAll > 0 && (
                 <>
                   <div className="mt-3 flex h-2.5 gap-[2px]" role="img" aria-label="Monthly spend by platform">

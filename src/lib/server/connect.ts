@@ -4,18 +4,19 @@ import { audit } from "./store/audit";
 import type { Provider } from "./store/connections";
 import { GOOGLE_SCOPES } from "./google";
 import { MS_SCOPES, msClient, msTenant } from "./microsoft";
+import { msAdminAuthorizeUrl } from "./msadmin";
 
 // OAuth "Connect" flows for platforms whose data the dashboard reads.
-export type OAuthProvider = "github" | "gmail" | "vercel" | "microsoft";
+export type OAuthProvider = "github" | "gmail" | "vercel" | "microsoft" | "msadmin";
 
 export function oauthConfigured(p: OAuthProvider): boolean {
   if (p === "github") return !!(env("GITHUB_OAUTH_CLIENT_ID") && env("GITHUB_OAUTH_CLIENT_SECRET"));
   if (p === "gmail") return !!(env("GOOGLE_CLIENT_ID") && env("GOOGLE_CLIENT_SECRET"));
-  if (p === "microsoft") return !!msClient();
+  if (p === "microsoft" || p === "msadmin") return !!msClient();
   return !!(env("VERCEL_INTEGRATION_SLUG") && env("VERCEL_CLIENT_ID") && env("VERCEL_CLIENT_SECRET"));
 }
 
-export const isOAuthProvider = (p: string): p is OAuthProvider => p === "github" || p === "gmail" || p === "vercel" || p === "microsoft";
+export const isOAuthProvider = (p: string): p is OAuthProvider => p === "github" || p === "gmail" || p === "vercel" || p === "microsoft" || p === "msadmin";
 
 /** Providers a person can connect as their own mailbox and calendar. */
 export type PersonalProvider = "microsoft" | "gmail";
@@ -50,6 +51,8 @@ export function authorizeUrl(p: OAuthProvider, redirectUri: string, state: strin
       ...hint,
     })}`;
   }
+  // Microsoft 365 admin: Graph (licences, service health) plus consent for Azure billing.
+  if (p === "msadmin") return msAdminAuthorizeUrl(redirectUri, state, "graph");
   if (p === "microsoft") {
     return `https://login.microsoftonline.com/${encodeURIComponent(msTenant())}/oauth2/v2.0/authorize?${new URLSearchParams({
       client_id: msClient()!.id,
@@ -74,6 +77,8 @@ export const PROVIDER_NAMES: Record<Provider, string> = {
   microsoft: "Microsoft 365",
   stripe: "Stripe",
   hikvision: "Hikvision",
+  msadmin: "Microsoft 365 admin",
+  gcloud: "Google Cloud",
 };
 
 /** Audit entries for a new connection and any account it replaced. */

@@ -1,8 +1,8 @@
 "use client";
 
 import { useFormState } from "@/components/useFormState";
-import { useTransition } from "react";
-import { saveTokenConnection, disconnect, relabelConnection } from "@/app/actions/connections";
+import { useEffect, useRef, useTransition } from "react";
+import { saveTokenConnection, disconnect, relabelConnection, saveGoogleCloudConnection } from "@/app/actions/connections";
 import { saveWebhookSecret } from "@/app/actions/settings";
 import type { TokenField } from "@/lib/platforms";
 
@@ -64,5 +64,29 @@ export function WebhookSecretForm({ provider, canGenerate }: { provider: string;
       {state.ok && <p className="mt-1 text-xs text-ok">{state.ok}</p>}
       {state.secret && <code className="mt-1 block break-all bg-cyan/5 px-2 py-1 font-mono text-xs text-[#9be7ff]">{state.secret}</code>}
     </div>
+  );
+}
+
+/**
+ * Google Cloud: paste the service-account JSON key (never shown again: the
+ * field clears after saving) and, optionally, the billing-export table.
+ */
+export function GoogleCloudForm({ connected, exportTable }: { connected: boolean; exportTable: string | null }) {
+  const [state, action, pending] = useFormState(saveGoogleCloudConnection, {});
+  const key = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (state.ok && key.current) key.current.value = "";
+  }, [state]);
+  return (
+    <form onSubmit={action} className="mt-3 grid gap-2">
+      <textarea ref={key} name="key" rows={4} autoComplete="off" spellCheck={false} required={!connected} placeholder={connected ? "Service-account JSON key (leave empty to keep the saved one)" : "Paste the service-account JSON key ({ \"type\": \"service_account\", … })"} aria-label="Service-account JSON key" className={`${input} font-mono text-xs [-webkit-text-security:disc]`} />
+      <input name="exportTable" defaultValue={exportTable ?? ""} autoComplete="off" placeholder="Billing export table (optional) — project.dataset.gcp_billing_export_v1_XXXXXX" aria-label="BigQuery billing export table" className={`${input} font-mono text-xs`} />
+      <p className="text-xs text-muted">Read-only roles only: Billing Account Viewer, Browser, Firebase Viewer, BigQuery Data Viewer + Job User. The key is checked with Google, then stored encrypted and never shown again. Steps in docs/CONNECT.md.</p>
+      <div className="flex flex-wrap items-center gap-3">
+        <button disabled={pending} className={solid}>{pending ? "Checking…" : connected ? "Save" : "Connect Google Cloud"}</button>
+        {state.error && <span role="alert" className="text-xs text-critical">{state.error}</span>}
+        {state.ok && <span className="text-xs text-ok">{state.ok}</span>}
+      </div>
+    </form>
   );
 }

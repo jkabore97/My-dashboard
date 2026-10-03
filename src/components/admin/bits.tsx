@@ -4,9 +4,10 @@ import type { CSSProperties, ReactNode } from "react";
 export const PLATFORM_COLOR: Record<string, string> = {
   microsoft: "#3fd0ff", github: "#a98bff", vercel: "#9be7ff", supabase: "#3df5a0", cloudflare: "#ffd84d", stripe: "#ffd84d",
   websites: "#2ef2d0", hikvision: "#c6f432", solar: "#c6f432", resend: "#ff5fd7", gmail: "#3fd0ff", claude: "#a98bff", reviews: "#ffd84d",
+  msadmin: "#3fd0ff", gcloud: "#2ef2d0",
 };
 
-const MONO: Record<string, string> = { microsoft: "M", github: "GH", vercel: "▲", supabase: "S", cloudflare: "CF", stripe: "$", websites: "◎", hikvision: "H", solar: "☀", resend: "R", gmail: "G", claude: "✳", reviews: "★" };
+const MONO: Record<string, string> = { microsoft: "M", github: "GH", vercel: "▲", supabase: "S", cloudflare: "CF", stripe: "$", websites: "◎", hikvision: "H", solar: "☀", resend: "R", gmail: "G", claude: "✳", reviews: "★", msadmin: "MA", gcloud: "GC" };
 
 /** A small square monogram for a platform card. */
 export function Monogram({ id, name }: { id: string; name: string }) {

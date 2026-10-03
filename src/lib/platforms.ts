@@ -17,8 +17,10 @@ export interface PlatformDef {
   docsUrl: string;
   note?: string;
   /** Provider id for stored connections, when the platform supports them. */
-  provider?: "github" | "vercel" | "supabase" | "cloudflare" | "gmail" | "stripe" | "microsoft" | "hikvision";
-  oauth?: "github" | "gmail" | "vercel" | "microsoft";
+  provider?: "github" | "vercel" | "supabase" | "cloudflare" | "gmail" | "stripe" | "microsoft" | "hikvision" | "msadmin" | "gcloud";
+  oauth?: "github" | "gmail" | "vercel" | "microsoft" | "msadmin";
+  /** A dedicated connect form instead of the generic token one. */
+  form?: "gcloud";
   token?: { fields: TokenField[]; help: string; /** Link text that opens the form, when "API key" is the wrong word. */ label?: string };
   webhook?: "github" | "vercel" | "stripe" | "supabase" | "hikvision";
   /** Source names (SourceResult.source) whose errors belong on this card; defaults to [name]. */
@@ -43,6 +45,8 @@ export const PLATFORM_DEFS: PlatformDef[] = [
   { id: "supabase", name: "Supabase", category: "database", available: true, provider: "supabase", webhook: "supabase", envKeys: ["SUPABASE_ACCESS_TOKEN"], docsUrl: "https://supabase.com/dashboard/account/tokens", note: "Project health, security advisors, user counts", token: { fields: [tokenField], help: "Personal access token from Account → Access Tokens." } },
   { id: "gmail", name: "Google", category: "email", available: true, provider: "gmail", oauth: "gmail", envKeys: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"], docsUrl: "https://console.cloud.google.com/apis/credentials", note: "Gmail, Calendar, Analytics and Search Console, read-only. Connect each business account.", sources: ["Gmail", "Calendar", "Analytics"] },
   { id: "microsoft", name: "Microsoft 365", category: "email", available: true, provider: "microsoft", oauth: "microsoft", envKeys: ["MS_CLIENT_ID", "MS_CLIENT_SECRET"], docsUrl: "https://entra.microsoft.com", note: "Outlook mail and calendar, read-only. Connect each mailbox.", sources: ["Outlook", "Calendar"] },
+  { id: "msadmin", name: "Microsoft 365 admin", category: "productivity", available: true, provider: "msadmin", oauth: "msadmin", sources: ["Microsoft 365 admin"], envKeys: [], docsUrl: "https://admin.microsoft.com", note: "Licences (purchased vs assigned), service health and invoices from Azure billing. Owner only; separate from the mailboxes." },
+  { id: "gcloud", name: "Google Cloud / Firebase", category: "hosting", available: true, provider: "gcloud", form: "gcloud", sources: ["Google Cloud"], envKeys: [], docsUrl: "https://console.cloud.google.com", note: "Billing accounts, projects, Firebase apps and cost per month, project and service (BigQuery billing export). Connect with a read-only service account." },
   { id: "reviews", name: "Google reviews", category: "social", available: true, envKeys: ["GOOGLE_PLACES_API_KEY"], docsUrl: "/settings#places", note: "Rating and recent reviews per business (Places API). Add place IDs in Settings." },
   { id: "stripe", name: "Stripe", category: "payments", available: true, provider: "stripe", webhook: "stripe", envKeys: ["STRIPE_SECRET_KEYS"], docsUrl: "https://dashboard.stripe.com/apikeys", note: "Revenue, MRR, balances, disputes and overdue invoices. Add one key per business.", token: { fields: [{ name: "token", label: "Restricted key", placeholder: "rk_live_…", secret: true }, { name: "business", label: "Business" }], help: "Create a restricted key with Read access to Balance, Charges, Disputes, Invoices, Subscriptions, Customers and Accounts. Use one key per Stripe account; two keys for the same account would double-count." } },
   { id: "websites", sources: ["Websites", "Domains"], name: "Website monitor", category: "analytics", available: true, envKeys: [], docsUrl: "/settings#websites", note: "Uptime every 5 minutes + sign-ups per site" },

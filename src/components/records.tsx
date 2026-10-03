@@ -185,17 +185,17 @@ function SubscriptionFields({ s, businesses }: { s: SubscriptionDraft; businesse
 const subGrid = "grid grid-cols-2 gap-3 sm:grid-cols-4";
 
 /** "Add subscription": a button that opens the form, or the form itself when `inline`. */
-export function SubscriptionForm({ businesses, inline = false }: { businesses: string[]; inline?: boolean }) {
+export function SubscriptionForm({ businesses, inline = false, draft, label = "Add subscription" }: { businesses: string[]; inline?: boolean; /** Prefilled values (e.g. a bill detected in an e-mail). */ draft?: SubscriptionDraft; label?: string }) {
   const [state, action, pending] = useFormState(saveSubscriptionAction, {});
   const ref = useResetOnSave(state);
   const form = (close?: () => void) => (
     <form ref={ref} onSubmit={action} className={subGrid}>
-      <SubscriptionFields s={{}} businesses={businesses} />
+      <SubscriptionFields s={draft ?? {}} businesses={businesses} />
       <FormFooter pending={pending} saveLabel="Save subscription" onClose={close} closeLabel="Cancel" state={state} />
     </form>
   );
   if (inline) return form(() => ref.current?.reset());
-  return <Toggle label="Add subscription">{(close) => form(close)}</Toggle>;
+  return <Toggle label={label}>{(close) => form(close)}</Toggle>;
 }
 
 type SubRowData = SubscriptionDraft & { id: string; active: boolean; vendor: string };

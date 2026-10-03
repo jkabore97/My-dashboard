@@ -1,6 +1,8 @@
 import { canSee, canSeeTask, eventSection, inBusiness, isFullOwner, ownItem, type Access, type Section } from "./access";
 import type { PersonalProblem } from "./connectors/personal";
 import type { SourceMode } from "./types";
+import type { Bills } from "./billing/types";
+import { scopeBills, type SpendChoices } from "./billing/spend";
 import type { Records } from "./connectors/records";
 import type { CameraSiteStatus } from "./connectors/hikvision";
 import type { DomainsReport } from "./connectors/records";
@@ -47,6 +49,9 @@ export interface Scopable {
   /** People with a personal mailbox being read. */
   personalOwners?: string[];
   modes?: Record<string, SourceMode>;
+  /** Automatic bills (billing APIs, detected e-mails); see scopeBills. */
+  bills?: Bills;
+  spendChoices?: SpendChoices;
 }
 
 export interface ScopeContext {
@@ -117,6 +122,7 @@ export function scopeFor<T extends Scopable>(full: T, a: Access, email: string, 
     calendar: sec("agenda") ? d.calendar.filter(ownItem(email)) : [],
     analytics: pick("analytics", d.analytics, (x) => domainBiz(x.domain)),
     reviews: pick("analytics", d.reviews, (p) => p.business),
+    ...(d.bills ? { bills: scopeBills(d.bills, a) } : {}),
     cameras: pick("cameras", d.cameras, (s) => s.business),
     solar: pick("solar", d.solar, (s) => s.business),
     notifications: d.notifications.filter((n) => {
