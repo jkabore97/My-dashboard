@@ -114,7 +114,15 @@ export async function saveConnection(c: { provider: Provider; account: string; l
        returning id`,
       [c.provider, c.account, c.label ?? null, owner ? null : (c.business ?? null), encryptJson(c.secret), JSON.stringify(c.meta ?? {}), owner],
     );
-    if (!saved.length) throw new AccountTaken(`${c.account} is already connected${owner ? " by someone else, or as a shared account" : " as someone's personal mailbox"}.`);
+    if (!saved.length) {
+      if (!owner) throw new AccountTaken(`${c.account} is already connected as someone's personal mailbox.`);
+      const [row] = await tx.query<{ owner_email: string | null }>("select owner_email from connections where provider = $1 and account = $2", [c.provider, c.account]);
+      throw new AccountTaken(
+        row && row.owner_email === null
+          ? `${c.account} is already connected as a shared mailbox. To update it (for example to allow sending), reconnect it on Platforms → Microsoft 365 → Connect another account, signing in with the same mailbox.`
+          : `${c.account} is already connected by someone else.`,
+      );
+    }
     if (owner || MULTI_ACCOUNT.includes(c.provider)) return [];
     const removed = await tx.query<{ account: string }>("delete from connections where provider = $1 and account <> $2 and owner_email is null returning account", [c.provider, c.account]);
     return removed.map((r) => r.account);
