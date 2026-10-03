@@ -59,7 +59,10 @@ export function ConsoleCards({ bills, modes, msadminConnected, gcloudConnected, 
       <HeadPanel accent="#3fd0ff" title="Microsoft 365 admin center" status={msadminConnected ? <ModePill mode={modes.msadmin ?? "demo"} /> : <Status on={false} label="Not connected" />}>
         <p className="text-[13px] text-muted">Users, licences, billing, service health.</p>
         {msadminConnected && (
+          <>
           <p className="mt-2 text-sm">{ms.tenant ?? ms.account ?? ""}{ms.licences.length ? ` · ${ms.licences.filter((l) => !l.free).length} paid licence types${waste ? `, ${waste} unassigned seats` : ""}` : ""}{ms.health.length ? ` · ${ms.health.length} open health issue${ms.health.length === 1 ? "" : "s"}` : ""}</p>
+          {ms.healthNote && <p className="mt-1 text-xs text-muted">{ms.healthNote}</p>}
+          </>
         )}
         <div className="mt-auto flex flex-wrap gap-x-4 pt-3">
           <a href={M365_ADMIN} target="_blank" rel="noreferrer" className={link}>Open admin center <ExternalLink size={11} /></a>

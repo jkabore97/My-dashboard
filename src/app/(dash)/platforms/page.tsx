@@ -57,6 +57,7 @@ function MsAdminSummary({ bills }: { bills: ReturnType<typeof emptyBills> }) {
       {paid.length > 0 && <span>{paid.reduce((n, l) => n + l.purchased, 0)} paid seats, {unassigned} unassigned · </span>}
       {m.health.length > 0 ? <span className="text-high">{m.health.length} open service issue{m.health.length === 1 ? "" : "s"} · </span> : null}
       {m.billing.error ? <span className="text-high">Billing: {m.billing.error}</span> : m.billing.accounts.length ? <span>Billing: {m.billing.invoices.length} invoices in 12 months</span> : <span>Billing not read yet</span>}
+      {m.healthNote && <span className="mt-1 block">{m.healthNote}</span>}
     </div>
   );
 }

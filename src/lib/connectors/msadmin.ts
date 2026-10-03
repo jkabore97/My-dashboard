@@ -82,12 +82,18 @@ export async function getMsAdmin(rules: BusinessRule[]) {
         graph<{ value?: { displayName?: string }[] }>(token, "/organization?$select=displayName"),
       ]);
       if (skus.status === "rejected") fail("licences", `Licences: ${errorMessage(skus.reason)}`);
-      if (health.status === "rejected") fail("health", `Service health: ${errorMessage(health.reason)}`);
+      // Service health needs ServiceHealth.Read.All with admin consent and an admin role
+      // (Global Reader, Service Support Administrator…). A 403 is a setup step, not an outage.
+      const healthDenied = health.status === "rejected" && /\b403\b/.test(errorMessage(health.reason));
+      if (health.status === "rejected" && !healthDenied) fail("health", `Service health: ${errorMessage(health.reason)}`);
       return {
         tenant: org.status === "fulfilled" ? (org.value.value?.[0]?.displayName ?? null) : null,
         account: c.account,
         licences: skus.status === "fulfilled" ? parseSkus(skus.value.value) : [],
         health: health.status === "fulfilled" ? parseHealthIssues(health.value.value) : [],
+        healthNote: healthDenied
+          ? "Service health isn't readable yet: in Entra add Microsoft Graph → Delegated → ServiceHealth.Read.All, click Grant admin consent, make sure your account has an admin role (e.g. Global Reader), then Reconnect."
+          : null,
         billing: pendingMsBilling(),
       };
     },

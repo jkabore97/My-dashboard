@@ -75,6 +75,8 @@ export interface MsAdminData {
   account: string | null;
   licences: MsLicence[];
   health: MsHealthIssue[];
+  /** Why service health couldn't be read (permission or role missing), shown on the card instead of as an error. */
+  healthNote?: string | null;
   billing: MsBilling;
 }
 

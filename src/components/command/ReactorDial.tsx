@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition, type KeyboardEvent, type PointerEvent } from "react";
+import { useEffect, useRef, useState, useTransition, type KeyboardEvent, type PointerEvent } from "react";
 import { useRouter } from "next/navigation";
 import type { RingSegment } from "./logic";
 import { SEV_COLOR, SEV_WORD } from "./hud";
@@ -49,7 +49,9 @@ export function ReactorDial({ segments, attention, critical, focused, focusable 
   // Latest rendered rotation, for handlers that run after a drag.
   const rotRef = useRef(rotation);
   rotRef.current = rotation;
-  const drag = useRef<{ id: number; last: number; moved: number } | null>(null);
+  const drag = useRef<{ id: number; touch: boolean; lastA: number; lastX: number; moved: number; v: number; t: number } | null>(null);
+  const spin = useRef<number | null>(null);
+  const lastIndex = useRef<number>(-1);
 
   const selected = picked && n ? segments[nearest(rotation, n)] : null;
 
@@ -57,39 +59,94 @@ export function ReactorDial({ segments, attention, critical, focused, focusable 
     const box = svgRef.current!.getBoundingClientRect();
     return Math.atan2(e.clientY - (box.top + box.height / 2), e.clientX - (box.left + box.width / 2));
   };
+  /** A light tick on phones each time a new business passes the marker. */
+  const tick = (r: number) => {
+    const i = nearest(r, n);
+    if (i !== lastIndex.current) {
+      lastIndex.current = i;
+      try {
+        navigator.vibrate?.(6);
+      } catch {
+        /* not supported */
+      }
+    }
+  };
+  const stopSpin = () => {
+    if (spin.current !== null) cancelAnimationFrame(spin.current);
+    spin.current = null;
+  };
   const snapTo = (i: number) => {
+    stopSpin();
     // Turn the shortest way to segment i.
     const target = rotationFor(i, n);
     const delta = norm(target - rotRef.current + Math.PI) - Math.PI;
+    lastIndex.current = i;
     setAnimate(true);
     setRotation(rotRef.current + delta);
     setPicked(true);
   };
+  useEffect(() => () => { if (spin.current !== null) cancelAnimationFrame(spin.current); }, []);
+  const step = (by: number) => {
+    if (!n) return;
+    const cur = picked ? nearest(rotRef.current, n) : by > 0 ? -1 : 0;
+    snapTo((cur + by + n) % n);
+  };
 
   const onDown = (e: PointerEvent<SVGSVGElement>) => {
     if (!n || (e.target as Element).closest("[data-core]")) return;
-    drag.current = { id: e.pointerId, last: angleAt(e), moved: 0 };
+    stopSpin();
+    drag.current = { id: e.pointerId, touch: e.pointerType !== "mouse", lastA: angleAt(e), lastX: e.clientX, moved: 0, v: 0, t: e.timeStamp };
     setAnimate(false);
   };
   const onMove = (e: PointerEvent<SVGSVGElement>) => {
     const d = drag.current;
     if (!d || d.id !== e.pointerId) return;
-    const a = angleAt(e);
-    const step = norm(a - d.last + Math.PI) - Math.PI;
-    d.last = a;
-    d.moved += Math.abs(step);
-    if (d.moved > 0.05) {
+    // Touch: a left/right swipe turns the ring like a wheel (vertical swipes still scroll the page).
+    // Mouse: follow the pointer around the centre.
+    let delta: number;
+    if (d.touch) {
+      const radius = (svgRef.current?.getBoundingClientRect().width ?? 300) * 0.36;
+      delta = (e.clientX - d.lastX) / radius;
+      d.lastX = e.clientX;
+    } else {
+      const a = angleAt(e);
+      delta = norm(a - d.lastA + Math.PI) - Math.PI;
+      d.lastA = a;
+    }
+    const dt = Math.max(1, e.timeStamp - d.t);
+    d.t = e.timeStamp;
+    d.v = 0.7 * d.v + 0.3 * (delta / dt);
+    d.moved += Math.abs(delta);
+    if (d.moved > 0.04) {
       svgRef.current?.setPointerCapture(e.pointerId);
-      setRotation((r) => r + step);
+      const r = rotRef.current + delta;
+      rotRef.current = r;
+      setRotation(r);
       setPicked(true);
+      tick(r);
     }
   };
   const onUp = (e: PointerEvent<SVGSVGElement>) => {
     const d = drag.current;
     drag.current = null;
     if (!d || d.id !== e.pointerId) return;
-    if (d.moved > 0.05) {
-      snapTo(nearest(rotRef.current, n));
+    if (d.moved > 0.04) {
+      // Fling: keep turning and slow down, then settle on the nearest business.
+      let v = Math.max(-0.03, Math.min(0.03, d.v));
+      if (Math.abs(v) < 0.0012) return snapTo(nearest(rotRef.current, n));
+      let last = performance.now();
+      const frame = (now: number) => {
+        const dt = Math.min(48, now - last);
+        last = now;
+        v *= Math.pow(0.94, dt / 16);
+        const r = rotRef.current + v * dt;
+        rotRef.current = r;
+        setRotation(r);
+        tick(r);
+        if (Math.abs(v) < 0.0012) return snapTo(nearest(r, n));
+        spin.current = requestAnimationFrame(frame);
+      };
+      spin.current = requestAnimationFrame(frame);
       return;
     }
     // A tap on a segment brings it to the top.
@@ -105,16 +162,21 @@ export function ReactorDial({ segments, attention, critical, focused, focusable 
   };
   const onKey = (e: KeyboardEvent<SVGSVGElement>) => {
     if (!n) return;
-    const cur = picked ? nearest(rotation, n) : -1;
-    if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); snapTo(cur < 0 ? 0 : (cur + 1) % n); }
-    if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); snapTo(cur < 0 ? n - 1 : (cur - 1 + n) % n); }
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); step(1); }
+    if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); step(-1); }
     if (e.key === "Enter" || e.key === " ") { e.preventDefault(); choose(); }
   };
 
   const isFocused = !!selected && focused === selected.business;
   const name = selected?.business.toUpperCase() ?? "";
-  const nameLines = name.length > 12 ? [name.slice(0, name.lastIndexOf(" ", 12) > 3 ? name.lastIndexOf(" ", 12) : 12).trim(), name.slice(name.lastIndexOf(" ", 12) > 3 ? name.lastIndexOf(" ", 12) : 12).trim()] : [name];
-  const second = nameLines[1] && nameLines[1].length > 12 ? `${nameLines[1].slice(0, 11)}…` : nameLines[1];
+  // Split the name into at most two lines at word boundaries (13 characters each, truncated).
+  const words = name.split(/\s+/).filter(Boolean);
+  const first: string[] = [];
+  while (words.length && [...first, words[0]].join(" ").length <= 13) first.push(words.shift()!);
+  if (!first.length && words.length) first.push(words.shift()!.slice(0, 12) + "…");
+  const rest = words.join(" ");
+  const nameLines = [first.join(" "), rest];
+  const second = rest.length > 13 ? `${rest.slice(0, 12)}…` : rest;
 
   return (
     <div className="flex w-full flex-col items-center">
@@ -128,7 +190,7 @@ export function ReactorDial({ segments, attention, critical, focused, focusable 
         onPointerDown={onDown}
         onPointerMove={onMove}
         onPointerUp={onUp}
-        onPointerCancel={() => { drag.current = null; if (n) snapTo(nearest(rotRef.current, n)); }}
+        onPointerCancel={() => { const was = drag.current; drag.current = null; if (n && was && was.moved > 0.04) snapTo(nearest(rotRef.current, n)); }}
         onKeyDown={onKey}
       >
         <defs>
@@ -223,7 +285,17 @@ export function ReactorDial({ segments, attention, critical, focused, focusable 
           )}
         </g>
       </svg>
-      {n > 1 && <p className="mt-1 text-center text-[11px] text-muted">Spin the ring to pick a business · tap the centre to focus</p>}
+      {n > 1 && (
+        <div className="mt-2 flex w-full max-w-[330px] items-center gap-2">
+          <button type="button" onClick={() => step(-1)} aria-label="Previous business" className="hud-btn h-11 w-11 shrink-0 px-0 text-base">◀</button>
+          <button type="button" onClick={choose} disabled={!selected || pending}
+            className="hud-cut min-h-11 min-w-0 flex-1 truncate border border-line bg-panel/60 px-2 font-display text-[12px] font-semibold uppercase tracking-[0.12em]"
+            style={selected ? { color: businessColor(selected.business), borderColor: businessColor(selected.business) } : { color: "#7f97ab" }}>
+            {selected ? (isFocused ? `Showing ${selected.business} · all` : selected.business) : "Swipe the ring"}
+          </button>
+          <button type="button" onClick={() => step(1)} aria-label="Next business" className="hud-btn h-11 w-11 shrink-0 px-0 text-base">▶</button>
+        </div>
+      )}
     </div>
   );
 }
