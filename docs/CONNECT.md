@@ -71,7 +71,7 @@ After admin consent, older mailboxes often pick up the new permissions on their 
 Who can do what in the Inbox:
 
 - **Your own personal mailbox**: you alone read it, organise it and send from it. Nobody else (the owner included) can open it.
-- **Shared mailboxes** (connected on Platforms): people whose access includes the Inbox and the mailbox's business can read them, mark messages read/unread and flag them. **Only full owners** (role Owner with every business) archive, delete and send from them; everyone else sees "Only the dashboard owner sends from shared mailboxes".
+- **Mailboxes connected on Platforms** (your business mailboxes) are your own mail: **only full owners** (role Owner with every business) see them, along with their calendars, the to-dos and alerts made from them, and can read, organise and send from them. Team members never see them, whatever pages or businesses they're given; they only ever see their own personal mailbox and calendar (and to-dos assigned to them).
 - Every send is written to the audit log (Settings → Audit): who, from which mailbox, to whom, the subject. Never the message body. Sending is limited to 60 messages per person per hour, and attachments to 3 MB each and 4 MB per message (larger files: share a link).
 - Message bodies are shown in a locked-down frame (no scripts, no access to the dashboard) with remote images blocked until you click **Show images**, so senders can't tell you opened their mail.
 

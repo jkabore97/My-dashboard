@@ -60,7 +60,7 @@ export function mailPermissions(a: Access, email: string, mb: Pick<MailboxRef, "
   const sendBlocked = !read
     ? "You can't open this mailbox."
     : !sender
-      ? "Only the dashboard owner sends from shared mailboxes. You can read this one."
+      ? "Only the dashboard owner sends from the mailboxes connected on Platforms."
       : g.send === false
         ? "This mailbox was connected without permission to send. Reconnect it to enable replying."
         : null;

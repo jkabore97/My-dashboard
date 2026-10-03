@@ -107,7 +107,7 @@ export async function openMailbox(user: MailUser, key: string, need: MailNeed): 
   const grants = mailGrants(h.provider, t.scopes);
   const perms = mailPermissions(user, user.email, h, grants);
   const allowed = { read: perms.read, triage: perms.triage, organize: perms.organize, send: perms.send }[need];
-  if (!allowed) throw new MailAccessError(need === "send" ? (perms.sendBlocked ?? "You can't send from this mailbox.") : need === "organize" ? "Only the dashboard owner archives or deletes in shared mailboxes." : "You can't change messages in this mailbox.");
+  if (!allowed) throw new MailAccessError(need === "send" ? (perms.sendBlocked ?? "You can't send from this mailbox.") : need === "organize" ? "Only the dashboard owner archives or deletes in the mailboxes connected on Platforms." : "You can't change messages in this mailbox.");
   return { h, token: t.token, grants, perms };
 }
 
@@ -158,7 +158,7 @@ export type MailChange = { kind: "read"; read: boolean } | { kind: "flag"; flagg
 
 /** Applies a change; `o` must have been opened for "triage" (read, flag) or "organize" (archive, delete). */
 export async function changeMessage(o: OpenMailbox, id: string, c: MailChange): Promise<void> {
-  if ((c.kind === "archive" || c.kind === "delete") && !o.perms.organize) throw new MailAccessError("Only the dashboard owner archives or deletes in shared mailboxes.");
+  if ((c.kind === "archive" || c.kind === "delete") && !o.perms.organize) throw new MailAccessError("Only the dashboard owner archives or deletes in the mailboxes connected on Platforms.");
   if (!o.perms.triage) throw new MailAccessError("You can't change messages in this mailbox.");
   const { cred } = o.h;
   if (cred.kind === "demo") {

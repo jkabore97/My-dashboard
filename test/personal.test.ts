@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => ({ sendNotification: vi.fn(async (..._a: unknown[
 vi.mock("web-push", () => ({ default: { setVapidDetails: () => {}, sendNotification: mocks.sendNotification } }));
 vi.mock("next/server", async (orig) => ({ ...(await orig<object>()), after: (fn: () => unknown) => void fn() }));
 
-import { ALWAYS, canConnectPersonal, canSee, canSeeTask, customSections, GRANTABLE, isFullOwner, OWNER_ONLY, PATH_SECTION, roleDefaultSections, ROLE_SECTIONS, sectionsFor, type Access } from "@/lib/access";
+import { OWNER_ACCESS, ALWAYS, canConnectPersonal, canSee, canSeeTask, customSections, GRANTABLE, isFullOwner, OWNER_ONLY, PATH_SECTION, roleDefaultSections, ROLE_SECTIONS, sectionsFor, type Access } from "@/lib/access";
 import { accessFromForm } from "@/lib/team-form";
 import { visibleNav, NAV_GROUPS } from "@/lib/nav";
 import { scopeFor, type Scopable } from "@/lib/scope";
@@ -30,6 +30,8 @@ import { secretTaskTitle, deriveRiskTasks, type RiskInput } from "@/lib/risk";
 import { secretLocation } from "@/lib/connectors/security";
 import { handleGithub } from "@/lib/server/webhook-handlers";
 import type { EmailMessage } from "@/lib/types";
+import { mailboxesFor } from "@/lib/server/mail";
+import { forgetMsTokens } from "@/lib/server/microsoft";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -99,10 +101,14 @@ describe("per-person sections", () => {
   it("grants and denies data, and tasks by section", () => {
     const d = scopeFor(sample(), brother, "bro@kaj.com", ctx);
     expect(d.repos).toHaveLength(1);
-    expect(d.emails.map((e) => e.id)).toEqual(["shared", "bro-mail"]); // inbox granted; his own mail too
+    // Inbox granted: only his own mail. The owner's (Platforms) mailboxes never reach members.
+    expect(d.emails.map((e) => e.id)).toEqual(["bro-mail"]);
     expect(d.websites).toEqual([]); // the developer role has websites; the list doesn't
     expect(d.stripe).toEqual([]);
-    expect(canSeeTask(brother, "bro@kaj.com", { sourceKey: "outlook/ms%3Ashared%40kaj.com/1", business: "Kaj" })).toBe(true);
+    expect(canSeeTask(brother, "bro@kaj.com", { sourceKey: "outlook/ms%3Ashared%40kaj.com/1", business: "Kaj" })).toBe(false);
+    expect(canSeeTask(OWNER_ACCESS, "boss@kaj.com", { sourceKey: "outlook/ms%3Ashared%40kaj.com/1", business: "Kaj" })).toBe(true);
+    // Assigned to him, a mail to-do is his to see.
+    expect(canSeeTask(brother, "bro@kaj.com", { sourceKey: "outlook/ms%3Ashared%40kaj.com/1", business: "Kaj", assignee: "bro@kaj.com" })).toBe(true);
     expect(canSeeTask(brother, "bro@kaj.com", { sourceKey: "websites/down:kaj.com", business: "Kaj" })).toBe(false);
     const accountant: Access = { role: "accountant", businesses: null, sections: ["money", "repos"] };
     expect(canSeeTask(accountant, "acc@kaj.com", { sourceKey: "github/prs:kaj/x", business: "Kaj" })).toBe(true);
@@ -169,16 +175,16 @@ describe("personal mail and calendars in the scoped dashboard", () => {
   it("are hidden from other members, whatever their sections", () => {
     const amy: Access = { role: "assistant", businesses: null };
     const d = scopeFor(sample(), amy, "amy@kaj.com", ctx);
-    expect(d.emails.map((e) => e.id)).toEqual(["shared", "amy-mail"]);
-    expect(d.calendar.map((e) => e.id)).toEqual(["board"]);
-    expect(d.openTasks.map((t) => t.id)).toEqual(["t-shared"]);
+    expect(d.emails.map((e) => e.id)).toEqual(["amy-mail"]);
+    expect(d.calendar).toEqual([]);
+    expect(d.openTasks).toEqual([]);
   });
 
   it("are shown to their owner, even outside the owner's businesses", () => {
     const bro: Access = { role: "developer", businesses: ["Other"], sections: ["inbox", "agenda", "repos"] };
     const d = scopeFor(sample(), bro, "bro@kaj.com", ctx);
     expect(d.emails.map((e) => e.id)).toEqual(["bro-mail"]); // shared mail of a business he doesn't have stays hidden
-    expect(d.calendar.map((e) => e.id)).toEqual(["board", "dentist"]);
+    expect(d.calendar.map((e) => e.id)).toEqual(["dentist"]);
     expect(d.notifications.map((n) => n.id)).toEqual(["n-bro"]);
     expect(d.openTasks.map((t) => t.id)).toEqual(["t-bro"]);
     expect(d.personalProblems).toHaveLength(1);
@@ -420,6 +426,67 @@ describe("personal mailboxes end to end (PGlite)", () => {
     }
     expect(by.get("Critical: CI failed")).toEqual(["boss@kaj.com", "bro@kaj.com"]);
     expect(by.get("Critical: Leaked key")).toEqual(["boss@kaj.com"]); // security isn't in bro's pages
+  });
+
+  it("regression: a member with Inbox + Agenda and every business sees none of the owner's mailboxes or calendars", async () => {
+    // The bug: bro (custom pages Inbox + Agenda, all businesses) could read the
+    // owner's mailbox connected on Platforms, its events, its to-dos and alerts.
+    const db = await getDb();
+    await db.query(`update users set sections = '["inbox","agenda"]'::jsonb where email = 'bro@kaj.com'`);
+    forgetMsTokens();
+    await saveConnection({ provider: "microsoft", account: "office@kaj.com", label: "Office", business: "Kaj", secret: { refreshToken: "rt-office" } });
+    await saveConnection({ provider: "microsoft", account: "bro@kaj.com", secret: { refreshToken: "rt-bro" }, ownerEmail: "bro@kaj.com" });
+    const soon = new Date(Date.now() + 3_600_000).toISOString().slice(0, 19);
+    vi.stubGlobal("fetch", async (input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("https://login.microsoftonline.com/")) {
+        const rt = new URLSearchParams(String(init?.body)).get("refresh_token");
+        return json({ access_token: `at-${rt}`, expires_in: 3600 });
+      }
+      const owner = String((init?.headers as Record<string, string>)?.Authorization ?? "").includes("rt-office");
+      if (url.includes("/me/mailFolders/inbox/messages")) {
+        return json({ value: [{ id: owner ? "OWN1" : "BRO1", subject: owner ? "Payment failed: owner invoice 42" : "Bro's own note", bodyPreview: owner ? "Action required" : "hi", receivedDateTime: new Date().toISOString(), isRead: false, importance: "normal", webLink: "https://outlook.office.com/x", from: { emailAddress: { name: "Bank", address: "alerts@bank.example" } } }] });
+      }
+      if (url.includes("/me/calendarView")) {
+        return json({ value: [{ id: owner ? "EV-OWN" : "EV-BRO", subject: owner ? "Owner board meeting" : "Bro dentist", isAllDay: false, webLink: "https://outlook.office.com/e", start: { dateTime: soon, timeZone: "UTC" }, end: { dateTime: soon, timeZone: "UTC" } }] });
+      }
+      return json({ message: "not stubbed" }, 404);
+    });
+    const c = await collect();
+    expect(c.emails.map((e) => e.subject)).toEqual(expect.arrayContaining(["Payment failed: owner invoice 42", "Bro's own note"]));
+    await persist(c, { force: true, alerts: false });
+    await runAlerts();
+
+    const bro = accessFor((await getUser("bro@kaj.com"))!);
+    expect(bro).toMatchObject({ role: "developer", businesses: null, sections: ["inbox", "agenda"] });
+    const [open, events] = await Promise.all([listTasks("open"), listEvents()]);
+    const ownerTask = open.find((t) => t.title === "Payment failed: owner invoice 42")!;
+    expect(ownerTask.privateTo ?? null).toBeNull();
+    const cx = { businessForDomain: () => undefined };
+    const view = (a: Access, email: string) => scopeFor({ ...c, openTasks: open, notifications: events, platforms: [], sources: c.sources }, a, email, cx);
+    const his = view(bro, "bro@kaj.com");
+    const leak = /owner invoice 42|Owner board meeting/;
+    expect(his.emails.map((e) => e.subject)).toEqual(["Bro's own note"]);
+    expect(his.calendar.map((e) => e.title)).toEqual(["Bro dentist"]);
+    expect(his.openTasks.some((t) => leak.test(t.title))).toBe(false);
+    expect(his.notifications.some((n) => leak.test(n.title))).toBe(false);
+    expect(canSeeTask(bro, "bro@kaj.com", ownerTask)).toBe(false);
+    // The live mail client: only his own mailbox.
+    expect((await mailboxesFor({ ...bro, email: "bro@kaj.com" })).map((m) => m.address)).toEqual(["bro@kaj.com"]);
+    // Alerts, bell and delivery log: nothing about the owner's mail reaches him.
+    const pushedToBro = mocks.sendNotification.mock.calls.filter(([sub]) => (sub as { endpoint: string }).endpoint.endsWith("bro@kaj.com")).map(([, body]) => String(body));
+    expect(pushedToBro.some((b) => leak.test(b))).toBe(false);
+    const bell = await bellFor({ email: "bro@kaj.com", ...bro });
+    expect(bell.items.some((i) => i.taskId === ownerTask.id || leak.test(i.title))).toBe(false);
+    expect((await deliveryLog({ email: "bro@kaj.com", ...bro }, false)).some((r) => r.taskId === ownerTask.id)).toBe(false);
+
+    // The owner keeps all of it.
+    const boss = view(OWNER, "boss@kaj.com");
+    expect(boss.emails.map((e) => e.subject)).toContain("Payment failed: owner invoice 42");
+    expect(boss.calendar.map((e) => e.title)).toContain("Owner board meeting");
+    expect(boss.openTasks.some((t) => t.id === ownerTask.id)).toBe(true);
+    expect((await mailboxesFor({ ...OWNER, email: "boss@kaj.com" })).map((m) => m.address)).toEqual(["office@kaj.com"]);
+    expect((await bellFor({ email: "boss@kaj.com", ...OWNER })).items.some((i) => i.taskId === ownerTask.id)).toBe(true);
   });
 
   it("stores picked sections on invite and edit; changes apply on the next request without signing out", async () => {

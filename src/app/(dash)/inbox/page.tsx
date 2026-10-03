@@ -37,7 +37,7 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
     <PageHeader
       mode={triage ? s.modes.inbox : undefined}
       title="Inbox"
-      subtitle={triage ? `The last 14 days of every mailbox you can see${s.emails.some((e) => e.owner) ? ", plus your own (private to you)," : ""} ranked by urgency${ai ? " and read by Claude" : ""}.` : current?.owner ? "Your own mailbox: private to you." : `${current?.business ? `${current.business} · ` : ""}shared mailbox${current && !canSendFrom(user, user.email, current) ? " · read-only for you" : ""}.`}
+      subtitle={triage ? `The last 14 days of every mailbox you can see${s.emails.some((e) => e.owner) ? ", plus your own (private to you)," : ""} ranked by urgency${ai ? " and read by Claude" : ""}.` : current?.owner ? "Your own mailbox: private to you." : `${current?.business ? `${current.business} · ` : ""}connected on Platforms · only full owners see it.`}
     >
       {current && canSendFrom(user, user.email, current) && (
         <Link href={`/inbox/m/${current.key}/new`} className={`${btn("solid")} inline-flex min-h-10 items-center gap-1.5 [--b:#ff5fd7] sm:min-h-0`}><PenSquare size={14} />New message</Link>

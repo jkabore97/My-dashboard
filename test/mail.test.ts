@@ -52,26 +52,25 @@ describe("mailbox access", () => {
     expect(canReadMailbox(DEVELOPER, "bro@kaj.com", brosOwn)).toBe(false);
   });
 
-  it("shared mailboxes follow role and business; only full owners send", () => {
-    expect(canReadMailbox(ASSISTANT_CONSULTING, "amy@kaj.com", shared)).toBe(true);
-    expect(canSendFrom(ASSISTANT_CONSULTING, "amy@kaj.com", shared)).toBe(false);
-    // Another business's mailbox and an untagged one stay hidden.
-    expect(canReadMailbox(ASSISTANT_CONSULTING, "amy@kaj.com", otherBiz)).toBe(false);
-    expect(canReadMailbox(ASSISTANT_CONSULTING, "amy@kaj.com", untagged)).toBe(false);
-    // No Inbox section: nothing.
-    expect(canReadMailbox(DEVELOPER, "dev@kaj.com", shared)).toBe(false);
-    // An owner limited to some businesses reads them but isn't a full owner: no sending.
-    expect(canReadMailbox(SCOPED_OWNER, "o@kaj.com", shared)).toBe(true);
-    expect(canSendFrom(SCOPED_OWNER, "o@kaj.com", shared)).toBe(false);
+  it("mailboxes connected on Platforms are full owners' only; members never see them", () => {
+    // Whatever their sections or businesses, members get nothing from the owner's mailboxes.
+    const bro: Access = { role: "developer", businesses: null, sections: ["inbox", "agenda"] };
+    const assistantAll: Access = { role: "assistant", businesses: null, sections: null };
+    for (const [a, email] of [[ASSISTANT_CONSULTING, "amy@kaj.com"], [assistantAll, "amy@kaj.com"], [bro, "bro@kaj.com"], [SCOPED_OWNER, "o@kaj.com"], [DEVELOPER, "dev@kaj.com"]] as const) {
+      for (const mb of [shared, otherBiz, untagged]) {
+        expect(canReadMailbox(a, email, mb)).toBe(false);
+        expect(canSendFrom(a, email, mb)).toBe(false);
+      }
+    }
+    expect(canReadMailbox(OWNER, "boss@kaj.com", shared)).toBe(true);
     expect(canSendFrom(OWNER, "boss@kaj.com", shared)).toBe(true);
     expect(canSendFrom(OWNER, "boss@kaj.com", untagged)).toBe(true);
   });
 
   it("permissions combine access with what the token was granted", () => {
     const full = mailGrants("outlook", ["openid", "https://graph.microsoft.com/Mail.ReadWrite", "https://graph.microsoft.com/Mail.Send"]);
-    const reader = mailPermissions(ASSISTANT_CONSULTING, "amy@kaj.com", shared, full);
-    expect(reader).toMatchObject({ read: true, triage: true, organize: false, send: false });
-    expect(reader.sendBlocked).toMatch(/Only the dashboard owner/);
+    const member = mailPermissions(ASSISTANT_CONSULTING, "amy@kaj.com", shared, full);
+    expect(member).toMatchObject({ read: false, triage: false, organize: false, send: false });
     expect(mailPermissions(OWNER, "boss@kaj.com", shared, full)).toMatchObject({ read: true, triage: true, organize: true, send: true, reconnect: false });
     const readOnly = mailGrants("outlook", ["Mail.Read", "User.Read"]);
     const p = mailPermissions(OWNER, "boss@kaj.com", shared, readOnly);
@@ -423,13 +422,15 @@ describe("mail client access end to end (PGlite)", () => {
 
   it("lists only the mailboxes each person may open", async () => {
     expect((await mailboxesFor(boss)).map((m) => m.address)).toEqual(["office@kaj.com", "store@kaj.com"]);
-    expect((await mailboxesFor(amy)).map((m) => m.address)).toEqual(["office@kaj.com"]);
-    expect((await mailboxesFor(bro)).map((m) => m.address)).toEqual(["office@kaj.com", "store@kaj.com", "bro@kaj.com"]);
+    // Members: none of the owner's mailboxes, only their own.
+    expect(await mailboxesFor(amy)).toEqual([]);
+    expect((await mailboxesFor(bro)).map((m) => m.address)).toEqual(["bro@kaj.com"]);
     await expect(openMailbox(boss, toKey("ms:bro@kaj.com"), "read")).rejects.toBeInstanceOf(MailAccessError);
-    await expect(openMailbox(amy, toKey("ms:store@kaj.com"), "read")).rejects.toBeInstanceOf(MailAccessError);
-    await expect(openMailbox(amy, toKey("ms:office@kaj.com"), "send")).rejects.toThrow(/Only the dashboard owner/);
-    await expect(openMailbox(amy, toKey("ms:office@kaj.com"), "organize")).rejects.toBeInstanceOf(MailAccessError);
-    expect((await openMailbox(amy, toKey("ms:office@kaj.com"), "triage")).perms.triage).toBe(true);
+    for (const need of ["read", "triage", "organize", "send"] as const) {
+      await expect(openMailbox(amy, toKey("ms:office@kaj.com"), need)).rejects.toBeInstanceOf(MailAccessError);
+      await expect(openMailbox(bro, toKey("ms:office@kaj.com"), need)).rejects.toBeInstanceOf(MailAccessError);
+    }
+    expect((await openMailbox(boss, toKey("ms:office@kaj.com"), "send")).perms).toMatchObject({ read: true, triage: true, organize: true, send: true });
     expect((await openMailbox(bro, toKey("ms:bro@kaj.com"), "send")).perms.send).toBe(true);
     // The refreshed token's scopes were recorded on the connection.
     const office = (await listConnections("microsoft")).find((c) => c.account === "office@kaj.com")!;
@@ -443,6 +444,10 @@ describe("mail client access end to end (PGlite)", () => {
     auth.user = { ...amy, hasTotp: true, name: "Amy", envOwner: false };
     expect((await attachmentRoute(url("ms:store@kaj.com"))).status).toBe(403);
     expect((await attachmentRoute(url("ms:bro@kaj.com"))).status).toBe(403);
+    expect((await attachmentRoute(url("ms:office@kaj.com"))).status).toBe(403);
+    auth.user = { ...bro, hasTotp: true, name: "Bro", envOwner: false };
+    expect((await attachmentRoute(url("ms:office@kaj.com"))).status).toBe(403);
+    auth.user = { ...boss, hasTotp: true, name: "Boss", envOwner: true };
     const ok = await attachmentRoute(url("ms:office@kaj.com"));
     expect(ok.status).toBe(200);
     expect(ok.headers.get("content-type")).toBe("application/octet-stream");
@@ -462,10 +467,12 @@ describe("mail client access end to end (PGlite)", () => {
     const fields = { mailbox: toKey("ms:office@kaj.com"), mode: "reply", message: toKey("M1"), to: "ama@x.com", subject: "Re: Hi", body: "Secret body text" };
     auth.user = { ...boss, hasTotp: true, name: "Boss", envOwner: true };
     expect((await sendRoute(post(fields, "https://evil.example"))).status).toBe(403);
-    auth.user = { ...amy, hasTotp: true, name: "Amy", envOwner: false };
-    const denied = await sendRoute(post(fields));
-    expect(denied.status).toBe(400);
-    expect((await denied.json()).error).toMatch(/Only the dashboard owner/);
+    for (const member of [{ ...amy, name: "Amy" }, { ...bro, name: "Bro" }]) {
+      auth.user = { ...member, hasTotp: true, envOwner: false };
+      const denied = await sendRoute(post(fields));
+      expect(denied.status).toBe(400);
+      expect((await denied.json()).error).toMatch(/isn't available to you/);
+    }
     auth.user = { ...boss, hasTotp: true, name: "Boss", envOwner: true };
     const sent = await sendRoute(post(fields));
     expect(await sent.json()).toEqual({ ok: true });

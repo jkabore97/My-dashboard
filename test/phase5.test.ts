@@ -156,10 +156,10 @@ describe("dashboard scoping", () => {
     expect(s.undecryptableConnections).toBe(0);
   });
 
-  it("lets an assistant with every business see the inbox, calendar and cameras, but not money", () => {
+  it("lets an assistant with every business see cameras but not the owner's mail, calendar or money", () => {
     const s = scopeFor(sample(), { role: "assistant", businesses: null }, "amy@x.com", ctx);
-    expect(s.emails).toHaveLength(1);
-    expect(s.calendar).toHaveLength(1);
+    expect(s.emails).toEqual([]);
+    expect(s.calendar).toEqual([]);
     expect(s.cameras).toHaveLength(1);
     expect(s.stripe).toEqual([]);
     expect(s.repos).toEqual([]);
