@@ -7,6 +7,7 @@ import { oauthConfigured } from "@/lib/server/connect";
 import { listConnectionSummaries, listPersonalSummaries, MULTI_ACCOUNT } from "@/lib/server/store/connections";
 import { listMembers } from "@/lib/server/store/team";
 import { DisconnectPersonalButton } from "@/components/settings/MyMail";
+import { MailAccessChips } from "@/components/mail/bits";
 import { getSetting, lastRun } from "@/lib/server/store/settings";
 import { WEBHOOK_ENV } from "@/lib/server/webhooks";
 import { hasGoogleScope, type GoogleFeature } from "@/lib/server/google";
@@ -164,6 +165,8 @@ export default async function PlatformsPage({ searchParams }: { searchParams: Pr
                       </div>
                       <div className="text-xs text-muted">{c.business ? `${c.business} · ` : ""}connected {timeAgo(c.createdAt)}</div>
                       {p.provider === "gmail" && <GoogleGrants scopes={c.scopes} />}
+                      {p.provider === "gmail" && c.scopes && <MailAccessChips provider="gmail" scopes={c.scopes} />}
+                      {p.provider === "microsoft" && <MailAccessChips provider="outlook" scopes={c.scopes} />}
                       {p.provider === "msadmin" && <MsAdminSummary bills={bills} />}
                       {p.provider === "gcloud" && <GcloudSummary bills={bills} table={gcloudTable} />}
                       {multi && <RelabelForm id={c.id} label={c.label} business={c.business} />}
@@ -215,6 +218,7 @@ export default async function PlatformsPage({ searchParams }: { searchParams: Pr
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm"><span className="text-ink">{who}</span> <span className="text-muted">has a personal mailbox connected</span></div>
                     <div className="text-xs text-muted">{c.provider === "microsoft" ? "Microsoft 365" : "Google"} · {timeAgo(c.createdAt)}</div>
+                    {(c.provider === "microsoft" || c.scopes) && <MailAccessChips provider={c.provider === "microsoft" ? "outlook" : "gmail"} scopes={c.scopes} />}
                   </div>
                   <DisconnectPersonalButton id={c.id} who={who} />
                 </li>

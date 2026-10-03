@@ -14,6 +14,13 @@ import { ARM_SCOPE, GRAPH_ADMIN_SCOPES, msAdminAuthorizeUrl, msTokenUrl, redeemR
 import { billingCachesFor } from "@/lib/server/billing-refresh";
 import { clearSlowCaches } from "@/lib/server/slow-cache";
 import { armTokenMessage } from "@/lib/billing/microsoft";
+import { scopeList } from "@/lib/mail/access";
+
+/** A token response's granted scopes, for the connection's meta (nothing when Microsoft didn't say). */
+const grantedScopes = (scope: string | undefined) => {
+  const scopes = scopeList(scope);
+  return scopes ? { scopes } : {};
+};
 
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -84,7 +91,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ provider: strin
       replaced = await saveConnection({ provider, account, secret: { refreshToken: t.refresh_token }, meta: { via: "oauth", scopes: (t.scope ?? "").split(" ").filter(Boolean) } });
     } else if (provider === "microsoft") {
       const client = msClient()!;
-      const t = await postForm<{ access_token: string; refresh_token?: string }>(`https://login.microsoftonline.com/${encodeURIComponent(msTenant())}/oauth2/v2.0/token`, {
+      const t = await postForm<{ access_token: string; refresh_token?: string; scope?: string }>(`https://login.microsoftonline.com/${encodeURIComponent(msTenant())}/oauth2/v2.0/token`, {
         client_id: client.id,
         client_secret: client.secret,
         code,
@@ -95,7 +102,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ provider: strin
       if (!t.refresh_token) return back("error=Microsoft+did+not+return+offline+access.+Try+again.");
       const me = await getAuthed<{ mail?: string | null; userPrincipalName: string }>("https://graph.microsoft.com/v1.0/me", t.access_token);
       account = (me.mail ?? me.userPrincipalName).toLowerCase();
-      replaced = await saveConnection({ provider, account, secret: { refreshToken: t.refresh_token }, meta: { via: "oauth" } });
+      // What was granted (Mail.ReadWrite / Mail.Send decide whether replying works), kept up to date on refresh.
+      replaced = await saveConnection({ provider, account, secret: { refreshToken: t.refresh_token }, meta: { via: "oauth", ...grantedScopes(t.scope) } });
     } else {
       const t = await postForm<{ access_token: string; team_id?: string | null; user_id?: string; installation_id?: string }>(
         "https://api.vercel.com/v2/oauth/access_token",
@@ -125,7 +133,7 @@ async function connectPersonal(provider: "microsoft" | "gmail", code: string, re
   let secret: { refreshToken: string };
   if (provider === "microsoft") {
     const client = msClient()!;
-    const t = await postForm<{ access_token: string; refresh_token?: string; id_token?: string }>(`https://login.microsoftonline.com/${encodeURIComponent(msTenant())}/oauth2/v2.0/token`, {
+    const t = await postForm<{ access_token: string; refresh_token?: string; id_token?: string; scope?: string }>(`https://login.microsoftonline.com/${encodeURIComponent(msTenant())}/oauth2/v2.0/token`, {
       client_id: client.id,
       client_secret: client.secret,
       code,
@@ -143,7 +151,7 @@ async function connectPersonal(provider: "microsoft" | "gmail", code: string, re
     const me = await getAuthed<{ mail?: string | null; userPrincipalName: string }>("https://graph.microsoft.com/v1.0/me", t.access_token);
     account = (me.mail ?? me.userPrincipalName).toLowerCase();
     secret = { refreshToken: t.refresh_token };
-    meta = { via: "oauth", personal: true, msSubject: own.subject, msAccount: own.email };
+    meta = { via: "oauth", personal: true, msSubject: own.subject, msAccount: own.email, ...grantedScopes(t.scope) };
   } else {
     const t = await postForm<{ access_token: string; refresh_token?: string; scope?: string }>("https://oauth2.googleapis.com/token", {
       code,

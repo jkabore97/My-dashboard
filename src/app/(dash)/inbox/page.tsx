@@ -1,139 +1,213 @@
-import { requireSection } from "@/lib/server/auth";
 import Link from "next/link";
-import { ExternalLink } from "lucide-react";
+import { ChevronLeft, ChevronRight, Flag, Paperclip, PenSquare, Search, X } from "lucide-react";
+import { requireSection } from "@/lib/server/auth";
 import { getDashboard } from "@/lib/server/dashboard";
-import { Card, Empty, PageHeader, SeverityBadge, businessColor, timeAgo } from "@/components/ui";
-import { DraftReply } from "@/components/ai/DraftReply";
 import { aiEnabled } from "@/lib/server/ai";
-import { Chip, ChipRow, Donut, KpiStrip, KV, ab, type Kpi } from "@/components/command/hud";
-import { inboxStats } from "@/components/command/logic";
+import { getPrefs } from "@/lib/server/alerts/store";
+import { businessTimeZone } from "@/lib/dates";
+import { errorMessage } from "@/lib/source";
+import { isFullOwner } from "@/lib/access";
+import { canSendFrom, toKey } from "@/lib/mail/access";
+import type { MailFolder, MailPage, WellKnownFolder } from "@/lib/mail/types";
+import { defaultFolder, listFolders, listMessages, MailAccessError, mailboxesFor, messageHref, openMailbox, validFolderId, wellKnownId, type OpenMailbox } from "@/lib/server/mail";
+import { Card, Empty, PageHeader, btn } from "@/components/ui";
+import { Chip, ChipRow, ab } from "@/components/command/hud";
+import { ProviderMark, ReconnectNotice } from "@/components/mail/bits";
+import { TriageView } from "@/components/mail/TriageView";
+import { listQuery, mailDate, personName } from "@/components/mail/format";
 
-const provider = (mailbox: string) => (mailbox.startsWith("ms:") ? "Outlook" : "Gmail");
+const ORDER: WellKnownFolder[] = ["inbox", "sent", "drafts", "archive", "junk", "deleted"];
+const LABEL: Record<WellKnownFolder, string> = { inbox: "Inbox", sent: "Sent", drafts: "Drafts", archive: "Archive", junk: "Junk", deleted: "Deleted" };
 
-function ProviderMark({ mailbox }: { mailbox: string }) {
-  const ms = mailbox.startsWith("ms:");
-  return (
-    <span title={provider(mailbox)} className={`inline-grid h-[17px] w-[17px] shrink-0 place-items-center border font-display text-[10px] font-bold ${ms ? "border-cyan text-cyan" : "border-pink text-pink"}`}>
-      {ms ? "O" : "G"}
-    </span>
-  );
-}
+type Params = Record<string, string | string[] | undefined>;
 
-export default async function InboxPage({ searchParams }: { searchParams: Promise<{ account?: string }> }) {
-  await requireSection("inbox");
-  const { account } = await searchParams;
-  const s = await getDashboard();
-  const stats = inboxStats(s.emails);
-  const emails = account ? s.emails.filter((e) => e.account === account) : s.emails;
+export default async function InboxPage({ searchParams }: { searchParams: Promise<Params> }) {
+  const user = await requireSection("inbox");
+  const sp = await searchParams;
+  const one = (k: string) => (typeof sp[k] === "string" ? (sp[k] as string) : undefined);
+  const [mailboxes, s, prefs] = await Promise.all([mailboxesFor(user).catch(() => []), getDashboard(), getPrefs(user.email).catch(() => null)]);
+  const tz = prefs?.timeZone ?? businessTimeZone();
   const ai = aiEnabled() && s.modes.inbox === "live";
-  const high = s.emails.filter((e) => e.severity === "high").length;
-  const gmail = stats.mailboxes.filter((m) => m.provider === "gmail").length;
-  const outlook = stats.mailboxes.length - gmail;
-  const firstCritical = s.emails.find((e) => e.severity === "critical");
+  const triage = one("view") === "triage" || mailboxes.length === 0;
+  const current = triage ? null : (mailboxes.find((m) => m.key === one("mb")) ?? mailboxes[0]);
+  const byId = new Map(mailboxes.map((m) => [m.id, m]));
+  const sent = one("sent");
 
-  const kpis: Kpi[] = [
-    { label: "Unread", value: stats.unread, hint: `of ${stats.total} in the last 14 days`, c1: "#3fd0ff", c2: "#a98bff" },
-    ...(ai ? [{ label: "Needs reply", value: stats.needsReply, hint: `Claude flagged · ${stats.triaged} read`, c1: "#ff5fd7", c2: "#a98bff" }] : []),
-    { label: "Critical", value: stats.critical, hint: firstCritical ? firstCritical.subject : "nothing urgent", c1: stats.critical ? "#ff3d6e" : "#3df5a0", c2: stats.critical ? "#ff9f1c" : "#2ef2d0" },
-    { label: "High", value: high, hint: high ? "worth a look today" : "none", c1: high ? "#ff9f1c" : "#3df5a0", c2: high ? "#ffc56b" : "#2ef2d0" },
-    { label: "Mailboxes", value: stats.mailboxes.length, hint: [gmail ? `${gmail} Gmail` : null, outlook ? `${outlook} Outlook` : null].filter(Boolean).join(" · ") || "none connected", c1: "#ffd84d", c2: "#ff9f6b" },
-  ];
+  const header = (
+    <PageHeader
+      mode={triage ? s.modes.inbox : undefined}
+      title="Inbox"
+      subtitle={triage ? `The last 14 days of every mailbox you can see${s.emails.some((e) => e.owner) ? ", plus your own (private to you)," : ""} ranked by urgency${ai ? " and read by Claude" : ""}.` : current?.owner ? "Your own mailbox: private to you." : `${current?.business ? `${current.business} · ` : ""}shared mailbox${current && !canSendFrom(user, user.email, current) ? " · read-only for you" : ""}.`}
+    >
+      {current && canSendFrom(user, user.email, current) && (
+        <Link href={`/inbox/m/${current.key}/new`} className={`${btn("solid")} inline-flex min-h-10 items-center gap-1.5 [--b:#ff5fd7] sm:min-h-0`}><PenSquare size={14} />New message</Link>
+      )}
+      <Link href="/settings#my-mail" className="inline-flex min-h-10 items-center text-xs text-cyan hover:underline sm:min-h-0">My mailbox ›</Link>
+    </PageHeader>
+  );
+
+  const mailboxRow = mailboxes.length > 0 && (
+    <div className="mb-4">
+      <ChipRow label="Mailbox">
+        <Chip href="/inbox?view=triage" active={triage}>Triage · 14 days</Chip>
+        {mailboxes.map((m) => (
+          <Chip key={m.key} href={`/inbox?mb=${m.key}`} active={current?.key === m.key}>
+            <ProviderMark mailbox={m} />
+            <span className="font-sans normal-case tracking-normal">{m.label}</span>
+            {m.owner && <span className="border border-cyan/40 px-1 text-[9.5px] text-cyan">Mine</span>}
+          </Chip>
+        ))}
+      </ChipRow>
+    </div>
+  );
+
+  const sentBanner = sent && (
+    <p role="status" className="mb-4 border-l-2 border-emerald bg-emerald/10 px-3 py-2 text-[13px] text-[#c9ffe6]">
+      {sent === "demo" ? "Sample mailbox: the message was filed under Sent, nothing left this computer." : "✓ Message sent."}
+    </p>
+  );
+
+  if (triage || !current) {
+    return (
+      <>
+        {header}
+        {sentBanner}
+        {mailboxRow}
+        <TriageView
+          emails={s.emails}
+          account={one("account")}
+          ai={ai}
+          hrefFor={(e) => (byId.has(e.mailbox) ? messageHref(e) : null)}
+          canReply={(e) => {
+            const m = byId.get(e.mailbox);
+            return !!m && canSendFrom(user, user.email, m);
+          }}
+        />
+      </>
+    );
+  }
+
+  const folder = one("f") && validFolderId(current.provider, one("f")!) ? one("f")! : defaultFolder(current.provider);
+  const q = (one("q") ?? "").trim().slice(0, 200);
+  const unread = one("unread") === "1";
+  const cursor = one("c") ?? null;
+
+  let o: OpenMailbox | null = null;
+  let error: string | null = null;
+  try {
+    o = await openMailbox(user, current.key, "read");
+  } catch (err) {
+    error = err instanceof MailAccessError ? err.message : `Couldn't open ${current.address}: ${errorMessage(err)}`;
+  }
+  const [folders, page] = o
+    ? await Promise.all([
+        listFolders(o).catch(() => null),
+        listMessages(o, { folder, search: q || null, unread, cursor }).catch((err): MailPage | string => errorMessage(err)),
+      ])
+    : [null, null];
+  if (typeof page === "string") error = page;
+
+  const known: MailFolder[] = folders?.filter((f) => f.wellKnown) ?? ORDER.map((k) => ({ id: wellKnownId(current.provider, k), name: LABEL[k], unread: null, total: null, wellKnown: k }));
+  const others = folders?.filter((f) => !f.wellKnown) ?? [];
+  const folderName = [...known, ...others].find((f) => f.id === folder)?.name ?? "Folder";
+  const sentLike = known.some((f) => f.id === folder && (f.wellKnown === "sent" || f.wellKnown === "drafts"));
+  const base = { mb: current.key, f: folder === defaultFolder(current.provider) ? undefined : folder };
+  const here = listQuery({ ...base, q, unread, c: cursor });
+  const items = page && typeof page !== "string" ? page.items : [];
 
   return (
     <>
-      <PageHeader mode={s.modes.inbox} title="Inbox" subtitle={`Every business mailbox you can see${s.emails.some((e) => e.owner) ? ", plus your own (private to you)," : ""} in one list, triaged by urgency${ai ? " (read by Claude)" : ""}. Replies open in Gmail or Outlook.`}>
-        <Link href="/settings#my-mail" className="text-xs text-cyan hover:underline">My mailbox ›</Link>
-      </PageHeader>
-      <KpiStrip items={kpis} accent="#ff5fd7" className="mb-5" />
-
-      {stats.mailboxes.length > 1 && (
-        <div className="mb-5">
-          <ChipRow label="Account">
-            <Chip href="/inbox" active={!account} count={stats.unread}>All accounts</Chip>
-            {stats.mailboxes.map((m) => (
-              <Chip key={m.account} href={`/inbox?account=${encodeURIComponent(m.account)}`} active={account === m.account} count={m.unread}>
-                <ProviderMark mailbox={m.mailbox} />
-                <span className="font-sans normal-case tracking-normal">{m.account}</span>
-              </Chip>
-            ))}
-          </ChipRow>
+      {header}
+      {sentBanner}
+      {mailboxRow}
+      {o?.perms.reconnect && (
+        <div className="mb-4">
+          <ReconnectNotice mailbox={current} canReconnect={current.owner ? current.owner === user.email : isFullOwner(user)} />
         </div>
       )}
 
-      <div className="grid items-start gap-4 lg:gap-[22px] xl:grid-cols-[minmax(0,1fr)_330px]">
-        <Card title={`${account ?? "All accounts"} · newest first`} accent="pink" flush action={`${emails.length} message${emails.length === 1 ? "" : "s"}${ai ? " · triaged by Claude" : ""}`}>
-          {emails.length === 0 ? <Empty>No mail in the last 14 days.</Empty> : (
-            <ul>
-              {emails.map((e) => (
-                <li key={e.id} className="grid grid-cols-[8px_minmax(0,1fr)] gap-x-3 gap-y-1.5 border-b border-line/50 px-4 py-3.5 last:border-0 sm:grid-cols-[10px_84px_minmax(0,1fr)] sm:px-5">
-                  <span className={`row-span-2 mt-2 h-2 w-2 rounded-full sm:row-span-1 ${e.unread ? "bg-cyan shadow-[0_0_8px_#3fd0ff]" : ""}`} aria-label={e.unread ? "Unread" : undefined} />
-                  <span className="justify-self-start sm:mt-0.5"><SeverityBadge severity={e.severity} /></span>
-                  <div className="col-start-2 min-w-0 sm:col-start-3">
-                    <div className="flex items-baseline justify-between gap-3">
-                      <a href={e.url} target="_blank" rel="noreferrer" className={`min-w-0 text-[14.5px] hover:text-cyan sm:truncate ${e.unread ? "font-medium text-[#f2faff]" : "text-[#b7c7d4]"}`}>{e.subject}</a>
-                      <span className="shrink-0 font-mono text-[11.5px] tabular-nums text-muted">{timeAgo(e.receivedAt)}</span>
-                    </div>
-                    <div className="truncate text-[12.5px] text-muted"><span className="text-[#c5d3de]">{e.from}</span> · {e.account}{e.owner ? <span className="ml-1.5 border border-cyan/40 px-1 font-display text-[10px] uppercase tracking-[0.12em] text-cyan" title="Your own mailbox: only you see it">Mine</span> : null}</div>
-                    {e.triage ? (
-                      <div className="mt-2 border-l-2 border-violet bg-violet/[0.07] px-2.5 py-1.5 text-[13px] leading-relaxed text-[#c9d8e4]">
-                        <span className="mr-1.5 text-violet">✦</span>{e.triage.summary}
-                        {e.triage.task ? <span className="text-muted"> · To do: <b className="font-medium text-lime">{e.triage.task}</b></span> : null}
-                      </div>
-                    ) : (
-                      <div className="mt-1 line-clamp-1 text-[12.5px] text-[#8197a8]">{e.snippet}</div>
-                    )}
-                    {ai && (!e.triage || e.triage.needsReply) && e.unread ? (
-                      <DraftReply emailId={e.id} url={e.url} provider={provider(e.mailbox)} />
-                    ) : e.url && (e.unread || e.severity === "critical") ? (
-                      <div className="mt-2.5"><a href={e.url} target="_blank" rel="noreferrer" className={ab}><ExternalLink size={13} />Open in {provider(e.mailbox)}</a></div>
-                    ) : null}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-
-        <aside className="grid min-w-0 gap-4 lg:gap-[22px]">
-          {ai && stats.triaged > 0 && (
-            <Card title="Claude triage" accent="violet" flush action="last 14 days">
-              <div className="grid grid-cols-[110px_minmax(0,1fr)] items-center gap-4 px-4 py-4 sm:px-5">
-                <Donut
-                  size={110}
-                  value={stats.triaged}
-                  label="Read"
-                  parts={[
-                    { value: stats.needsReply, color: "#ff5fd7" },
-                    { value: stats.withTask, color: "#3fd0ff" },
-                    { value: stats.fyi, color: "#2ef2d0" },
-                  ]}
-                />
-                <div className="min-w-0">
-                  <KV k="Needs reply" v={stats.needsReply} dot="#ff5fd7" />
-                  <KV k="Has a to-do" v={stats.withTask} dot="#3fd0ff" />
-                  <KV k="FYI only" v={stats.fyi} dot="#2ef2d0" />
-                  {stats.total > stats.triaged && <KV k="Not read yet" v={stats.total - stats.triaged} dot="#5e7a8f" />}
-                </div>
+      <div className="mb-3">
+        <ChipRow label="Folder">
+          {known.map((f) => (
+            <Chip key={f.id} href={`/inbox?${listQuery({ mb: current.key, f: f.id === defaultFolder(current.provider) ? undefined : f.id })}`} active={f.id === folder} count={f.unread ? f.unread : undefined}>
+              {f.name}
+            </Chip>
+          ))}
+          {others.length > 0 && (
+            <details className="relative shrink-0">
+              <summary className={`inline-flex min-h-10 cursor-pointer list-none items-center gap-1.5 border px-3 font-display text-[12px] font-semibold uppercase tracking-[0.12em] sm:min-h-0 sm:py-1.5 ${others.some((f) => f.id === folder) ? "border-[var(--ga,#3fd0ff)] text-[var(--ga,#3fd0ff)]" : "border-line text-muted hover:text-ink"}`}>
+                {others.find((f) => f.id === folder)?.name ?? "More folders"} ▾
+              </summary>
+              <div className="hud-panel absolute left-0 z-20 mt-1 max-h-[60vh] w-[min(280px,80vw)] overflow-y-auto">
+                {others.map((f) => (
+                  <Link key={f.id} href={`/inbox?${listQuery({ mb: current.key, f: f.id })}`} className={`flex min-h-10 items-center justify-between gap-2 border-b border-line/50 px-3 text-[13px] last:border-0 hover:bg-cyan/5 ${f.id === folder ? "text-cyan" : ""}`}>
+                    <span className="min-w-0 truncate">{f.name}</span>
+                    {f.unread ? <span className="font-mono text-[11px] text-cyan">{f.unread}</span> : null}
+                  </Link>
+                ))}
               </div>
-            </Card>
+            </details>
           )}
-          <Card title="Mailboxes" accent="cyan" flush action="unread">
-            {stats.mailboxes.length === 0 ? <Empty>No mailbox connected.</Empty> : stats.mailboxes.map((m) => (
-              <Link key={m.account} href={`/inbox?account=${encodeURIComponent(m.account)}`} className="grid min-h-12 grid-cols-[17px_minmax(0,1fr)_auto] items-center gap-2.5 border-b border-line/50 px-4 py-2.5 last:border-0 hover:bg-cyan/5 sm:px-5">
-                <ProviderMark mailbox={m.mailbox} />
-                <div className="min-w-0">
-                  <div className="truncate text-[13px]">{m.account}</div>
-                  <div className="truncate text-[11.5px] text-muted">
-                    {m.business && <><span className="mr-1 inline-block h-1.5 w-1.5" style={{ background: businessColor(m.business) }} /><span className="text-[#c5d3de]">{m.business}</span> · </>}
-                    {m.provider === "outlook" ? "Outlook" : "Gmail"} · {m.total} in 14 days
-                  </div>
-                </div>
-                <span className={`border px-1.5 font-mono text-[12px] tabular-nums ${m.unread ? "border-cyan/40 text-cyan" : "border-line text-muted"}`}>{m.unread}</span>
-              </Link>
-            ))}
-          </Card>
-        </aside>
+        </ChipRow>
       </div>
+
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <form action="/inbox" className="flex min-w-0 flex-1 basis-[260px] gap-2" role="search">
+          <input type="hidden" name="mb" value={current.key} />
+          {base.f && <input type="hidden" name="f" value={base.f} />}
+          {unread && <input type="hidden" name="unread" value="1" />}
+          <input name="q" defaultValue={q} placeholder={`Search ${folderName.toLowerCase()}`} aria-label="Search mail" className="hud-input min-h-10 min-w-0 flex-1 px-3 text-base sm:text-sm" />
+          <button type="submit" className={`${ab} min-h-10 justify-center sm:min-h-10`} aria-label="Search"><Search size={14} /><span className="hidden sm:inline">Search</span></button>
+        </form>
+        <Chip href={`/inbox?${listQuery({ ...base, q, unread: !unread })}`} active={unread}>Unread only</Chip>
+        {q && <Link href={`/inbox?${listQuery({ ...base, unread })}`} className={ab}><X size={13} />Clear search</Link>}
+      </div>
+
+      <Card
+        title={<span className="flex min-w-0 items-center gap-2"><ProviderMark mailbox={current} /><span className="truncate">{folderName}{q ? ` · “${q}”` : ""}</span></span>}
+        accent="pink"
+        flush
+        action={o ? `${current.address}${cursor ? " · older" : ""}` : current.address}
+      >
+        {error ? (
+          <p className="px-4 py-6 text-[13.5px] text-[#ffc2d1] sm:px-5">{error}</p>
+        ) : items.length === 0 ? (
+          <Empty>{q ? "No messages match." : unread ? "No unread messages here." : "This folder is empty."}</Empty>
+        ) : (
+          <ul>
+            {items.map((m) => {
+              const who = sentLike ? `To: ${m.to.map(personName).join(", ") || "(no recipients)"}` : personName(m.from) || "(unknown sender)";
+              return (
+                <li key={m.id} className="border-b border-line/50 last:border-0">
+                  <Link href={`/inbox/m/${current.key}/${toKey(m.id)}?${here}`} prefetch={false} className="grid min-h-[60px] grid-cols-[8px_minmax(0,1fr)] gap-x-3 px-4 py-3 transition hover:bg-cyan/5 sm:px-5">
+                    <span className={`mt-1.5 h-2 w-2 rounded-full ${m.unread ? "bg-cyan shadow-[0_0_8px_#3fd0ff]" : ""}`} aria-label={m.unread ? "Unread" : undefined} />
+                    <div className="min-w-0">
+                      <div className="flex items-baseline justify-between gap-3">
+                        <span className={`min-w-0 truncate text-[14px] ${m.unread ? "font-semibold text-[#f2faff]" : "text-[#c5d3de]"}`}>{who}</span>
+                        <span className="shrink-0 font-mono text-[11.5px] tabular-nums text-muted">{mailDate(m.receivedAt, tz)}</span>
+                      </div>
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        {m.draft && <span className="shrink-0 font-display text-[10.5px] uppercase tracking-[0.1em] text-high">Draft</span>}
+                        <span className={`min-w-0 truncate text-[13.5px] ${m.unread ? "text-[#e3eef6]" : "text-[#9fb2c2]"}`}>{m.subject}</span>
+                        {m.important && <span className="shrink-0 text-[12px] font-bold text-high" title="High importance">!</span>}
+                        {m.hasAttachments && <Paperclip size={12} className="shrink-0 text-muted" aria-label="Has attachments" />}
+                        {m.flagged && <Flag size={12} className="shrink-0 text-gold" aria-label="Flagged" />}
+                      </div>
+                      <div className="truncate text-[12.5px] text-[#7f97ab]">{m.preview}</div>
+                    </div>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {(cursor || (page && typeof page !== "string" && page.next)) && (
+          <nav className="flex items-center justify-between gap-2 border-t border-line/60 px-4 py-3 sm:px-5" aria-label="Pages">
+            {cursor ? <Link href={`/inbox?${listQuery({ ...base, q, unread })}`} className={ab}><ChevronLeft size={14} />Newest</Link> : <span />}
+            {page && typeof page !== "string" && page.next ? <Link href={`/inbox?${listQuery({ ...base, q, unread, c: page.next })}`} className={ab}>Older<ChevronRight size={14} /></Link> : null}
+          </nav>
+        )}
+      </Card>
     </>
   );
 }

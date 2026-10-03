@@ -7,6 +7,9 @@ import { googleClient } from "./credentials";
 
 export const GOOGLE_SCOPES = {
   gmail: "https://www.googleapis.com/auth/gmail.readonly",
+  // The Inbox mail client: change labels (read / unread, star, archive, trash) and send.
+  gmailModify: "https://www.googleapis.com/auth/gmail.modify",
+  gmailSend: "https://www.googleapis.com/auth/gmail.send",
   calendar: "https://www.googleapis.com/auth/calendar.readonly",
   analytics: "https://www.googleapis.com/auth/analytics.readonly",
   searchConsole: "https://www.googleapis.com/auth/webmasters.readonly",
@@ -20,6 +23,8 @@ export type GoogleFeature = keyof typeof GOOGLE_SCOPES;
  */
 export function hasGoogleScope(scopes: string[] | null, feature: GoogleFeature): boolean | null {
   if (!scopes) return null;
+  // Read-write access includes reading.
+  if (feature === "gmail") return scopes.includes(GOOGLE_SCOPES.gmail) || scopes.includes(GOOGLE_SCOPES.gmailModify);
   return scopes.includes(GOOGLE_SCOPES[feature]);
 }
 

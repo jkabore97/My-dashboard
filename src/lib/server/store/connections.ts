@@ -127,6 +127,12 @@ export async function updateConnectionSecret(provider: Provider, account: string
   await db.query("update connections set secret = $3, updated_at = now() where provider = $1 and account = $2", [provider, account, encryptJson(secret)]);
 }
 
+/** Merges keys into a connection's (non-secret) meta, e.g. the scopes a refreshed token was granted. */
+export async function updateConnectionMeta(provider: Provider, account: string, patch: Record<string, unknown>) {
+  const db = await getDb();
+  await db.query("update connections set meta = coalesce(meta, '{}'::jsonb) || $3::text::jsonb, updated_at = now() where provider = $1 and account = $2", [provider, account, JSON.stringify(patch)]);
+}
+
 /** Relabels a shared connection (personal ones have no label or business). */
 export async function updateConnectionLabel(id: string, label: string | null, business: string | null) {
   const db = await getDb();

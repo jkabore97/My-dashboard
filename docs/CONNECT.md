@@ -51,12 +51,29 @@ Sites are checked for uptime, and their domains for expiry, SSL and email setup,
 
 ## 6. Outlook mail and calendar (Microsoft 365)
 
-Uses the same Microsoft app you already made for sign-in.
+Uses the same Microsoft app you already made for sign-in. The Inbox is a full mail client: every folder, search, read, flag, archive, delete, and **reply / reply all / forward / new message** from the dashboard. That needs read **and write** access to mail plus permission to send.
 
 1. entra.microsoft.com → **App registrations → your app → Authentication → Add URI**:
    `https://kaj-command-center.vercel.app/api/connect/microsoft/callback` → Save.
-2. **API permissions → Add a permission → Microsoft Graph → Delegated**: `offline_access`, `User.Read`, `Mail.Read`, `Calendars.Read` → Add. Then **Grant admin consent**.
-3. Dashboard → **Platforms → Microsoft 365 → Connect**, sign in with each mailbox you want (one at a time).
+2. **API permissions → Add a permission → Microsoft Graph → Delegated permissions**, tick:
+   - `offline_access`, `User.Read`, `Calendars.Read`
+   - `Mail.ReadWrite`: list every folder, open messages and attachments, mark read/unread, flag, archive, delete (to Deleted Items).
+   - `Mail.Send`: needed to reply, forward and send. **`Mail.ReadWrite` alone can't send**: it only lets the app create drafts.
+   (`Mail.Read` can stay or be removed; `Mail.ReadWrite` includes it.)
+   → **Add permissions**, then **Grant admin consent for <your organisation>** and confirm. Every permission should show a green "Granted" tick.
+3. **Reconnect each mailbox** so its sign-in includes the new permissions:
+   - Shared mailboxes: Dashboard → **Platforms → Microsoft 365 → Connect another account**, and sign in with the **same** mailbox again (it replaces the old sign-in; label and business are kept).
+   - Personal mailboxes: each person goes to **Settings → My mail & calendar → Reconnect Microsoft**.
+4. Check: under each mailbox on Platforms (and in Settings → My mail) the chips read **Read mail · Organise · Send**. A mailbox still missing one shows **Reconnect to enable replying** there and on the Inbox.
+
+After admin consent, older mailboxes often pick up the new permissions on their next token refresh without reconnecting; if the chips still say otherwise after an hour, reconnect.
+
+Who can do what in the Inbox:
+
+- **Your own personal mailbox**: you alone read it, organise it and send from it. Nobody else (the owner included) can open it.
+- **Shared mailboxes** (connected on Platforms): people whose access includes the Inbox and the mailbox's business can read them, mark messages read/unread and flag them. **Only full owners** (role Owner with every business) archive, delete and send from them; everyone else sees "Only the dashboard owner sends from shared mailboxes".
+- Every send is written to the audit log (Settings → Audit): who, from which mailbox, to whom, the subject. Never the message body. Sending is limited to 60 messages per person per hour, and attachments to 3 MB each and 4 MB per message (larger files: share a link).
+- Message bodies are shown in a locked-down frame (no scripts, no access to the dashboard) with remote images blocked until you click **Show images**, so senders can't tell you opened their mail.
 
 ## 7. Google (Gmail, Calendar, Analytics, Search Console) — if you use Google accounts
 
@@ -66,9 +83,10 @@ Uses the same Microsoft app you already made for sign-in.
 4. **Credentials → Create credentials → OAuth client ID → Web application**. Authorized redirect URI:
    `https://kaj-command-center.vercel.app/api/connect/gmail/callback`
 5. Vercel settings: add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` (Production), then redeploy.
-6. Dashboard → **Platforms → Google → Connect** for each Google account.
+6. **Data access** (OAuth consent screen → Data access → Add or remove scopes): add `gmail.modify` and `gmail.send` next to the read-only ones, so the Inbox can organise and reply. These are Google "restricted" scopes: fine while the app is in **Testing** with your accounts listed as test users; publishing the app to everyone would need Google's verification.
+7. Dashboard → **Platforms → Google → Connect** for each Google account. Accounts connected before replying existed show **Reconnect to enable replying**: connect them again.
 
-Google sign-in to the dashboard stays off; this only reads mail, calendar and analytics.
+Google sign-in to the dashboard stays off; this reads mail, calendar and analytics, and sends mail only when you press Send in the Inbox.
 
 ## 8. Stripe (revenue, MRR, disputes, unpaid invoices)
 

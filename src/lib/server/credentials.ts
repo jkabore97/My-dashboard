@@ -104,7 +104,7 @@ export const googleAccounts = cache(async (): Promise<GoogleAccount[]> => {
 export type GmailAccount = GoogleAccount;
 
 /** Google accounts that granted (or may have granted) Gmail access. */
-export const gmailAccounts = cache(async () => (await googleAccounts()).filter((a) => !a.scopes || a.scopes.some((s) => s.endsWith("/gmail.readonly"))));
+export const gmailAccounts = cache(async () => (await googleAccounts()).filter((a) => !a.scopes || a.scopes.some((s) => /\/gmail\.(readonly|modify)$|^https:\/\/mail\.google\.com\/$/.test(s))));
 
 export interface MicrosoftAccount {
   /** The account's address; mailbox ids are "ms:<address>". */
@@ -114,13 +114,17 @@ export interface MicrosoftAccount {
   refreshToken: string;
   /** Set for a personal account: whose it is. */
   owner?: string;
+  /** Scopes its token was granted, when recorded (at connect, then after each refresh); null when unknown. */
+  scopes?: string[] | null;
 }
+
+const msScopes = (c: Connection) => (Array.isArray(c.meta?.scopes) ? (c.meta.scopes as string[]) : null);
 
 /** Shared Microsoft 365 accounts (Outlook mail + calendar). */
 export const microsoftAccounts = cache(async (): Promise<MicrosoftAccount[]> =>
   (await sharedConnections())
     .filter((c) => c.provider === "microsoft")
-    .map((c) => ({ account: c.account, label: c.label || c.business || c.account, business: c.business, refreshToken: c.secret.refreshToken })),
+    .map((c) => ({ account: c.account, label: c.label || c.business || c.account, business: c.business, refreshToken: c.secret.refreshToken, scopes: msScopes(c) })),
 );
 
 /** People's own Microsoft and Google accounts (mail + calendar), each with its owner. Never business-tagged. */
@@ -129,7 +133,7 @@ export const personalAccounts = cache(async (): Promise<{ microsoft: MicrosoftAc
   const active = await activePersonalOwners([...new Set(all.map((c) => c.ownerEmail!))]).catch(() => new Set<string>());
   const mine = all.filter((c) => active.has(c.ownerEmail!));
   return {
-    microsoft: mine.filter((c) => c.provider === "microsoft").map((c) => ({ account: c.account, label: c.account, business: null, refreshToken: c.secret.refreshToken, owner: c.ownerEmail! })),
+    microsoft: mine.filter((c) => c.provider === "microsoft").map((c) => ({ account: c.account, label: c.account, business: null, refreshToken: c.secret.refreshToken, owner: c.ownerEmail!, scopes: msScopes(c) })),
     google: mine
       .filter((c) => c.provider === "gmail")
       .map((c) => ({ id: c.account, label: c.account, business: null, refreshToken: c.secret.refreshToken, email: c.account, scopes: Array.isArray(c.meta?.scopes) ? (c.meta.scopes as string[]) : null, owner: c.ownerEmail! })),

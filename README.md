@@ -10,7 +10,7 @@ One private dashboard for every business Kaj Consulting runs: repositories, host
 |---|---|
 | **Overview** | Critical/high counts, top to-dos, latest notifications, a card per business |
 | **To-do** | One list ranked **critical → high → medium → low**. Mark done, snooze (4h to 1 week), reassign to a business, add your own tasks. Open / Snoozed / Done views. |
-| **Inbox** | Every connected Gmail and Outlook mailbox in one list, triaged by urgency. With `ANTHROPIC_API_KEY`, Claude reads new mail, sets the urgency, writes a one-line summary and drafts replies |
+| **Inbox** | A mail client for every connected Outlook and Gmail mailbox: all folders, search, paging, read (sandboxed HTML, images on request), flag, archive, delete, reply / reply all / forward / new message with attachments. Plus a triage view of the last 14 days ranked by urgency. With `ANTHROPIC_API_KEY`, Claude reads new mail, sets the urgency, writes a one-line summary and drafts replies. Needs `Mail.ReadWrite` + `Mail.Send` (docs/CONNECT.md step 6) |
 | **Ask** | Ask questions in plain English ("Which client hasn't paid?", "What broke this week?"), answered by Claude from the dashboard's live data |
 | **Notifications** | Email, GitHub, Vercel, Stripe, Supabase and uptime events, kept 90 days |
 | **Agenda** | The next 7 days from every connected Google Calendar and Outlook calendar; today's meetings on the Overview |

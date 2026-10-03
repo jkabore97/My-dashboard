@@ -5,6 +5,7 @@ import { getDashboard } from "@/lib/server/dashboard";
 import { listPersonalSummaries } from "@/lib/server/store/connections";
 import { oauthConfigured } from "@/lib/server/connect";
 import { DisconnectMineButton } from "@/components/settings/MyMail";
+import { MailAccessChips } from "@/components/mail/bits";
 import { signOutEverywhere } from "@/app/actions/auth";
 import { requireUser, require2fa, sharedLoginLimitWarning } from "@/lib/server/auth";
 import { formatBusinessRules, formatSites, getConfig } from "@/lib/server/config";
@@ -91,6 +92,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm">{c.account}</div>
                   <div className="text-xs text-muted">{c.provider === "microsoft" ? "Microsoft 365" : "Google"} · connected {timeAgo(c.createdAt)}</div>
+                  {(c.provider === "microsoft" || c.scopes) && <MailAccessChips provider={c.provider === "microsoft" ? "outlook" : "gmail"} scopes={c.scopes} />}
                   {problem && <div className="mt-1 flex items-start gap-1.5 break-words text-xs"><SeverityIcon severity="high" size={13} /><span><span className="hud-label mr-1 text-[10.5px] text-high">High</span>{problem.error} Reconnect below.</span></div>}
                 </div>
                 <DisconnectMineButton id={c.id} name={c.account} />
@@ -110,7 +112,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         {googleOn && <a href="/api/connect/gmail?mine=1" className={`${btn(mine.some((c) => c.provider === "gmail") ? "outline" : "solid")} min-h-10 sm:min-h-0`} style={{ "--b": "#3fd0ff" } as CSSProperties}>{mine.some((c) => c.provider === "gmail") ? "Reconnect Google" : "Connect my Google"}</a>}
         {!msOn && !googleOn && <p className="text-[13px] text-muted">Mailbox sign-in isn&apos;t set up on this dashboard yet. Ask the owner.</p>}
       </div>
-      <p className="border-t border-line/60 px-4 py-3 text-xs text-muted sm:px-5">Sign in with your own account ({me.email}): read-only access to mail and calendar. Disconnecting deletes the stored sign-in.</p>
+      <p className="border-t border-line/60 px-4 py-3 text-xs text-muted sm:px-5">Sign in with your own account ({me.email}): read, organise and send your mail from the Inbox, and read your calendar. Disconnecting deletes the stored sign-in.</p>
     </HeadPanel>
   ) : null;
 
