@@ -49,7 +49,7 @@ export function ReactorDial({ segments, attention, critical, focused, focusable 
   // Latest rendered rotation, for handlers that run after a drag.
   const rotRef = useRef(rotation);
   rotRef.current = rotation;
-  const drag = useRef<{ id: number; touch: boolean; lastA: number; lastX: number; moved: number; v: number; t: number } | null>(null);
+  const drag = useRef<{ id: number; touch: boolean; lastA: number; lastX: number; dir: number; moved: number; v: number; t: number } | null>(null);
   const spin = useRef<number | null>(null);
   const lastIndex = useRef<number>(-1);
 
@@ -95,18 +95,21 @@ export function ReactorDial({ segments, attention, critical, focused, focusable 
   const onDown = (e: PointerEvent<SVGSVGElement>) => {
     if (!n || (e.target as Element).closest("[data-core]")) return;
     stopSpin();
-    drag.current = { id: e.pointerId, touch: e.pointerType !== "mouse", lastA: angleAt(e), lastX: e.clientX, moved: 0, v: 0, t: e.timeStamp };
+    // Below the centre a rightward swipe turns the wheel the other way, like a real wheel.
+    const box = svgRef.current?.getBoundingClientRect();
+    const dir = box && e.clientY > box.top + box.height / 2 ? -1 : 1;
+    drag.current = { id: e.pointerId, touch: e.pointerType !== "mouse", lastA: angleAt(e), lastX: e.clientX, dir, moved: 0, v: 0, t: e.timeStamp };
     setAnimate(false);
   };
   const onMove = (e: PointerEvent<SVGSVGElement>) => {
     const d = drag.current;
     if (!d || d.id !== e.pointerId) return;
-    // Touch: a left/right swipe turns the ring like a wheel (vertical swipes still scroll the page).
+    // Touch: a left/right swipe turns the ring like a wheel, the ring following the finger on the top or bottom half (vertical swipes still scroll the page).
     // Mouse: follow the pointer around the centre.
     let delta: number;
     if (d.touch) {
       const radius = (svgRef.current?.getBoundingClientRect().width ?? 300) * 0.36;
-      delta = (e.clientX - d.lastX) / radius;
+      delta = (d.dir * (e.clientX - d.lastX)) / radius;
       d.lastX = e.clientX;
     } else {
       const a = angleAt(e);
