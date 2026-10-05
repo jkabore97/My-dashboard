@@ -2,12 +2,13 @@ import type { CSSProperties, ReactNode } from "react";
 import { Clocks } from "@/components/Clocks";
 import { clockZones } from "@/lib/server/clocks";
 
-/** Ringed "K" mark with the brand name. */
+/** The Kaj Consulting "K" mark with the brand name. */
 export function Brand({ compact = false, tagline = "Kaj Consulting · Command Center" }: { compact?: boolean; tagline?: string }) {
   if (compact) {
     return (
       <div className="flex items-center gap-3">
-        <span className="grid h-11 w-11 place-items-center rounded-full border-[1.5px] border-violet font-display text-lg font-bold text-cyan shadow-[0_0_16px_rgb(63_208_255/0.45),inset_0_0_10px_rgb(63_208_255/0.35)]">K</span>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/brand/kaj-k.png" alt="Kaj Consulting" width={40} height={44} className="h-11 w-auto drop-shadow-[0_0_8px_rgb(63_208_255/0.35)]" />
         <div>
           <div className="bg-gradient-to-r from-cyan via-violet to-pink bg-clip-text font-display text-lg font-bold tracking-[0.22em] text-transparent">KAJ // COMMAND</div>
           <div className="hud-label text-[11px] text-muted">{tagline}</div>
@@ -20,7 +21,8 @@ export function Brand({ compact = false, tagline = "Kaj Consulting · Command Ce
       <div className="relative grid h-28 w-28 place-items-center sm:h-32 sm:w-32">
         <span className="absolute inset-0 rounded-full border border-cyan/40 [border-right-color:#ff5fd7]" />
         <span className="absolute inset-3 rounded-full border border-dashed border-cyan/30" />
-        <span className="grid h-[72px] w-[72px] place-items-center rounded-full border-[1.5px] border-violet font-display text-3xl font-bold text-cyan shadow-[0_0_20px_rgb(63_208_255/0.45),inset_0_0_12px_rgb(63_208_255/0.35)] sm:h-20 sm:w-20">K</span>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/brand/kaj-k.png" alt="Kaj Consulting" width={74} height={80} className="h-[72px] w-auto drop-shadow-[0_0_14px_rgb(63_208_255/0.4)] sm:h-20" />
       </div>
       <div className="mt-3 bg-gradient-to-r from-cyan via-violet to-pink bg-clip-text font-display text-2xl font-bold tracking-[0.22em] text-transparent sm:text-[28px]">KAJ // COMMAND</div>
       <div className="hud-label mt-1 text-[11px] tracking-[0.28em] text-muted sm:text-xs">{tagline}</div>

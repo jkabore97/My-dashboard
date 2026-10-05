@@ -14,7 +14,7 @@ export const metadata: Metadata = {
   description: "One dashboard for every repo, host, database, inbox and website across the business.",
   robots: { index: false, follow: false },
   manifest: "/manifest.webmanifest",
-  icons: { icon: "/icons/icon.svg", apple: "/icons/apple-touch-icon.png" },
+  icons: { icon: [{ url: "/icons/favicon-32.png", sizes: "32x32", type: "image/png" }, { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }], apple: "/icons/apple-touch-icon.png" },
   appleWebApp: { capable: true, title: "Command Center", statusBarStyle: "black-translucent" },
 };
 

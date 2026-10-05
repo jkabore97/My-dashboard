@@ -27,7 +27,8 @@ function Shell({ children, page }: { children: React.ReactNode; page?: ClientPag
     <main className="mx-auto min-h-screen max-w-[1080px] px-4 py-8 sm:px-6 sm:py-12">
       <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <span className="grid h-9 w-9 place-items-center rounded-full border-[1.5px] border-violet font-display text-sm font-bold text-cyan shadow-[0_0_12px_rgb(63_208_255/0.4)]">K</span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/kaj-k.png" alt="Kaj Consulting" width={30} height={32} className="h-8 w-auto" />
           <span className="hud-label text-[12px] text-muted">Status{page?.business ? ` by ${page.business}` : ""}</span>
         </div>
         {checked && <span className="hud-label flex items-center gap-2 text-[12px] text-emerald"><span className="h-2 w-2 rounded-full bg-emerald shadow-[0_0_8px_#3df5a0]" />Live · checked {timeAgo(checked)}</span>}

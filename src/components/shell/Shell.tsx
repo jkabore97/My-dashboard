@@ -96,7 +96,10 @@ export function Shell({ allowed, counts, clocks, email, name, role, businesses, 
     <div className="min-h-screen lg:grid lg:grid-cols-[76px_minmax(0,1fr)]" style={{ "--ga": group.color } as CSSProperties}>
       {/* Rail (desktop) */}
       <aside className="sticky top-0 z-40 hidden h-screen flex-col items-center gap-2 border-r border-line/60 bg-gradient-to-b from-[#081420]/90 to-[#04080e]/90 py-4 print:!hidden lg:flex">
-        <Link href="/" aria-label="Overview" className="mb-3 grid h-11 w-11 place-items-center rounded-full border-[1.5px] border-violet font-display font-bold text-cyan shadow-[0_0_16px_rgba(169,139,255,.45),inset_0_0_10px_rgba(63,208,255,.3)]">K</Link>
+        <Link href="/" aria-label="Kaj Consulting · Overview" className="mb-3 grid h-12 w-12 place-items-center rounded-full border border-violet/50 bg-[#060714] shadow-[0_0_16px_rgba(169,139,255,.35)]">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/kaj-k.png" alt="Kaj Consulting" width={30} height={32} className="h-8 w-auto drop-shadow-[0_0_6px_rgba(63,208,255,.35)]" />
+        </Link>
         {groups.map((g) => {
           const Icon = GROUP_ICON[g.id] ?? Crosshair;
           const active = g.id === group.id;
