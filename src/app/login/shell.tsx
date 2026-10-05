@@ -2,7 +2,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { Clocks } from "@/components/Clocks";
 import { clockZones } from "@/lib/server/clocks";
 
-/** The Kaj Consulting "K" mark with the brand name. */
+/** The Kaj Consulting logo: the full logo on sign-in pages, the "K" mark when compact. */
 export function Brand({ compact = false, tagline = "Kaj Consulting · Command Center" }: { compact?: boolean; tagline?: string }) {
   if (compact) {
     return (
@@ -18,14 +18,9 @@ export function Brand({ compact = false, tagline = "Kaj Consulting · Command Ce
   }
   return (
     <div className="flex flex-col items-center text-center">
-      <div className="relative grid h-28 w-28 place-items-center sm:h-32 sm:w-32">
-        <span className="absolute inset-0 rounded-full border border-cyan/40 [border-right-color:#ff5fd7]" />
-        <span className="absolute inset-3 rounded-full border border-dashed border-cyan/30" />
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/brand/kaj-k.png" alt="Kaj Consulting" width={74} height={80} className="h-[72px] w-auto drop-shadow-[0_0_14px_rgb(63_208_255/0.4)] sm:h-20" />
-      </div>
-      <div className="mt-3 bg-gradient-to-r from-cyan via-violet to-pink bg-clip-text font-display text-2xl font-bold tracking-[0.22em] text-transparent sm:text-[28px]">KAJ // COMMAND</div>
-      <div className="hud-label mt-1 text-[11px] tracking-[0.28em] text-muted sm:text-xs">{tagline}</div>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/brand/kaj-logo-full-light.png" alt="Kaj Consulting LLC" width={791} height={465} className="h-auto w-[220px] drop-shadow-[0_0_14px_rgb(63_208_255/0.3)] sm:w-[260px]" />
+      <div className="mt-4 bg-gradient-to-r from-cyan via-violet to-pink bg-clip-text font-display text-lg font-bold tracking-[0.3em] text-transparent sm:text-xl">COMMAND CENTER</div>
     </div>
   );
 }
