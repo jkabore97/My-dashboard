@@ -531,7 +531,7 @@ describe("migration 11", () => {
     expect(Number(l.n)).toBe(2);
     const idx = (await db.query<{ indexname: string }>("select indexname from pg_indexes where indexname in ('events_private_idx', 'tasks_private_idx', 'connections_owner_idx', 'email_triage_private_idx')")).map((r) => r.indexname).sort();
     expect(idx).toEqual(["connections_owner_idx", "email_triage_private_idx", "events_private_idx", "tasks_private_idx"]);
-    expect((await db.query<{ version: number }>("select version from schema_migrations order by version")).map((r) => Number(r.version)).at(-1)).toBe(11);
+    expect((await db.query<{ version: number }>("select version from schema_migrations order by version")).map((r) => Number(r.version))).toContain(11);
     await migrate(db); // idempotent
   });
 });

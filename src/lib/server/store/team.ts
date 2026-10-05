@@ -46,6 +46,8 @@ export interface Member {
   inviteExpiresAt: string | null;
   /** Signed in with Microsoft at least once (their account is pinned). */
   microsoftLinked: boolean;
+  /** Passkeys they've added (each signs them in without the authenticator code). */
+  passkeys: number;
 }
 
 interface MemberRow {
@@ -62,6 +64,7 @@ interface MemberRow {
   created_at: Date | string;
   invite_expires_at: Date | string | null;
   ms_linked: boolean;
+  passkeys: number | string | null;
 }
 
 const iso = (v: Date | string | null) => (v == null ? null : new Date(v).toISOString());
@@ -80,9 +83,11 @@ const toMember = (r: MemberRow): Member => ({
   createdAt: iso(r.created_at)!,
   inviteExpiresAt: iso(r.invite_expires_at),
   microsoftLinked: !!r.ms_linked,
+  passkeys: Number(r.passkeys ?? 0),
 });
 
 const SELECT = `select u.email, u.name, u.role, u.businesses, u.sections, u.disabled_at, u.totp_enabled_at, u.password_hash, u.invited_by, u.last_login_at, u.created_at, u.ms_subject is not null as ms_linked,
+  (select count(*)::int from passkeys p where p.user_email = u.email) as passkeys,
   (select max(i.expires_at) from invites i where i.email = u.email and i.used_at is null and i.expires_at > now()) as invite_expires_at
   from users u`;
 

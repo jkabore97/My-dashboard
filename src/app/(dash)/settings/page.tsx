@@ -7,7 +7,9 @@ import { oauthConfigured } from "@/lib/server/connect";
 import { DisconnectMineButton } from "@/components/settings/MyMail";
 import { MailAccessChips } from "@/components/mail/bits";
 import { signOutEverywhere } from "@/app/actions/auth";
-import { requireUser, require2fa, sharedLoginLimitWarning } from "@/lib/server/auth";
+import { readSession, requireUser, require2fa, sharedLoginLimitWarning } from "@/lib/server/auth";
+import { listPasskeys, passkeysUsableHere, sessionIsFresh } from "@/lib/server/passkeys";
+import { PasskeyManager } from "@/components/settings/Passkeys";
 import { formatBusinessRules, formatSites, getConfig } from "@/lib/server/config";
 import { listAudit } from "@/lib/server/store/audit";
 import { getUser } from "@/lib/server/store/users";
@@ -60,6 +62,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   // Only this person's own items: getDashboard hands everyone their own personal mail alone.
   const [mine, dash] = personalOn ? await Promise.all([listPersonalSummaries(me.email).catch(() => []), getDashboard()]) : [[], null];
   const [{ businessRules, sites }, user, log, places, solar, solarTokenHash, prefs, tickOn, tickAt] = await Promise.all([getConfig(), getUser(me.email), owner ? listAudit(50) : Promise.resolve([]), getSetting<PlaceConfig[]>("places", []), solarConfig(), getSetting<string | null>("solar_ingest_token_hash", null), getPrefs(me.email), owner ? tickConfigured() : false, owner ? lastTick() : null]);
+  const [passkeys, passkeysHere, fresh] = me.hasTotp ? await Promise.all([listPasskeys(me.email).catch(() => []), passkeysUsableHere().catch(() => false), readSession().then(sessionIsFresh)]) : [[], false, false];
   const homeZone = businessTimeZone();
   const myZone = prefs.timeZone ?? homeZone;
   const codesLeft = user?.recovery_codes.length ?? 0;
@@ -142,6 +145,9 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       </div>
       {me.hasTotp && (
         <>
+          <Sub title={<>Passkeys · {passkeys.length ? `${passkeys.length} added` : "none yet"}</>}>
+            <PasskeyManager passkeys={passkeys} fresh={fresh} available={passkeysHere} />
+          </Sub>
           <Sub title="Recovery codes">
             <p className="mb-3 text-[13px] text-muted">Enter a current code to make {RECOVERY_TOTAL} new ones. The old ones stop working.</p>
             <RegenerateCodesForm />

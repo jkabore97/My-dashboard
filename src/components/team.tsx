@@ -3,7 +3,7 @@
 import { useState, useTransition, type CSSProperties, type ReactNode } from "react";
 import { Copy } from "lucide-react";
 import { useFormState } from "@/components/useFormState";
-import { inviteMemberAction, reissueInviteAction, removeMemberAction, resetMemberTwoFactorAction, resetMicrosoftLinkAction, setMemberDisabledAction, updateMemberAction, type TeamState } from "@/app/actions/team";
+import { inviteMemberAction, reissueInviteAction, removeMemberAction, resetMemberPasskeysAction, resetMemberTwoFactorAction, resetMicrosoftLinkAction, setMemberDisabledAction, updateMemberAction, type TeamState } from "@/app/actions/team";
 import { roleDefaultSections, ROLE_DESCRIPTION, ROLE_LABEL, ROLES, type Role, type Section } from "@/lib/access";
 import { btn, input as hudInput } from "@/components/ui";
 import { ROLE_COLOR, type SectionChoice } from "@/components/admin/roles";
@@ -163,7 +163,7 @@ function MemberEditor({ email, name, role, selected, sections, businesses, group
 }
 
 /** Change-access editor (toggled) and the member's account actions. */
-export function MemberControls({ email, name, role, selected, sections = null, businesses, groups, disabled, needsInvite, hasTotp, msLinked = false }: { email: string; name: string | null; role: Role; selected: string[] | null; sections?: Section[] | null; businesses: string[]; groups: SectionGroups; disabled: boolean; needsInvite: boolean; hasTotp: boolean; msLinked?: boolean }) {
+export function MemberControls({ email, name, role, selected, sections = null, businesses, groups, disabled, needsInvite, hasTotp, msLinked = false, passkeys = 0 }: { email: string; name: string | null; role: Role; selected: string[] | null; sections?: Section[] | null; businesses: string[]; groups: SectionGroups; disabled: boolean; needsInvite: boolean; hasTotp: boolean; msLinked?: boolean; passkeys?: number }) {
   const [open, setOpen] = useState(false);
   const [pending, start] = useTransition();
   const [state, setState] = useState<TeamState>({});
@@ -183,6 +183,7 @@ export function MemberControls({ email, name, role, selected, sections = null, b
           {needsInvite && <button className={`${btn()} min-h-10 px-3 text-[11px] sm:min-h-0`} disabled={pending} onClick={() => run(() => reissueInviteAction(email))}>New invite link</button>}
           <button className={`${btn()} min-h-10 px-3 text-[11px] sm:min-h-0`} aria-expanded={open} onClick={() => setOpen((o) => !o)}>{open ? "Hide ▴" : "Change access ▾"}</button>
           {hasTotp && <button className={small} disabled={pending} onClick={() => run(() => resetMemberTwoFactorAction(email), `Reset 2FA for ${email}? They'll be signed out and set it up again.`)}>Reset 2FA</button>}
+          {passkeys > 0 && <button className={small} disabled={pending} onClick={() => run(() => resetMemberPasskeysAction(email), `Remove all ${passkeys} passkey${passkeys === 1 ? "" : "s"} of ${email}? They'll be signed out and can add new ones in Settings.`)}>Remove passkeys</button>}
           {msLinked && <button className={small} disabled={pending} onClick={() => run(() => resetMicrosoftLinkAction(email), `Reset the Microsoft account linked to ${email}? Only do this if their Microsoft account was recreated.`)}>Reset Microsoft link</button>}
           <button className={small} disabled={pending} onClick={() => run(() => setMemberDisabledAction(email, !disabled), disabled ? undefined : `Disable ${email}? They're signed out at once.`)}>{disabled ? "Enable" : "Disable"}</button>
           <button className={`${btn()} min-h-10 px-3 text-[11px] sm:min-h-0`} style={pink} disabled={pending} onClick={() => run(() => removeMemberAction(email), `Remove ${email} from the team? Their tasks become unassigned.`)}>Remove</button>

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { env } from "../source";
 import { PENDING_TTL_SECONDS, SESSION_COOKIE, SESSION_TTL_SECONDS, sessionSecret, signSession, verifySession, type SessionPayload } from "../session";
 import { isProduction } from "./db";
+import { passkeysSwitchedOn } from "./passkey-config";
 import { ensureUser, getUser, type UserRow } from "./store/users";
 import { canSee, inBusiness, isFullOwner, normalizeSections, OWNER_ACCESS, type Access, type Role, type Section } from "../access";
 
@@ -69,8 +70,13 @@ const methodOn = (m: SignInMethod) => signInMethods()?.includes(m) ?? true;
  * A session made with a method that's since been turned off stops working, so
  * switching to SIGN_IN_METHODS=microsoft signs out password and Google sessions.
  * With SIGN_IN_METHODS set, sessions that don't record their method are refused too.
+ * Passkey sessions ("passkey") are allowed whenever passkeys are on: a passkey
+ * can only be registered after a full sign-in with an allowed method and 2FA.
  */
-export const sessionMethodAllowed = (m: string | undefined) => (signInMethods() === null ? true : !!m && methodOn(m as SignInMethod));
+export const sessionMethodAllowed = (m: string | undefined) => {
+  if (m === "passkey") return passkeysSwitchedOn();
+  return signInMethods() === null ? true : !!m && methodOn(m as SignInMethod);
+};
 
 /** Microsoft sign-in works for ALLOWED_EMAILS and for invited team members. Uses the MS_CLIENT_ID app. */
 export const microsoftSignInEnabled = () => methodOn("microsoft") && !!(env("MS_CLIENT_ID") && env("MS_CLIENT_SECRET"));

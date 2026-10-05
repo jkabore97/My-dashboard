@@ -26,7 +26,7 @@ One private dashboard for every business Kaj Consulting runs: repositories, host
 | **Reports** | A weekly one-pager per business (revenue vs last week, new users, uptime, issues closed, deals won, solar), printable and emailed on Mondays, plus a morning brief every day |
 | **Repositories / Hosting / Databases** | GitHub, Vercel, Cloudflare Workers, Supabase (with security advisors), Cloudflare D1 |
 | **Platforms** | Connect platforms with one click or an API token, set up webhooks, check the scheduler |
-| **Team** | Invite people with a role and the businesses they work on, change their access, disable or remove them, reset their 2FA. Recent task activity from everyone |
+| **Team** | Invite people with a role and the businesses they work on, change their access, disable or remove them, reset their 2FA or remove their passkeys. Recent task activity from everyone |
 | **Settings** | Businesses, websites, solar, push notifications on this device, two-factor authentication, sign out everywhere, audit log (team members see only their own sign-in and device settings) |
 
 Some tasks have a **one-click fix** next to them, always behind a confirmation and written to the audit log: **Redeploy** a failed Vercel production deploy, **Restore** a paused Supabase project, **Re-run failed jobs** for failing GitHub Actions. They need a token with write access; a read-only token gets a clear "reconnect with write access" message.
@@ -49,6 +49,7 @@ Marking a signal task done keeps it done for as long as the condition persists. 
 ## Security
 
 - Sign in with Microsoft, Google and/or a password (`SIGN_IN_METHODS=microsoft` allows Microsoft only), then **mandatory 2FA** with an authenticator app. Ten single-use recovery codes are issued.
+- **Passkeys** (Face ID, fingerprint or device PIN): after a full sign-in with 2FA, anyone can add one under *Settings → Security → Add a passkey* (it needs a sign-in from the last 10 minutes, or a fresh authenticator code). *Sign in with a passkey* on the login page then skips the authenticator code entirely, and on the 2FA step after Microsoft *Use a passkey instead of a code* works too. It's offered even with `SIGN_IN_METHODS=microsoft`, because a passkey can only be added by someone who already passed the configured method and 2FA. Passkeys are bound to `APP_URL` (its host is the WebAuthn RP ID; set it, or they're hidden), must verify the user, and are discoverable (no username typed). Challenges are single-use, expire after 5 minutes and are tied to the browser; signature counters are checked for cloned keys; attempts are rate-limited and audited. A disabled member or an owner removed from `ALLOWED_EMAILS` can't use their passkeys. The authenticator app and recovery codes stay as the fallback. Owners can remove a member's passkeys on the Team page. `PASSKEYS=false` turns them off everywhere.
 - Microsoft sign-in identifies people by their Microsoft account name (UPN), whose domain the organization must have verified, never by the editable email claim; guest accounts are refused, and each person is pinned to the Microsoft account they first signed in with.
 - Sessions are HMAC-signed cookies (7 days). "Sign out of all devices" revokes every session.
 - Platform tokens, OAuth refresh tokens, TOTP secrets and webhook secrets are **encrypted with AES-256-GCM** before they reach the database.
@@ -90,7 +91,7 @@ npm run typecheck
    - `MS_CLIENT_ID`, `MS_CLIENT_SECRET`, `MS_TENANT_ID` (the tenant ID for a single-organization app; leave it empty for the multi-account option)
    - `APP_URL`, `DATABASE_URL`, `SESSION_SECRET` (`openssl rand -base64 48`), `ENCRYPTION_KEY` (`openssl rand -base64 32`, keep it safe), `CRON_SECRET` (`openssl rand -hex 32`). Production refuses to start without the secrets.
    - `vercel.json` runs `/api/cron/check` once a day at 12:00 UTC (7–8 a.m. in New York), which the free Hobby plan allows; it also sends the morning brief, any time from `BRIEF_HOUR` to six hours later. Opening the dashboard always syncs fresh data. For checks every 5 minutes (uptime alerts, push for new critical items), either switch to Pro and set the schedule to `*/5 * * * *`, or have a free scheduler such as cron-job.org call `APP_URL/api/tick` every 5 minutes with the header `Authorization: Bearer <token from Settings → Notifications>` (docs/CONNECT.md step 13b); `Bearer <CRON_SECRET>` works too, and `/api/tick/<token>` is a fallback for schedulers without headers.
-5. **Sign in** at your `APP_URL` with Microsoft, scan the 2FA QR code, and save your recovery codes.
+5. **Sign in** at your `APP_URL` with Microsoft, scan the 2FA QR code, and save your recovery codes. Then add a passkey (Settings → Security → *Add a passkey*) so later sign-ins skip the code.
 6. **Team page:** invite people by the address they sign in to Microsoft with (usually their work email). They open the link (or just the dashboard) and choose *Sign in with Microsoft*.
 
 Switching `SIGN_IN_METHODS` signs out every session made with a method that's now off. Each person is tied to the Microsoft account they first sign in with; if a member's Microsoft account is recreated, use *Reset Microsoft link* on the Team page. If it happens to you as the owner, run `update users set ms_subject = null where email = 'you@yourdomain.com';` in the database (Supabase → SQL editor), then sign in again. Changing your address in `ALLOWED_EMAILS` needs nothing: the old address gives up the link.
@@ -194,6 +195,7 @@ NVR (tunnel) ◄─ ISAPI (status, snapshots) · NVR alarm server ─► /api/we
 - `src/lib/server/ai.ts`, `triage.ts`, `ask-context.ts`: Claude features. `notify.ts`, `reports.ts`, `brief.ts`: push, email brief and weekly reports. `alerts/`: who gets which push and when (pure rules in `decide.ts`, routing and delivery log in `run.ts`, the 5-minute tick in `tick.ts`). `fixes.ts`: one-click fixes.
 - `src/lib/server/sync.ts`: persists signals; `store/*` holds the database access; `migrations.ts` holds the schema.
 - `src/lib/server/auth.ts`, `twofactor.ts`, `session.ts`: sign-in, 2FA, sessions. `src/proxy.ts` guards every route.
+- `src/lib/server/passkeys.ts`, `passkey-config.ts`, `src/app/actions/passkeys.ts`: passkeys (WebAuthn via SimpleWebAuthn): registration, sign-in, the 2FA step, challenges and counters.
 
 ## Adding a platform
 

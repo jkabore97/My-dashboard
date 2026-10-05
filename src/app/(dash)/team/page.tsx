@@ -6,6 +6,7 @@ import { knownBusinesses } from "@/lib/server/reports";
 import { PATH_SECTION, ROLE_LABEL, ROLES } from "@/lib/access";
 import { NAV_GROUPS } from "@/lib/nav";
 import { listPersonalSummaries } from "@/lib/server/store/connections";
+import { passkeyCounts } from "@/lib/server/passkeys";
 import { BizLabel, Card, PageHeader, Tag, timeAgo } from "@/components/ui";
 import { InviteForm, MemberControls } from "@/components/team";
 import { initials, ROLE_COLOR, ROLE_MATRIX_ROWS, roleCoverage, sectionChoices, sectionLabels } from "@/components/admin/roles";
@@ -25,7 +26,7 @@ const pending = (m: Member) => !m.lastLoginAt && !!m.inviteExpiresAt;
 
 export default async function TeamPage() {
   const me = await requireOwner();
-  const [members, businesses, allActivity, personal] = await Promise.all([listMembers(), knownBusinesses(), listActivity({ limit: 60 }), listPersonalSummaries().catch(() => [])]);
+  const [members, businesses, allActivity, personal, keys] = await Promise.all([listMembers(), knownBusinesses(), listActivity({ limit: 60 }), listPersonalSummaries().catch(() => []), passkeyCounts().catch(() => new Map<string, number>())]);
   // Someone's personal tasks (from their own mailbox) are theirs alone, owners included.
   const activity = allActivity.filter((a) => !a.privateTo || a.privateTo === me.email).slice(0, 40);
   const groups = sectionChoices(NAV_GROUPS, PATH_SECTION);
@@ -41,7 +42,7 @@ export default async function TeamPage() {
 
   return (
     <>
-      <PageHeader title="Team" subtitle={`Each person sees only the pages you pick (their role is the starting point) and the businesses you pick. Everyone signs in with their own ${methods} plus an authenticator app.`}>
+      <PageHeader title="Team" subtitle={`Each person sees only the pages you pick (their role is the starting point) and the businesses you pick. Everyone signs in with their own ${methods} plus an authenticator app, or with a passkey they've added.`}>
         <Tag color="#3df5a0">{active} active</Tag>
         {invites > 0 && <Tag color="#3fd0ff">{invites} invite{invites === 1 ? "" : "s"} pending</Tag>}
       </PageHeader>
@@ -55,7 +56,7 @@ export default async function TeamPage() {
                   <Avatar text={initials(e)} color="#3fd0ff" />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[16px]">{e}</div>
-                    <div className="text-[13px] text-muted">full access</div>
+                    <div className="text-[13px] text-muted">full access · passkeys <b className={`font-normal ${keys.get(e) ? "text-emerald" : "text-ink"}`}>{keys.get(e) ?? "none"}</b></div>
                   </div>
                   <Tag color={ROLE_COLOR.owner}>Owner</Tag>
                 </li>
@@ -95,12 +96,13 @@ export default async function TeamPage() {
                     <p className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[13px] text-muted">
                       <span>{m.lastLoginAt ? <>Last signed in <b className="font-normal text-ink">{timeAgo(m.lastLoginAt)}</b></> : m.inviteExpiresAt ? <>Invite link expires <b className="font-normal text-ink">{new Date(m.inviteExpiresAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</b></> : m.hasPassword ? "Hasn't signed in yet" : <span className="text-high">Invite expired or not accepted</span>}</span>
                       <span>2FA <b className={`font-normal ${m.totpEnabled ? "text-emerald" : "text-ink"}`}>{m.totpEnabled ? "on" : "not set up yet"}</b></span>
+                      <span>Passkeys <b className={`font-normal ${m.passkeys ? "text-emerald" : "text-ink"}`}>{m.passkeys || "none"}</b></span>
                       {m.microsoftLinked && <span>Microsoft <b className="font-normal text-ink">linked</b></span>}
                       {mailboxes.has(m.email) && <span>Personal mailbox <b className="font-normal text-ink">connected</b></span>}
                       {m.invitedBy && <span>invited by {who(m.invitedBy)}</span>}
                     </p>
                   </div>
-                  <MemberControls email={m.email} name={m.name} role={m.role} selected={m.businesses} sections={m.sections} businesses={businesses} groups={groups} disabled={m.disabled} needsInvite={!m.hasPassword || !!m.inviteExpiresAt} hasTotp={m.totpEnabled} msLinked={m.microsoftLinked} />
+                  <MemberControls email={m.email} name={m.name} role={m.role} selected={m.businesses} sections={m.sections} businesses={businesses} groups={groups} disabled={m.disabled} needsInvite={!m.hasPassword || !!m.inviteExpiresAt} hasTotp={m.totpEnabled} msLinked={m.microsoftLinked} passkeys={m.passkeys} />
                 </section>
               );
             })

@@ -16,6 +16,17 @@ export interface Limit {
 export const loginLimit = (ip: string | null, identity: string): Limit =>
   ip ? { key: `login:ip:${ip}`, limit: 10, windowSeconds: 15 * 60 } : { key: `login:unknown-ip:${identity}`, limit: 100, windowSeconds: 60 * 60 };
 
+/** Passkey sign-in attempts (usernameless, so per IP; without a trustworthy IP one looser shared bucket). */
+export const passkeyLimit = (ip: string | null): Limit =>
+  ip ? { key: `passkey:ip:${ip}`, limit: 20, windowSeconds: 15 * 60 } : { key: "passkey:unknown-ip", limit: 200, windowSeconds: 60 * 60 };
+
+/** Starting a passkey ceremony (each one stores a challenge). Never refunded. */
+export const passkeyStartLimit = (ip: string | null): Limit =>
+  ip ? { key: `passkey-start:ip:${ip}`, limit: 60, windowSeconds: 15 * 60 } : { key: "passkey-start:unknown-ip", limit: 600, windowSeconds: 60 * 60 };
+
+/** Adding passkeys and re-checking before it, per person. */
+export const passkeyRegisterLimit = (email: string): Limit => ({ key: `passkey-register:${email}`, limit: 10, windowSeconds: 10 * 60 });
+
 export const twoFactorLimit = (email: string): Limit => ({ key: `2fa:${email}`, limit: 6, windowSeconds: 10 * 60 });
 
 /**

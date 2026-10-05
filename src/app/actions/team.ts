@@ -6,6 +6,7 @@ import { audit } from "@/lib/server/store/audit";
 import { getMember, INVITE_DAYS, inviteMember, reissueInvite, removeMember, setMemberDisabled, updateMember } from "@/lib/server/store/team";
 import { bumpSessionVersion, resetMicrosoftLink, resetTotp } from "@/lib/server/store/users";
 import { emailEnabled, sendEmail } from "@/lib/server/notify";
+import { removeAllPasskeys } from "@/lib/server/passkeys";
 import { appUrl } from "@/lib/server/reports";
 import { PATH_SECTION, ROLE_DESCRIPTION, ROLE_LABEL, type Role, type Section } from "@/lib/access";
 import { NAV_GROUPS } from "@/lib/nav";
@@ -118,4 +119,16 @@ export async function resetMicrosoftLinkAction(email: string): Promise<TeamState
   await audit(user.email, "team.reset_microsoft_link", email, null, await clientIp());
   revalidatePath("/team");
   return { ok: "Microsoft link reset and signed out. Their next Microsoft sign-in links the account they use.", at: Date.now() };
+}
+
+/** For a member whose phone or security key was lost: removes all their passkeys and signs them out. */
+export async function resetMemberPasskeysAction(email: string): Promise<TeamState> {
+  const user = await requireOwner();
+  if (email === user.email) return { error: "Remove your own passkeys from Settings." };
+  if (!(await getMember(email))) return { error: "That person is no longer on the team." };
+  const n = await removeAllPasskeys(email);
+  await bumpSessionVersion(email);
+  await audit(user.email, "team.reset_passkeys", email, { removed: n }, await clientIp());
+  revalidatePath("/team");
+  return { ok: n ? `Removed ${n} passkey${n === 1 ? "" : "s"} and signed them out. They can add new ones in Settings.` : "They had no passkeys. Signed them out.", at: Date.now() };
 }

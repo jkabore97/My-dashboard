@@ -439,5 +439,45 @@ create index email_triage_private_idx on email_triage (private_to) where private
 alter table alert_log add column private boolean not null default false;
 `,
   },
-];
+  {
+    version: 12,
+    name: "passkeys",
+    sql: `
+-- Random WebAuthn user handle (sent to authenticators instead of the email).
+alter table users add column webauthn_id text unique;
 
+-- Passkeys (WebAuthn credentials). Registered from Settings after a full
+-- sign-in with 2FA; a passkey then signs its owner in without the code.
+create table passkeys (
+  id text primary key,                 -- credential id, base64url
+  user_email text not null references users(email) on delete cascade,
+  public_key text not null,            -- COSE public key, base64url
+  counter bigint not null default 0,   -- signature counter (clone detection)
+  transports jsonb not null default '[]'::jsonb,
+  name text not null,
+  device_type text not null default 'singleDevice' check (device_type in ('singleDevice', 'multiDevice')),
+  backed_up boolean not null default false,
+  aaguid text,
+  created_at timestamptz not null default now(),
+  last_used_at timestamptz
+);
+create index passkeys_user_idx on passkeys (user_email);
+
+-- Single-use WebAuthn challenges, bound to one browser (an httpOnly cookie
+-- holds the handle; only its hash is stored), one flow and, except for
+-- sign-in, one user.
+create table webauthn_challenges (
+  handle_hash text primary key,
+  flow text not null check (flow in ('register', 'login', 'second_factor', 'reauth')),
+  challenge text not null,
+  user_email text references users(email) on delete cascade,
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now()
+);
+create index webauthn_challenges_expiry_idx on webauthn_challenges (expires_at);
+
+alter table passkeys enable row level security;
+alter table webauthn_challenges enable row level security;
+`,
+  },
+];

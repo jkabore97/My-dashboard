@@ -2,6 +2,18 @@
 
 Your dashboard: **https://kaj-command-center.vercel.app**. Sample data is off, so each section stays empty until its platform is connected. Do the steps in order; each takes 2–10 minutes. Sign in first (Microsoft + authenticator app).
 
+## 0. Add a passkey (so you never type the authenticator code again)
+
+1. Sign in once the usual way: **Sign in with Microsoft**, then the 6-digit code from your authenticator app.
+2. Open **Settings → Security → Passkeys**. Type a name (e.g. `iPhone`) and press **Add a passkey**. If you signed in more than 10 minutes ago, it first asks for a current authenticator code.
+3. Confirm with Face ID, your fingerprint or your device PIN:
+   - **iPhone / iPad / Mac**: saved to **iCloud Keychain**, so it works on all your Apple devices.
+   - **Android**: saved to **Google Password Manager**.
+   - **Windows PC**: saved to **Windows Hello** (face, fingerprint or PIN) on that PC. You can also choose *Use a phone or tablet* to use your phone's passkey from the PC.
+4. From now on, on the sign-in page press **Sign in with a passkey**: you're in, with **no authenticator code**. If you do sign in with Microsoft, the 2FA step offers **Use a passkey instead of a code**.
+
+Keep your authenticator app and recovery codes: they still work if you lose your phone. Remove a passkey in the same Settings section (and delete it from the device's password manager). Passkeys only work on https://kaj-command-center.vercel.app (the `APP_URL`), not on preview URLs.
+
 "Vercel settings" below means: vercel.com → **kaj-command-center** → **Settings → Environment Variables**. After adding or changing one there, open **Deployments**, click the **⋯** on the newest one and choose **Redeploy** (or ask Claude to redeploy).
 
 ---
@@ -157,6 +169,8 @@ console.anthropic.com → **API Keys → Create** → Vercel settings: `ANTHROPI
 ## 16. Invite your team
 
 **Team → Invite**: their Microsoft sign-in address, a role and their businesses. They open the site and choose **Sign in with Microsoft**.
+
+After their first sign-in (Microsoft + authenticator app) they can add a passkey under **Settings → Security** and skip the code from then on. The Team page shows how many passkeys each person has; **Remove passkeys** there removes them all and signs that person out (for a lost phone).
 
 ---
 

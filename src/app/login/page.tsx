@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { currentUser, googleSignInEnabled, memberPasswordsEnabled, microsoftSignInEnabled, passwordSignInEnabled, require2fa } from "@/lib/server/auth";
-import { PasswordForm } from "@/components/LoginForms";
+import { PasskeySignIn, PasswordForm } from "@/components/LoginForms";
+import { passkeysUsableHere } from "@/lib/server/passkeys";
 import { anyMemberPasswords } from "@/lib/server/store/team";
 import { SeverityIcon } from "@/components/ui";
 import { AuthPanel, AuthShell, msLogo } from "./shell";
@@ -26,6 +27,8 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   const members = memberPasswordsEnabled() && (await anyMemberPasswords().catch(() => false));
   const password = ownerPassword || members;
   const twoFactor = require2fa();
+  // Offered whatever SIGN_IN_METHODS says: a passkey is only added after a full sign-in with an allowed method and 2FA.
+  const passkeys = await passkeysUsableHere().catch(() => false);
   const intro = microsoft && !google && !password
     ? "Use the Microsoft account the owner invited."
     : google && !microsoft && !password ? "Use the Google account the owner invited." : "Use the account the owner invited.";
@@ -33,7 +36,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
     <AuthShell>
       <div className="mx-auto grid max-w-[1040px] items-start gap-6 md:grid-cols-2 md:gap-8">
         <AuthPanel step={1} label="Identify" title="Sign in">
-          <p className="text-[15px] leading-relaxed text-muted">{intro}{twoFactor ? " Everyone then confirms with an authenticator app." : ""}</p>
+          <p className="text-[15px] leading-relaxed text-muted">{intro}{twoFactor ? " Everyone then confirms with an authenticator app." : ""}{passkeys ? " Added a passkey? Use it to sign in without the code." : ""}</p>
           {error && (
             <p role="alert" className="mt-4 flex items-start gap-2.5 border border-critical/40 bg-critical/10 px-3 py-2.5 text-sm">
               <SeverityIcon severity="critical" size={18} />
@@ -48,9 +51,10 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
                 Sign in with Google
               </a>
             )}
+            {passkeys && <PasskeySignIn autofill={members} />}
           </div>
-          {(google || microsoft) && password && <div className="hud-label my-5 flex items-center gap-3 text-[11px] text-muted"><span className="h-px flex-1 bg-line" />or<span className="h-px flex-1 bg-line" /></div>}
-          {password && <div className={google || microsoft ? "" : "mt-6"}><PasswordForm withEmail={members} ownerPassword={ownerPassword} /></div>}
+          {(google || microsoft || passkeys) && password && <div className="hud-label my-5 flex items-center gap-3 text-[11px] text-muted"><span className="h-px flex-1 bg-line" />or<span className="h-px flex-1 bg-line" /></div>}
+          {password && <div className={google || microsoft || passkeys ? "" : "mt-6"}><PasswordForm withEmail={members} ownerPassword={ownerPassword} /></div>}
           {!microsoft && !google && !password && (
             <p className="mt-5 text-sm text-muted">No sign-in method is configured. For Microsoft sign-in set <code className="font-mono text-[#9be7ff]">MS_CLIENT_ID</code>, <code className="font-mono text-[#9be7ff]">MS_CLIENT_SECRET</code> and your address in <code className="font-mono text-[#9be7ff]">ALLOWED_EMAILS</code> (see the README).</p>
           )}
@@ -63,7 +67,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
         </AuthPanel>
 
         <AuthPanel step={2} label="Verify" title="Two-step verification" accent="#a98bff" state="next" className="hidden md:block">
-          <p className="text-[15px] leading-relaxed text-muted">{twoFactor ? "After you sign in, open your authenticator app and enter the 6-digit code it shows, or one of your recovery codes." : "If you've turned on two-step verification, you'll enter the code from your authenticator app next."}</p>
+          <p className="text-[15px] leading-relaxed text-muted">{twoFactor ? `After you sign in, open your authenticator app and enter the 6-digit code it shows, or one of your recovery codes.${passkeys ? " If you've added a passkey, use it instead: no code needed." : ""}` : "If you've turned on two-step verification, you'll enter the code from your authenticator app next."}</p>
           <div className="mt-6 grid grid-cols-6 gap-2" aria-hidden>
             {Array.from({ length: 6 }, (_, i) => <span key={i} className="aspect-[4/5] border border-violet/40 bg-violet/5" />)}
           </div>
