@@ -17,7 +17,9 @@ export const aiEnabled = () => !!env("ANTHROPIC_API_KEY");
 let client: Anthropic | null = null;
 function anthropic() {
   if (!aiEnabled()) throw new Error("ANTHROPIC_API_KEY is not set");
-  return (client ??= new Anthropic({ apiKey: env("ANTHROPIC_API_KEY") }));
+  // An organisation-level key (not made inside a workspace) must name the workspace on every request.
+  const workspace = env("ANTHROPIC_WORKSPACE_ID");
+  return (client ??= new Anthropic({ apiKey: env("ANTHROPIC_API_KEY"), ...(workspace ? { defaultHeaders: { "anthropic-workspace-id": workspace } } : {}) }));
 }
 
 export class AiRefusal extends Error {}
