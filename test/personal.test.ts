@@ -95,7 +95,7 @@ describe("per-person sections", () => {
     const groups = sectionChoices(NAV_GROUPS, PATH_SECTION);
     expect(groups.find((g) => g.id === "money")!.items.find((i) => i.section === "money")!.label).toBe("Money · Platform spend");
     expect(groups.find((g) => g.id === "admin")!.items.map((i) => i.fixed)).toEqual(["owner", "owner", "always"]);
-    expect(sectionLabels(brother, NAV_GROUPS, PATH_SECTION)).toEqual(["Overview", "To-do", "Inbox", "Agenda", "Repos", "Hosting", "Databases", "Settings"]);
+    expect(sectionLabels(brother, NAV_GROUPS, PATH_SECTION)).toEqual(["Today", "Tasks", "Inbox", "Calendar", "Repos", "Hosting", "Databases", "Settings"]);
   });
 
   it("grants and denies data, and tasks by section", () => {

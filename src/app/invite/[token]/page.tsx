@@ -14,10 +14,10 @@ export const metadata: Metadata = { referrer: "no-referrer", robots: { index: fa
 
 function Step({ n, title, children, on = false }: { n: number; title: string; children: React.ReactNode; on?: boolean }) {
   return (
-    <div className={`border p-3.5 ${on ? "border-cyan shadow-[inset_0_0_0_1px_#3fd0ff]" : "border-line/80"}`}>
+    <div className={`rounded-xl p-3.5 ${on ? "bg-cyan/10" : "bg-panel-2"}`}>
       <div className="flex items-center gap-2.5">
-        <span className={`grid h-6 w-6 shrink-0 place-items-center border font-mono text-xs ${on ? "border-cyan text-cyan" : "border-ink/60 text-ink"}`}>{n}</span>
-        <span className={`hud-label text-[12px] ${on ? "text-cyan" : "text-ink"}`}>{title}</span>
+        <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-full text-[12px] font-semibold ${on ? "bg-cyan text-white" : "bg-fill text-ink"}`}>{n}</span>
+        <span className={`text-[14px] font-semibold ${on ? "text-cyan" : "text-ink"}`}>{title}</span>
       </div>
       <p className="mt-1.5 text-[13px] leading-snug text-muted">{children}</p>
     </div>
@@ -31,9 +31,9 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
     return (
       <AuthShell brand="compact" footer={false}>
         <div className="mx-auto max-w-[560px]">
-          <AuthPanel title="Invite" accent="#ff5fd7" label="Team invite">
+          <AuthPanel title="Invite" label="Team invite">
             <p className="text-[15px] text-muted">{invite?.status === "used" ? "This invite was already used. Sign in with the account you joined with." : "This invite link isn't valid or has expired. Ask the person who invited you for a new one."}</p>
-            <Link href="/login" className="hud-btn hud-btn-solid mt-6 min-h-11">Go to sign-in</Link>
+            <Link href="/login" className="hud-btn hud-btn-solid mt-6 min-h-11 rounded-xl">Go to sign-in</Link>
           </AuthPanel>
         </div>
       </AuthShell>
@@ -46,33 +46,33 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
   return (
     <AuthShell brand="compact" footer={false}>
       <div className="mx-auto max-w-[700px]">
-        <section className="hud-panel" style={{ "--a": "#ff5fd7" } as React.CSSProperties}>
-          <div className="border-b border-line/70 bg-[radial-gradient(ellipse_at_top,rgb(255_95_215/0.12),transparent_70%)] px-5 pb-6 pt-8 text-center sm:px-10">
-            <div className="mx-auto grid h-20 w-20 rotate-45 place-items-center border border-pink shadow-[0_0_16px_rgb(255_95_215/0.5)]">
-              <Mail className="-rotate-45 text-pink" size={26} />
+        <section className="overflow-hidden rounded-[20px] bg-panel shadow-[0_1px_3px_rgb(0_0_0/0.06),0_0_0_1px_var(--color-line)]">
+          <div className="border-b border-line px-5 pb-6 pt-8 text-center sm:px-10">
+            <div className="mx-auto grid h-16 w-16 place-items-center rounded-[16px] bg-cyan text-white">
+              <Mail size={28} />
             </div>
-            <div className="hud-label mt-6 text-[12px] text-pink">Team invite</div>
-            <h1 className="mt-2 font-display text-[26px] font-semibold tracking-[0.04em] sm:text-[30px]">Join Command Center</h1>
+            <div className="mt-5 text-[13px] font-medium text-muted">Team invite</div>
+            <h1 className="mt-1 text-[28px] font-bold tracking-[-0.02em] sm:text-[30px]">Join Command Center</h1>
             <p className="mt-2 text-[15px] text-muted">Hi <span className="text-ink">{invite.name ?? invite.email}</span>. You&apos;ve been invited as <span className="text-ink">{ROLE_LABEL[invite.role]}</span>.</p>
           </div>
           <div className="px-5 py-6 sm:px-10">
-            <div className="flex flex-col items-start gap-3 border p-4 sm:flex-row" style={{ borderColor: `color-mix(in srgb, ${color} 45%, transparent)`, background: `color-mix(in srgb, ${color} 5%, transparent)` }}>
+            <div className="flex flex-col items-start gap-3 rounded-xl p-4 sm:flex-row" style={{ background: `color-mix(in srgb, ${color} 8%, transparent)` }}>
               <Tag color={color}>{ROLE_LABEL[invite.role]}</Tag>
-              <p className="text-sm text-muted">{invite.sections ? "With the pages picked for you below." : ROLE_DESCRIPTION[invite.role]}</p>
+              <p className="text-[14px] text-muted">{invite.sections ? "With the pages picked for you below." : ROLE_DESCRIPTION[invite.role]}</p>
             </div>
-            <div className="hud-label mb-2 mt-5 text-[11px] text-muted">You&apos;ll see</div>
+            <div className="mb-2 mt-5 text-[13px] font-medium text-muted">You&apos;ll see</div>
             <ul className="flex flex-wrap gap-2">
-              {pages.map((p) => <li key={p} className="border border-line px-3 py-1 text-sm">{p}</li>)}
+              {pages.map((p) => <li key={p} className="rounded-full bg-fill px-3 py-1 text-[14px]">{p}</li>)}
             </ul>
 
             <div className="mt-6">
               {microsoft && (
-                <a href={`/api/auth/microsoft?login_hint=${encodeURIComponent(invite.email)}`} className="hud-btn hud-btn-solid min-h-16 w-full gap-3 whitespace-normal py-3 text-center">
+                <a href={`/api/auth/microsoft?login_hint=${encodeURIComponent(invite.email)}`} className="flex min-h-14 w-full items-center justify-center gap-3 rounded-xl border border-[#8c8c8c]/60 bg-white px-4 py-3 text-center text-[16px] font-semibold text-[#1d1d1f] transition hover:bg-[#f5f5f7] dark:border-white/25 dark:bg-black dark:text-white dark:hover:bg-[#1c1c1e]">
                   {msLogo}
-                  <span className="min-w-0">Sign in with Microsoft as<span className="block break-all font-mono text-[13px] normal-case tracking-normal">{invite.email}</span></span>
+                  <span className="min-w-0">Sign in with Microsoft as<span className="block break-all text-[14px] font-normal text-muted">{invite.email}</span></span>
                 </a>
               )}
-              {passwords ? <div className={microsoft ? "mt-6 border-t border-line/70 pt-5" : ""}><AcceptInviteForm token={token} email={invite.email} /></div> : null}
+              {passwords ? <div className={microsoft ? "mt-6 border-t border-line pt-5" : ""}><AcceptInviteForm token={token} email={invite.email} /></div> : null}
             </div>
 
             {microsoft && !passwords && (

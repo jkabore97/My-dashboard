@@ -44,15 +44,15 @@ export function ReconnectNotice({ mailbox, canReconnect, compact = false }: { ma
 export function MailAccessChips({ provider, scopes }: { provider: "outlook" | "gmail"; scopes: string[] | null }) {
   const g = mailGrants(provider, scopes);
   if (g.read === null) {
-    return <div className="mt-1 text-[11.5px] text-muted">Mail permissions not recorded yet (they are after its next refresh). If replying from the Inbox fails, reconnect it.</div>;
+    return <div className="mt-1 text-[12.5px] text-muted">Mail permissions not recorded yet (they are after its next refresh). If replying from the Inbox fails, reconnect it.</div>;
   }
-  const chip = (on: boolean | null, label: string) => <span key={label} className={`px-1.5 py-0.5 font-mono text-[10.5px] ${on ? "bg-emerald/10 text-emerald" : "bg-line/40 text-muted line-through"}`}>{label}</span>;
+  const chip = (on: boolean | null, label: string) => <span key={label} className={`rounded-full px-2 py-0.5 text-[12px] font-medium ${on ? "bg-ok/12 text-ok" : "bg-fill text-muted line-through"}`}>{label}</span>;
   return (
     <div className="mt-1 flex flex-wrap items-center gap-1">
       {chip(g.read, "Read mail")}
       {chip(g.modify, "Organise")}
       {chip(g.send, "Send")}
-      {needsReconnect(g) && <span className="text-[11px] font-semibold text-high">Reconnect to enable replying: sign in with this mailbox again.</span>}
+      {needsReconnect(g) && <span className="text-[12.5px] font-medium text-warn">Reconnect to enable replying: sign in with this mailbox again.</span>}
     </div>
   );
 }

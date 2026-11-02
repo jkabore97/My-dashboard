@@ -1,7 +1,7 @@
 import { ALWAYS, OWNER_ONLY, ROLE_SECTIONS, sectionsFor, type Access, type Role, type Section } from "@/lib/access";
 
 /** Identity color per role (never red/orange). */
-export const ROLE_COLOR: Record<Role, string> = { developer: "#a98bff", assistant: "#3fd0ff", accountant: "#ffd84d", owner: "#ff5fd7" };
+export const ROLE_COLOR: Record<Role, string> = { developer: "#5856d6", assistant: "#007aff", accountant: "#30b0c7", owner: "#af52de" };
 
 /** Rows of the "what each role sees" matrix: a label and the sections it covers. */
 export const ROLE_MATRIX_ROWS: { label: string; sections: Section[] }[] = [

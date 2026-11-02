@@ -84,7 +84,7 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
     <>
       <div className="mb-5 flex flex-wrap items-start justify-between gap-x-3 gap-y-4">
         <div className="min-w-0 flex-1 [&>div]:mb-0">
-          <PageHeader title="To-do" subtitle="Generated from every connected platform, plus your own tasks, ranked by how much each can hurt you." />
+          <PageHeader title="Tasks" subtitle="Generated from every connected platform, plus your own tasks, ranked by how much each can hurt you." />
         </div>
         {!d.dbError && <AddTaskForm businesses={businesses} defaultBusiness={business ?? (user.businesses?.length === 1 ? user.businesses[0] : undefined)} people={people} />}
         <KpiStrip

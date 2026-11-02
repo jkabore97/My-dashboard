@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { canConnectPersonal, canSee, isFullOwner, ROLE_LABEL } from "@/lib/access";
 import { getDashboard } from "@/lib/server/dashboard";
@@ -13,7 +13,8 @@ import { PasskeyManager } from "@/components/settings/Passkeys";
 import { formatBusinessRules, formatSites, getConfig } from "@/lib/server/config";
 import { listAudit } from "@/lib/server/store/audit";
 import { getUser } from "@/lib/server/store/users";
-import { btn, PageHeader, SeverityIcon, Tag, timeAgo } from "@/components/ui";
+import { KeyRound, LogOut, Mail, ShieldCheck } from "lucide-react";
+import { Group, GroupBody, Groups, IconTile, PageHeader, Row, SeverityIcon, SYS, Tag, timeAgo } from "@/components/ui";
 import { PlacesForm } from "@/components/pipeline";
 import { getSetting } from "@/lib/server/store/settings";
 import type { PlaceConfig } from "@/lib/connectors/reviews";
@@ -23,7 +24,6 @@ import { solarConfig } from "@/lib/server/solar-store";
 import { emailEnabled, vapidPublicKey } from "@/lib/server/notify";
 import { briefHour } from "@/lib/server/reports";
 import { env } from "@/lib/source";
-import { HeadPanel } from "@/components/admin/bits";
 import { NotifyPrefsForm, PauseButtons, SchedulerLinkForm } from "@/components/settings/NotifyPrefs";
 import { getPrefs } from "@/lib/server/alerts/store";
 import { lastTick, tickConfigured } from "@/lib/server/alerts/tick";
@@ -42,16 +42,18 @@ function timeZones(...extra: (string | null)[]): string[] {
 const RECOVERY_TOTAL = 10;
 
 function C({ children }: { children: ReactNode }) {
-  return <code className="bg-cyan/5 px-1.5 py-0.5 font-mono text-[12px] text-[#9be7ff]">{children}</code>;
+  return <code className="rounded-md bg-fill px-1.5 py-0.5 font-mono text-[12.5px] text-ink">{children}</code>;
 }
 
-function Sub({ title, children, className = "" }: { title: ReactNode; children: ReactNode; className?: string }) {
-  return (
-    <div className={`border-t border-line/60 px-4 py-4 sm:px-5 ${className}`}>
-      <h3 className="hud-label mb-2 text-[12px] text-ink">{title}</h3>
-      {children}
-    </div>
-  );
+const initials = (name: string, email: string) => {
+  const base = name && name !== email ? name : email.split("@")[0];
+  const parts = base.replace(/[^a-z0-9 ]/gi, " ").trim().split(/\s+/);
+  return ((parts[0]?.[0] ?? "?") + (parts[1]?.[0] ?? "")).toUpperCase();
+};
+
+/** One "severity → when it arrives" row. */
+function SevRow({ severity, word, text }: { severity: "critical" | "high" | "medium" | "low"; word: string; text: string }) {
+  return <Row icon={<SeverityIcon severity={severity} size={20} />} iconColor="transparent" label={word} value={<span className="text-[14px]">{text}</span>} />;
 }
 
 export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ error?: string; connected?: string }> }) {
@@ -68,230 +70,188 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const codesLeft = user?.recovery_codes.length ?? 0;
   const rules = formatBusinessRules(businessRules);
   const businessCount = new Set(businessRules.map((r) => r.business)).size;
-  const tabs = [...(owner ? [["businesses", "Businesses"]] : []), ...(personalOn ? [["my-mail", "My mail"]] : []), ["security", "Security"], ["notifications", "Notifications"], ...(owner ? [["solar", "Solar"], ["audit", "Audit"]] : [])];
+  const tabs = [...(personalOn ? [["my-mail", "My mail"]] : []), ["security", "Security"], ["notifications", "Notifications"], ...(owner ? [["businesses", "Businesses"], ["solar", "Solar"], ["audit", "Audit"]] : [])];
 
   const msOn = oauthConfigured("microsoft");
   const googleOn = oauthConfigured("gmail");
   const myEmails = dash ? dash.emails.filter((e) => e.owner === me.email) : [];
   const myEvents = dash ? dash.calendar.filter((e) => e.owner === me.email) : [];
   const myProblems = dash?.personalProblems ?? [];
-  const myMail = personalOn ? (
-    <HeadPanel id="my-mail" accent="#3fd0ff" title="My mail & calendar" status={<span className="hud-label text-[11px] tracking-[0.12em] text-muted">{mine.length ? `${mine.length} connected · private to you` : "private to you"}</span>} bodyClassName="!p-0">
-      <div className="px-4 py-4 sm:px-5">
-        <p className="text-[13px] text-muted">
-          Connect your own mailbox and calendar. Its messages, events and the to-dos made from them are shown to <span className="text-ink">you alone</span>: not to other members and not to the dashboard owner, who only sees that you have one connected.
-          {canSee(me, "inbox") ? " Mail shows in your Inbox" : ""}{canSee(me, "inbox") && canSee(me, "agenda") ? " and" : ""}{canSee(me, "agenda") ? " events in your Agenda" : ""}.
-        </p>
-        {connectError && <p className="mt-3 flex items-start gap-2 text-[13px]"><SeverityIcon severity="critical" size={16} /><span><span className="hud-label mr-1.5 text-[11px] text-critical">Couldn&apos;t connect</span>{connectError}</span></p>}
-        {connected && <p className="mt-3 text-[13px] text-emerald">✓ Connected {connected}. Your mail and events show up within a minute.</p>}
-      </div>
-      {mine.length > 0 && (
-        <ul className="border-t border-line/60">
-          {mine.map((c) => {
-            const problem = myProblems.find((p) => p.account === c.account);
-            return (
-              <li key={c.id} className="flex items-center gap-3 border-b border-line/40 px-4 py-3 last:border-0 sm:px-5">
-                <span className="grid h-8 w-8 shrink-0 place-items-center border border-cyan/60 font-display text-[11px] font-bold text-cyan">{c.provider === "microsoft" ? "M" : "G"}</span>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm">{c.account}</div>
-                  <div className="text-xs text-muted">{c.provider === "microsoft" ? "Microsoft 365" : "Google"} · connected {timeAgo(c.createdAt)}</div>
-                  {(c.provider === "microsoft" || c.scopes) && <MailAccessChips provider={c.provider === "microsoft" ? "outlook" : "gmail"} scopes={c.scopes} />}
-                  {problem && <div className="mt-1 flex items-start gap-1.5 break-words text-xs"><SeverityIcon severity="high" size={13} /><span><span className="hud-label mr-1 text-[10.5px] text-high">High</span>{problem.error} Reconnect below.</span></div>}
-                </div>
-                <DisconnectMineButton id={c.id} name={c.account} />
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      {mine.length > 0 && (
-        <div className="flex flex-wrap gap-x-5 gap-y-1 border-t border-line/60 px-4 py-3 text-[13px] text-muted sm:px-5">
-          <span><b className="font-normal text-ink">{myEmails.filter((e) => e.unread).length}</b> unread · last 14 days</span>
-          <span><b className="font-normal text-ink">{myEvents.length}</b> event{myEvents.length === 1 ? "" : "s"} · next 7 days</span>
+  const hasMs = mine.some((c) => c.provider === "microsoft");
+  const hasGoogle = mine.some((c) => c.provider === "gmail");
+
+  const account = (
+    <Group>
+      <div className="flex items-center gap-3.5 px-4 py-3.5">
+        <span className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-gradient-to-b from-[#a1a1a6] to-[#86868b] text-[20px] font-semibold text-white">{initials(me.name, me.email)}</span>
+        <div className="min-w-0">
+          <div className="truncate text-[20px] font-semibold">{me.name !== me.email ? me.name : me.email}</div>
+          <div className="truncate text-[14px] text-muted">{me.name !== me.email ? `${me.email} · ` : ""}{me.envOwner ? "Owner" : `${ROLE_LABEL[me.role]}${me.businesses ? ` for ${me.businesses.join(", ")}` : ""}`}</div>
         </div>
-      )}
-      <div className="flex flex-wrap gap-2 border-t border-line/60 px-4 py-4 sm:px-5">
-        {msOn && <a href="/api/connect/microsoft?mine=1" className={`${btn(mine.some((c) => c.provider === "microsoft") ? "outline" : "solid")} min-h-10 sm:min-h-0`} style={{ "--b": "#3fd0ff" } as CSSProperties}>{mine.some((c) => c.provider === "microsoft") ? "Reconnect Microsoft" : "Connect my Microsoft 365"}</a>}
-        {googleOn && <a href="/api/connect/gmail?mine=1" className={`${btn(mine.some((c) => c.provider === "gmail") ? "outline" : "solid")} min-h-10 sm:min-h-0`} style={{ "--b": "#3fd0ff" } as CSSProperties}>{mine.some((c) => c.provider === "gmail") ? "Reconnect Google" : "Connect my Google"}</a>}
-        {!msOn && !googleOn && <p className="text-[13px] text-muted">Mailbox sign-in isn&apos;t set up on this dashboard yet. Ask the owner.</p>}
       </div>
-      <p className="border-t border-line/60 px-4 py-3 text-xs text-muted sm:px-5">Sign in with your own account ({me.email}): read, organise and send your mail from the Inbox, and read your calendar. Disconnecting deletes the stored sign-in.</p>
-    </HeadPanel>
+    </Group>
+  );
+
+  const myMail = personalOn ? (
+    <Group id="my-mail" header="My mail & calendar" footer={<>Sign in with your own account ({me.email}): read, organise and send your mail from the Inbox, and read your calendar. Its messages, events and the to-dos made from them are shown to <span className="text-ink">you alone</span>, not to other members or the owner, who only sees that you have one connected.{canSee(me, "inbox") ? " Mail shows in your Inbox" : ""}{canSee(me, "inbox") && canSee(me, "agenda") ? " and" : ""}{canSee(me, "agenda") ? " events in your Calendar" : ""}. Disconnecting deletes the stored sign-in.</>}>
+      {connectError && <GroupBody><p className="flex items-start gap-2 text-[14px]"><SeverityIcon severity="critical" size={18} /><span><span className="mr-1.5 font-semibold text-critical">Couldn&apos;t connect.</span>{connectError}</span></p></GroupBody>}
+      {connected && <GroupBody className="text-[14px] text-ok">✓ Connected {connected}. Your mail and events show up within a minute.</GroupBody>}
+      {mine.map((c) => {
+        const problem = myProblems.find((p) => p.account === c.account);
+        return (
+          <Row key={c.id} icon={<span className="text-[13px] font-bold">{c.provider === "microsoft" ? "M" : "G"}</span>} iconColor={c.provider === "microsoft" ? SYS.blue : SYS.cyan} label={c.account}
+            sub={<>
+              {c.provider === "microsoft" ? "Microsoft 365" : "Google"} · connected {timeAgo(c.createdAt)}
+              {(c.provider === "microsoft" || c.scopes) && <MailAccessChips provider={c.provider === "microsoft" ? "outlook" : "gmail"} scopes={c.scopes} />}
+              {problem && <span className="mt-1 flex items-start gap-1.5 break-words"><SeverityIcon severity="high" size={14} /><span className="text-ink"><span className="mr-1 font-semibold text-warn">High</span>{problem.error} Reconnect below.</span></span>}
+            </>}>
+            <DisconnectMineButton id={c.id} name={c.account} />
+          </Row>
+        );
+      })}
+      {mine.length > 0 && <Row label="Unread · last 14 days" value={myEmails.filter((e) => e.unread).length} />}
+      {mine.length > 0 && <Row label="Events · next 7 days" value={myEvents.length} />}
+      {msOn && <Row icon={<Mail size={16} />} iconColor={SYS.blue} label={<span className="text-cyan">{hasMs ? "Reconnect Microsoft" : "Connect my Microsoft 365"}</span>} href="/api/connect/microsoft?mine=1" />}
+      {googleOn && <Row icon={<Mail size={16} />} iconColor={SYS.cyan} label={<span className="text-cyan">{hasGoogle ? "Reconnect Google" : "Connect my Google"}</span>} href="/api/connect/gmail?mine=1" />}
+      {!msOn && !googleOn && <GroupBody className="text-muted">Mailbox sign-in isn&apos;t set up on this dashboard yet. Ask the owner.</GroupBody>}
+    </Group>
   ) : null;
 
   const security = (
-    <HeadPanel id="security" accent="#3fd0ff" title="Security" status={<span className="hud-label text-[11px] tracking-[0.12em] text-muted">your account</span>} bodyClassName="!p-0">
-      <div className="flex items-center gap-4 px-4 py-4 sm:px-5">
-        <svg width="40" height="40" viewBox="0 0 24 24" aria-hidden className="shrink-0" style={{ filter: `drop-shadow(0 0 6px ${me.hasTotp ? "#3df5a0" : "#ff9f1c"})` }}>
-          <path d="M12 2 20 5v6c0 5-3.4 9.4-8 11-4.6-1.6-8-6-8-11V5Z" fill="none" stroke={me.hasTotp ? "#3df5a0" : "#ff9f1c"} strokeWidth="1.5" />
-          {me.hasTotp ? <path d="m8.5 12 2.5 2.5 4.5-5" fill="none" stroke="#3df5a0" strokeWidth="1.8" strokeLinecap="round" /> : <path d="M12 8v5M12 16v.4" stroke="#ff9f1c" strokeWidth="1.8" strokeLinecap="round" />}
-        </svg>
-        <div className="min-w-0 flex-1">
-          {me.hasTotp ? (
-            <>
-              <div className="text-[17px]">Two-factor authentication is on</div>
-              <div className="text-[13px] text-muted">Since {new Date(user!.totp_enabled_at!).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} · {codesLeft} of {RECOVERY_TOTAL} recovery codes left</div>
-              <div className="mt-2 flex gap-1" aria-hidden>
-                {Array.from({ length: RECOVERY_TOTAL }, (_, i) => <i key={i} className={`h-1.5 w-5 ${i < codesLeft ? (codesLeft <= 2 ? "bg-high" : "bg-emerald shadow-[0_0_6px_#3df5a0]") : "bg-line"}`} />)}
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="flex items-center gap-2 text-[17px]"><span className="hud-label text-[11px] text-high">High</span>Two-factor authentication is off</div>
-              <div className="text-[13px] text-muted"><Link href="/login/2fa/setup" className="text-cyan hover:underline">Turn it on ›</Link>{require2fa() ? "" : " (Optional because REQUIRE_2FA=false.)"}</div>
-            </>
-          )}
-        </div>
-      </div>
+    <div id="security" className="grid scroll-mt-24 gap-7">
+      <Group header="Security" footer={me.hasTotp ? undefined : require2fa() ? undefined : "Optional because REQUIRE_2FA=false."}>
+        <Row icon={<ShieldCheck size={17} />} iconColor={me.hasTotp ? SYS.green : SYS.orange} label="Two-factor authentication"
+          sub={me.hasTotp ? `Since ${new Date(user!.totp_enabled_at!).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : "Off: anyone with your password can sign in."}
+          value={me.hasTotp ? "On" : <span className="font-medium text-warn">Off</span>} />
+        {!me.hasTotp && <Row label={<span className="text-cyan">Turn on two-factor authentication</span>} href="/login/2fa/setup" />}
+        {me.hasTotp && (
+          <Row icon={<KeyRound size={16} />} iconColor={SYS.gray} label="Recovery codes" value={<span className={codesLeft <= 2 ? "font-medium text-warn" : ""}>{codesLeft} of {RECOVERY_TOTAL} left</span>} />
+        )}
+      </Group>
       {me.hasTotp && (
         <>
-          <Sub title={<>Passkeys · {passkeys.length ? `${passkeys.length} added` : "none yet"}</>}>
-            <PasskeyManager passkeys={passkeys} fresh={fresh} available={passkeysHere} />
-          </Sub>
-          <Sub title="Recovery codes">
-            <p className="mb-3 text-[13px] text-muted">Enter a current code to make {RECOVERY_TOTAL} new ones. The old ones stop working.</p>
-            <RegenerateCodesForm />
-          </Sub>
-          <Sub title="Lost your authenticator?">
-            <p className="mb-3 text-[13px] text-muted">Resetting removes 2FA and signs out everywhere; you&apos;ll set it up again at next sign-in.</p>
-            <ResetTwoFactorForm />
-          </Sub>
+          <Group header={<>Passkeys · {passkeys.length ? `${passkeys.length} added` : "none yet"}</>}>
+            <GroupBody><PasskeyManager passkeys={passkeys} fresh={fresh} available={passkeysHere} /></GroupBody>
+          </Group>
+          <Group header="New recovery codes" footer={`Enter a current code to make ${RECOVERY_TOTAL} new ones. The old ones stop working.`}>
+            <GroupBody><RegenerateCodesForm /></GroupBody>
+          </Group>
+          <Group header="Lost your authenticator?" footer="Resetting removes 2FA and signs out everywhere; you'll set it up again at next sign-in.">
+            <GroupBody><ResetTwoFactorForm /></GroupBody>
+          </Group>
         </>
       )}
       {sharedLoginLimitWarning() && (
-        <Sub title="Sign-in rate limit">
-          <p className="flex items-start gap-2 text-[13px]"><SeverityIcon severity="high" size={18} /><span><span className="hud-label mr-1.5 text-[11px] text-high">High</span>{sharedLoginLimitWarning()}</span></p>
-        </Sub>
+        <Group header="Sign-in rate limit">
+          <GroupBody><p className="flex items-start gap-2 text-[14px]"><SeverityIcon severity="high" size={18} /><span><span className="mr-1.5 font-semibold text-warn">High</span>{sharedLoginLimitWarning()}</span></p></GroupBody>
+        </Group>
       )}
-      <Sub title="Sessions">
-        <p className="mb-3 text-[13px] text-muted">Signs this account out on every browser and phone, including this one.</p>
+      <Group header="Sessions" footer="Signs this account out on every browser and phone, including this one.">
         <form action={signOutEverywhere}>
-          <button className={`${btn()} min-h-10 sm:min-h-0`} style={{ "--b": "#ff5fd7" } as CSSProperties}>Sign out of all devices</button>
+          <button className="flex min-h-11 w-full items-center gap-3 px-4 py-2.5 text-left text-[15px] text-critical transition-colors hover:bg-fill">
+            <IconTile color={SYS.red}><LogOut size={16} /></IconTile>Sign out of all devices
+          </button>
         </form>
-      </Sub>
-    </HeadPanel>
+      </Group>
+    </div>
   );
 
   const tickFresh = tickAt && Date.now() - Date.parse(tickAt) < 15 * 60_000;
   const notifications = (
-    <HeadPanel id="notifications" accent="#ff5fd7" title="Notifications" status={<span className="hud-label text-[11px] tracking-[0.12em] text-muted">app push{owner ? " · email brief" : ""}</span>} bodyClassName="!p-0">
-      <div className="px-4 py-4 sm:px-5">
-        <p className="mb-3 text-[13px] text-muted">Alerts arrive as push notifications on this phone or computer, only for items you can see and tasks assigned to you. Install the dashboard (Add to Home Screen) for the best experience.</p>
+    <div id="notifications" className="grid scroll-mt-24 gap-7">
+      <Group header="Notifications" footer="Alerts arrive as push notifications on this phone or computer, only for items you can see and tasks assigned to you. Install the dashboard (Add to Home Screen) for the best experience.">
         <PushToggle publicKey={vapidPublicKey()} />
-      </div>
-      <Sub title="When to alert you">
-        <NotifyPrefsForm prefs={prefs} zones={timeZones(prefs.timeZone, homeZone)} businessZone={homeZone} />
-      </Sub>
-      <Sub title="Pause non-critical">
-        <p className="mb-2.5 text-[13px] text-muted">High alerts wait until the pause ends; critical ones still come through.</p>
-        <PauseButtons pausedUntil={prefs.pausedUntil} timeZone={myZone} />
-      </Sub>
-      <Sub title="What you get">
-        <ul className="grid gap-1.5 text-[13px]">
-          <li className="flex items-center gap-2"><SeverityIcon severity="critical" size={15} /><span className="hud-label text-[11px] text-critical">Critical</span><span className="text-muted">at once, always</span></li>
-          <li className="flex items-center gap-2"><SeverityIcon severity="high" size={15} /><span className="hud-label text-[11px] text-high">High</span><span className="text-muted">at once, held during quiet hours</span></li>
-          <li className="flex items-center gap-2"><SeverityIcon severity="medium" size={15} /><span className="hud-label text-[11px] text-cyan">Medium</span><span className="text-muted">one noon digest</span></li>
-          <li className="flex items-center gap-2"><SeverityIcon severity="low" size={15} /><span className="hud-label text-[11px] text-muted">Low</span><span className="text-muted">no push; in the morning brief</span></li>
-        </ul>
-        <p className="mt-2 text-[12px] text-muted">Website outages are confirmed by a second check a few minutes later. More than 5 pushes in 10 minutes are combined into one. History: the bell, and the <Link href="/notifications#delivery" className="text-cyan hover:underline">delivery log</Link>.</p>
-      </Sub>
+      </Group>
+      <NotifyPrefsForm prefs={prefs} zones={timeZones(prefs.timeZone, homeZone)} businessZone={homeZone} />
+      <Group header="Pause non-critical" footer="High alerts wait until the pause ends; critical ones still come through.">
+        <GroupBody><PauseButtons pausedUntil={prefs.pausedUntil} timeZone={myZone} /></GroupBody>
+      </Group>
+      <Group header="What you get" footer={<>Website outages are confirmed by a second check a few minutes later. More than 5 pushes in 10 minutes are combined into one. History: the bell, and the <Link href="/notifications#delivery" className="text-cyan hover:underline">delivery log</Link>.</>}>
+        <SevRow severity="critical" word="Critical" text="At once, always" />
+        <SevRow severity="high" word="High" text="At once, held in quiet hours" />
+        <SevRow severity="medium" word="Medium" text="One noon digest" />
+        <SevRow severity="low" word="Low" text="No push; in the morning brief" />
+      </Group>
       {owner && (
-        <Sub title={<>Instant alerts every 5 minutes · scheduler link</>}>
-          <p className="mb-2 text-[13px] text-muted">
-            Vercel&apos;s free plan checks the platforms once a day. A free scheduler calling this link every 5 minutes makes alerts (and website checks) near-instant.{" "}
-            {tickOn ? (tickFresh ? <span className="text-emerald">Running · last call {timeAgo(tickAt)}.</span> : <span className="text-high">Link created, {tickAt ? `last call ${timeAgo(tickAt)}` : "never called yet"}.</span>) : <span>Not set up yet.</span>}
-          </p>
-          <SchedulerLinkForm exists={tickOn} />
-          <ol className="mt-3 grid list-decimal gap-1 pl-5 text-[13px] text-muted marker:text-cyan">
-            <li>Click <span className="text-ink">Create scheduler link</span>; copy the URL and the header value (shown once).</li>
-            <li>Sign up free at <a href="https://cron-job.org" target="_blank" rel="noreferrer" className="text-cyan hover:underline">cron-job.org</a> → <span className="text-ink">Create cronjob</span>.</li>
-            <li>Paste the URL; schedule <span className="text-ink">Every 5 minutes</span>.</li>
-            <li>Under <span className="text-ink">Advanced → Headers</span>, add key <C>Authorization</C> with the value <C>Bearer tick_…</C>; set the timeout to 60 seconds. Save.</li>
-            <li>Come back here in 10 minutes: this panel shows when it was last called.</li>
-          </ol>
-          <p className="mt-2 text-[12px] text-muted">Keep the token private: it can only trigger a check, nothing else. Prefer the header: a token inside the URL (the fallback, for schedulers without headers) can end up in access logs. Replacing it stops the old one. <C>Authorization: Bearer CRON_SECRET</C> works on <C>/api/tick</C> too.</p>
-        </Sub>
+        <Group header="Instant alerts · scheduler link" footer={<>Keep the token private: it can only trigger a check, nothing else. Prefer the header: a token inside the URL (the fallback, for schedulers without headers) can end up in access logs. Replacing it stops the old one. <C>Authorization: Bearer CRON_SECRET</C> works on <C>/api/tick</C> too.</>}>
+          <Row label="Every 5 minutes" sub="Vercel's free plan checks the platforms once a day. A free scheduler calling this link every 5 minutes makes alerts (and website checks) near-instant."
+            value={tickOn ? (tickFresh ? <span className="text-ok">Running · {timeAgo(tickAt)}</span> : <span className="text-warn">{tickAt ? `Last call ${timeAgo(tickAt)}` : "Never called"}</span>) : "Not set up"} />
+          <GroupBody>
+            <SchedulerLinkForm exists={tickOn} />
+            <ol className="mt-3 grid list-decimal gap-1 pl-5 text-[14px] text-muted marker:text-muted">
+              <li>Click <span className="text-ink">Create scheduler link</span>; copy the URL and the header value (shown once).</li>
+              <li>Sign up free at <a href="https://cron-job.org" target="_blank" rel="noreferrer" className="text-cyan hover:underline">cron-job.org</a> → <span className="text-ink">Create cronjob</span>.</li>
+              <li>Paste the URL; schedule <span className="text-ink">Every 5 minutes</span>.</li>
+              <li>Under <span className="text-ink">Advanced → Headers</span>, add key <C>Authorization</C> with the value <C>Bearer tick_…</C>; set the timeout to 60 seconds. Save.</li>
+              <li>Come back here in 10 minutes: this section shows when it was last called.</li>
+            </ol>
+          </GroupBody>
+        </Group>
       )}
       {owner && (
-        <Sub title={<>Morning brief by email · {briefHour()}:00 ({env("BUSINESS_TIMEZONE") ?? "UTC"})</>}>
-          <p className="text-[13px] text-muted">
-            {emailEnabled() ? <><span className="text-emerald">On</span>, to {env("BRIEF_EMAIL_TO")}.</> : <>Off. Set <C>RESEND_API_KEY</C>, <C>BRIEF_EMAIL_FROM</C> and <C>BRIEF_EMAIL_TO</C>.</>} Weekly reports go out on Mondays; see <Link href="/reports" className="text-cyan hover:underline">Reports</Link>. Alerts never go by email.
-          </p>
-          <div className="mt-2.5 flex flex-wrap gap-2">
-            <Link href="/platforms#resend"><Tag color={emailEnabled() ? "#3df5a0" : "#7f97ab"}>Resend · {emailEnabled() ? "on" : "off"}</Tag></Link>
-            <Tag color="#7f97ab">Weekly report · Mondays</Tag>
-          </div>
-        </Sub>
+        <Group header={<>Morning brief by email · {briefHour()}:00 ({env("BUSINESS_TIMEZONE") ?? "UTC"})</>} footer={<>Weekly reports go out on Mondays; see <Link href="/reports" className="text-cyan hover:underline">Reports</Link>. Alerts never go by email.</>}>
+          <Row label="Morning brief" sub={emailEnabled() ? `To ${env("BRIEF_EMAIL_TO")}` : <>Set <C>RESEND_API_KEY</C>, <C>BRIEF_EMAIL_FROM</C> and <C>BRIEF_EMAIL_TO</C>.</>} value={emailEnabled() ? <span className="text-ok">On</span> : "Off"} />
+          <Row label="Resend" href="/platforms#resend"><Tag color={emailEnabled() ? SYS.green : SYS.gray}>{emailEnabled() ? "On" : "Off"}</Tag></Row>
+          <Row label="Weekly report" value="Mondays" />
+        </Group>
       )}
-    </HeadPanel>
+    </div>
   );
+
+  const ownerConfig = owner ? (
+    <>
+      <Group id="businesses" header={<>Businesses · {businessCount} businesses, {businessRules.length} rules</>} footer={<>One rule per line: <C>name fragment = Business</C>. Repos, projects and databases whose name contains the fragment are grouped under that business.</>}>
+        <GroupBody><BusinessRulesForm initial={rules} /></GroupBody>
+      </Group>
+      <Group id="websites" header={<>Websites · {sites.length} sites, probed every 5 min</>} footer={<>One site per line: <C>domain | Business | Supabase project ref (optional)</C>. With a project ref, sign-ups are counted from its auth users.</>}>
+        <GroupBody><WebsitesForm initial={formatSites(sites)} /></GroupBody>
+      </Group>
+      <Group id="places" header="Google Business listings" footer={<>One per line: <C>place ID | Business</C>. Find a place ID with Google&apos;s Place ID Finder. Needs <C>GOOGLE_PLACES_API_KEY</C>{process.env.GOOGLE_PLACES_API_KEY ? " (set)" : " (not set yet)"}.</>}>
+        <GroupBody><PlacesForm initial={places.map((p) => `${p.placeId} | ${p.business}`).join("\n")} /></GroupBody>
+      </Group>
+      <Group id="solar" header="Solar" footer={<>Readings are pushed to <C>/api/ingest/solar</C> with <C>Authorization: Bearer &lt;token&gt;</C>. One line per station: <C>station id = Business</C>.</>}>
+        <Row label="Ingest token" sub={env("SOLAR_INGEST_TOKEN") ? "Set via SOLAR_INGEST_TOKEN; you can add a second one here." : solarTokenHash ? "A token exists (only its hash is stored)." : "None yet: create one to start."}>
+          <SolarTokenForm exists={!!solarTokenHash} />
+        </Row>
+        <GroupBody>
+          <SolarForm initial={{ daylightFrom: solar.daylightFrom, daylightTo: solar.daylightTo, offlineAfterMin: solar.offlineAfterMin, lowBatteryPct: solar.lowBatteryPct, stations: Object.entries(solar.businesses).map(([k, v]) => `${k} = ${v}`).join("\n") }} />
+        </GroupBody>
+      </Group>
+      <Group id="audit" header={<>Audit log · last {log.length}</>}>
+        {log.length === 0 ? <GroupBody className="text-center text-muted">Nothing recorded yet.</GroupBody> : (
+          <ul className="max-h-[36rem] overflow-y-auto [&>li+li]:border-t [&>li+li]:border-line">
+            {log.map((e) => (
+              <li key={e.id} className="grid grid-cols-[64px_1fr] gap-3 px-4 py-2.5 text-[14px] sm:grid-cols-[84px_1fr]">
+                <span className="pt-0.5 text-[13px] tabular-nums text-muted">{timeAgo(e.at)}</span>
+                <span className="min-w-0 break-words">
+                  <C>{e.action}</C>
+                  {e.target ? <span> · {e.target}</span> : null}
+                  <span className="block text-[13px] text-muted">{e.actor}{e.ip ? ` · ${e.ip}` : ""}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Group>
+    </>
+  ) : null;
 
   return (
     <>
-      <PageHeader title="Settings" subtitle={`Signed in as ${me.email}${me.envOwner ? " · Owner" : ` · ${ROLE_LABEL[me.role]}${me.businesses ? ` for ${me.businesses.join(", ")}` : ""}`}`}>
-        <nav aria-label="Settings sections" className="flex flex-wrap gap-2">
-          {tabs.map(([id, label]) => <a key={id} href={`#${id}`} className={`${btn()} min-h-10 shrink-0 sm:min-h-0`} style={{ "--b": "#ff5fd7" } as CSSProperties}>{label}</a>)}
-        </nav>
-      </PageHeader>
+      <PageHeader title="Settings" subtitle={`Signed in as ${me.email}`} />
+      <nav aria-label="Settings sections" className="no-scrollbar -mx-4 mb-6 flex gap-2 overflow-x-auto px-4 lg:mx-0 lg:px-0">
+        {tabs.map(([id, label]) => <a key={id} href={`#${id}`} className="inline-flex min-h-9 shrink-0 items-center rounded-full bg-panel px-3.5 text-[14px] font-medium text-ink shadow-[0_0_0_1px_var(--color-line)] hover:bg-panel-2">{label}</a>)}
+      </nav>
 
-      {!owner ? (
-        <div className="grid gap-5 xl:grid-cols-2">
-          <div className="grid content-start gap-5">
-            {myMail}
-            {security}
-          </div>
+      <div className={`grid items-start gap-7 ${owner ? "xl:grid-cols-2 xl:gap-8" : "max-w-[720px]"}`}>
+        <Groups>
+          {account}
+          {myMail}
+          {security}
           {notifications}
-        </div>
-      ) : (
-        <div className="grid gap-5 xl:grid-cols-2">
-          <div className="grid content-start gap-5">
-            <HeadPanel id="businesses" accent="#ffd84d" title="Businesses" status={<span className="hud-label text-[11px] tracking-[0.12em] text-muted">{businessCount} businesses · {businessRules.length} rules</span>}>
-              <p className="mb-3 text-[13px] text-muted">One rule per line: <C>name fragment = Business</C>. Repos, projects and databases whose name contains the fragment are grouped under that business.</p>
-              <BusinessRulesForm initial={rules} />
-            </HeadPanel>
-            <HeadPanel id="websites" accent="#2ef2d0" title="Websites" status={<span className="hud-label text-[11px] tracking-[0.12em] text-muted">{sites.length} sites · probed every 5 min</span>}>
-              <p className="mb-3 text-[13px] text-muted">One site per line: <C>domain | Business | Supabase project ref (optional)</C>. Each is probed every 5 minutes; with a project ref, sign-ups are counted from its auth users.</p>
-              <WebsitesForm initial={formatSites(sites)} />
-            </HeadPanel>
-            <HeadPanel id="places" accent="#ffd84d" title="Google Business listings" status={<span className="hud-label text-[11px] tracking-[0.12em] text-muted">reviews</span>}>
-              <p className="mb-3 text-[13px] text-muted">One per line: <C>place ID | Business</C>. Find a place ID with Google&apos;s Place ID Finder. Needs <C>GOOGLE_PLACES_API_KEY</C>{process.env.GOOGLE_PLACES_API_KEY ? " (set)" : " (not set yet)"}.</p>
-              <PlacesForm initial={places.map((p) => `${p.placeId} | ${p.business}`).join("\n")} />
-            </HeadPanel>
-            <HeadPanel id="solar" accent="#c6f432" title="Solar" status={<span className="hud-label text-[11px] tracking-[0.12em] text-muted">ingest · alerts</span>}>
-              <p className="mb-3 text-[13px] text-muted">Readings are pushed to <C>/api/ingest/solar</C> with <C>Authorization: Bearer &lt;token&gt;</C>. One line per station below: <C>station id = Business</C>.</p>
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border border-lime/40 bg-lime/5 px-4 py-3">
-                <div>
-                  <div className="text-sm">Ingest token</div>
-                  <div className="text-xs text-muted">{env("SOLAR_INGEST_TOKEN") ? "Set via SOLAR_INGEST_TOKEN; you can add a second one here." : solarTokenHash ? "A token exists (only its hash is stored)." : "None yet: create one to start."}</div>
-                </div>
-                <SolarTokenForm exists={!!solarTokenHash} />
-              </div>
-              <SolarForm initial={{ daylightFrom: solar.daylightFrom, daylightTo: solar.daylightTo, offlineAfterMin: solar.offlineAfterMin, lowBatteryPct: solar.lowBatteryPct, stations: Object.entries(solar.businesses).map(([k, v]) => `${k} = ${v}`).join("\n") }} />
-            </HeadPanel>
-          </div>
-          <div className="grid content-start gap-5">
-            {myMail}
-            {security}
-            {notifications}
-            <HeadPanel id="audit" accent="#a98bff" title="Audit log" status={<span className="hud-label text-[11px] tracking-[0.12em] text-muted">last {log.length}</span>} bodyClassName="!p-0">
-              {log.length === 0 ? <p className="px-4 py-6 text-center text-sm text-muted sm:px-5">Nothing recorded yet.</p> : (
-                <ul className="max-h-[36rem] overflow-y-auto">
-                  {log.map((e) => (
-                    <li key={e.id} className="grid grid-cols-[64px_1fr] gap-3 border-b border-line/40 px-4 py-3 text-sm last:border-0 sm:grid-cols-[84px_1fr] sm:px-5">
-                      <span className="pt-0.5 font-mono text-xs text-muted tabular-nums">{timeAgo(e.at)}</span>
-                      <span className="min-w-0 break-words">
-                        <C>{e.action}</C>
-                        {e.target ? <span> · {e.target}</span> : null}
-                        <span className="block text-xs text-muted">{e.actor}{e.ip ? ` · ${e.ip}` : ""}</span>
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </HeadPanel>
-          </div>
-        </div>
-      )}
+        </Groups>
+        {owner && <Groups>{ownerConfig}</Groups>}
+      </div>
     </>
   );
 }

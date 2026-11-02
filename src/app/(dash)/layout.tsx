@@ -34,25 +34,25 @@ export default async function DashLayout({ children }: { children: React.ReactNo
   return (
     <Shell counts={counts} email={user.email} name={user.name} role={user.envOwner ? null : ROLE_LABEL[user.role]} allowed={allowed} clocks={clockZones()} businesses={businesses} business={d.business} externalAt={d.externalAt} bell={bell}>
         {d.dbError && (
-          <div className="hud-cut mb-5 border border-critical/40 bg-critical/10 px-4 py-3 text-sm">
+          <div className="mb-4 rounded-[14px] bg-critical/10 px-4 py-3 text-[14px]">
             <strong className="text-critical">Database unavailable.</strong>{" "}
             <span className="text-muted">Tasks are read-only and history is paused. ({d.dbError})</span>
           </div>
         )}
         {owner && d.allDemo && (
-          <div className="hud-cut mb-5 border border-accent/30 bg-accent/10 px-4 py-3 text-sm">
+          <div className="mb-4 rounded-[14px] bg-accent/10 px-4 py-3 text-[14px]">
             <strong className="text-accent">{samplesEnabled() ? "Demo data." : "Nothing connected yet."}</strong>{" "}
             <span className="text-muted">{samplesEnabled() ? "Nothing is connected yet. " : ""}Connect platforms on the <a href="/platforms" className="text-accent hover:underline">Platforms</a> page and each section fills in with your data on its own.</span>
           </div>
         )}
         {d.undecryptableConnections > 0 && (
-          <div className="hud-cut mb-5 border border-critical/40 bg-critical/10 px-4 py-3 text-sm">
+          <div className="mb-4 rounded-[14px] bg-critical/10 px-4 py-3 text-[14px]">
             <strong className="text-critical">Stored connections can&apos;t be decrypted.</strong>{" "}
             <span className="text-muted">{d.undecryptableConnections} connection{d.undecryptableConnections === 1 ? "" : "s"} no longer decrypt{d.undecryptableConnections === 1 ? "s" : ""}. Did ENCRYPTION_KEY change? Restore the old key, or reconnect or disconnect them on the <a href="/platforms" className="text-accent hover:underline">Platforms</a> page. Their tasks are left as they are until then.</span>
           </div>
         )}
         {errors.length > 0 && (
-          <div className="hud-cut mb-5 border border-critical/40 bg-critical/10 px-4 py-3 text-sm">
+          <div className="mb-4 rounded-[14px] bg-critical/10 px-4 py-3 text-[14px]">
             <strong className="text-critical">Connector errors:</strong>{" "}
             <span className="break-words text-muted">{errors.join(" · ")}</span>
           </div>

@@ -16,7 +16,8 @@ const ERRORS: Record<string, string> = {
   google_disabled: "Google sign-in isn't configured.",
 };
 
-const big = "hud-btn hud-btn-solid min-h-14 w-full gap-3 text-[13px] tracking-[0.18em]";
+/** Provider buttons: white with a hairline in light mode, black in dark (Microsoft's own style). */
+const provider = "flex min-h-12 w-full items-center justify-center gap-3 rounded-xl border border-[#8c8c8c]/60 bg-white px-4 text-[16px] font-semibold text-[#1d1d1f] transition hover:bg-[#f5f5f7] active:opacity-80 dark:border-white/25 dark:bg-black dark:text-white dark:hover:bg-[#1c1c1e]";
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
   const { error } = await searchParams;
@@ -34,45 +35,39 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
     : google && !microsoft && !password ? "Use the Google account the owner invited." : "Use the account the owner invited.";
   return (
     <AuthShell>
-      <div className="mx-auto grid max-w-[1040px] items-start gap-6 md:grid-cols-2 md:gap-8">
-        <AuthPanel step={1} label="Identify" title="Sign in">
-          <p className="text-[15px] leading-relaxed text-muted">{intro}{twoFactor ? " Everyone then confirms with an authenticator app." : ""}{passkeys ? " Added a passkey? Use it to sign in without the code." : ""}</p>
+      <div className="mx-auto max-w-[440px]">
+        <AuthPanel title="Sign in">
+          <p className="text-[15px] leading-snug text-muted">{intro}{twoFactor ? " Everyone then confirms with an authenticator app." : ""}{passkeys ? " Added a passkey? Use it to sign in without the code." : ""}</p>
           {error && (
-            <p role="alert" className="mt-4 flex items-start gap-2.5 border border-critical/40 bg-critical/10 px-3 py-2.5 text-sm">
+            <p role="alert" className="mt-4 flex items-start gap-2.5 rounded-xl bg-critical/10 px-3 py-2.5 text-[14px]">
               <SeverityIcon severity="critical" size={18} />
-              <span><span className="hud-label mr-1.5 text-[11px] text-critical">Error</span>{ERRORS[error] ?? "Sign-in failed."}</span>
+              <span><span className="mr-1.5 font-semibold text-critical">Error.</span>{ERRORS[error] ?? "Sign-in failed."}</span>
             </p>
           )}
           <div className="mt-6 grid gap-3">
-            {microsoft && <a href="/api/auth/microsoft" className={big}>{msLogo}Sign in with Microsoft</a>}
+            {microsoft && <a href="/api/auth/microsoft" className={provider}>{msLogo}Sign in with Microsoft</a>}
             {google && (
-              <a href="/api/auth/google" className={`${big} ${microsoft ? "hud-btn !bg-transparent !shadow-none" : ""}`}>
+              <a href="/api/auth/google" className={provider}>
                 <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2c-2 1.5-4.5 2.4-7.2 2.4-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C36.9 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>
                 Sign in with Google
               </a>
             )}
             {passkeys && <PasskeySignIn autofill={members} />}
           </div>
-          {(google || microsoft || passkeys) && password && <div className="hud-label my-5 flex items-center gap-3 text-[11px] text-muted"><span className="h-px flex-1 bg-line" />or<span className="h-px flex-1 bg-line" /></div>}
+          {(google || microsoft || passkeys) && password && <div className="my-5 flex items-center gap-3 text-[13px] text-muted"><span className="h-px flex-1 bg-line" />or<span className="h-px flex-1 bg-line" /></div>}
           {password && <div className={google || microsoft || passkeys ? "" : "mt-6"}><PasswordForm withEmail={members} ownerPassword={ownerPassword} /></div>}
           {!microsoft && !google && !password && (
-            <p className="mt-5 text-sm text-muted">No sign-in method is configured. For Microsoft sign-in set <code className="font-mono text-[#9be7ff]">MS_CLIENT_ID</code>, <code className="font-mono text-[#9be7ff]">MS_CLIENT_SECRET</code> and your address in <code className="font-mono text-[#9be7ff]">ALLOWED_EMAILS</code> (see the README).</p>
+            <p className="mt-5 text-[14px] text-muted">No sign-in method is configured. For Microsoft sign-in set <code className="font-mono text-ink">MS_CLIENT_ID</code>, <code className="font-mono text-ink">MS_CLIENT_SECRET</code> and your address in <code className="font-mono text-ink">ALLOWED_EMAILS</code> (see the README).</p>
           )}
-          <ul className="mt-6 grid gap-2 border-t border-line/70 pt-5 text-sm text-muted">
-            <li className="flex items-center gap-2.5"><span className="h-1.5 w-1.5 bg-emerald shadow-[0_0_6px_#3df5a0]" />Private dashboard · invited accounts only</li>
-            {twoFactor && <li className="flex items-center gap-2.5"><span className="h-1.5 w-1.5 bg-emerald shadow-[0_0_6px_#3df5a0]" />Two-step verification required for everyone</li>}
-            <li className="flex items-center gap-2.5"><span className="h-1.5 w-1.5 bg-emerald shadow-[0_0_6px_#3df5a0]" />Every sign-in is written to the audit log</li>
+          <ul className="mt-6 grid gap-1.5 border-t border-line pt-5 text-[13px] text-muted">
+            <li className="flex items-center gap-2"><span className="text-ok">✓</span>Private dashboard · invited accounts only</li>
+            {twoFactor && <li className="flex items-center gap-2"><span className="text-ok">✓</span>Two-step verification required for everyone</li>}
+            <li className="flex items-center gap-2"><span className="text-ok">✓</span>Every sign-in is written to the audit log</li>
           </ul>
-          {microsoft && <p className="mt-5 border border-dashed border-line p-4 text-sm leading-relaxed text-muted">Can&apos;t get in? Ask the owner to invite the address you sign in to Microsoft with.</p>}
+          {microsoft && <p className="mt-4 text-[13px] leading-snug text-muted">Can&apos;t get in? Ask the owner to invite the address you sign in to Microsoft with.</p>}
         </AuthPanel>
+        {twoFactor && <p className="mt-4 px-2 text-center text-[13px] leading-snug text-muted">Next: enter the 6-digit code from your authenticator app{passkeys ? ", or use your passkey" : ""}.</p>}
 
-        <AuthPanel step={2} label="Verify" title="Two-step verification" accent="#a98bff" state="next" className="hidden md:block">
-          <p className="text-[15px] leading-relaxed text-muted">{twoFactor ? `After you sign in, open your authenticator app and enter the 6-digit code it shows, or one of your recovery codes.${passkeys ? " If you've added a passkey, use it instead: no code needed." : ""}` : "If you've turned on two-step verification, you'll enter the code from your authenticator app next."}</p>
-          <div className="mt-6 grid grid-cols-6 gap-2" aria-hidden>
-            {Array.from({ length: 6 }, (_, i) => <span key={i} className="aspect-[4/5] border border-violet/40 bg-violet/5" />)}
-          </div>
-          <p className="hud-label mt-6 text-[11px] text-muted">Unlocks after step 1</p>
-        </AuthPanel>
       </div>
     </AuthShell>
   );

@@ -10,10 +10,10 @@ import { passkeyLoginOptions, passkeyLoginVerify, passkeySecondFactorOptions, pa
 import { passkeyErrorMessage, useWebAuthnSupported } from "./passkey-client";
 import { RecoveryCodes } from "./RecoveryCodes";
 
-const input = "hud-input min-h-11 w-full px-3 py-2.5 text-[15px] placeholder:text-muted/70";
-const codeInput = "hud-input min-h-14 w-full px-4 py-3 text-center font-mono text-2xl tracking-[0.45em] placeholder:text-muted/40 placeholder:tracking-[0.3em]";
-const label = "hud-label mb-1.5 block text-[11px] text-muted";
-const button = "hud-btn hud-btn-solid mt-5 min-h-12 w-full text-[13px]";
+const input = "hud-input min-h-12 w-full px-3.5 py-2.5 text-[17px] placeholder:text-muted/70";
+const codeInput = "hud-input min-h-14 w-full px-4 py-3 text-center font-mono text-[26px] tracking-[0.4em] placeholder:text-muted/40 placeholder:tracking-[0.3em]";
+const label = "mb-1.5 block text-[13px] font-medium text-muted";
+const button = "hud-btn hud-btn-solid mt-5 min-h-12 w-full rounded-xl text-[16px]";
 
 export function PasswordForm({ withEmail = false, ownerPassword = true }: { withEmail?: boolean; ownerPassword?: boolean }) {
   const [state, action, pending] = useFormState(passwordLogin, {});
@@ -21,13 +21,13 @@ export function PasswordForm({ withEmail = false, ownerPassword = true }: { with
     <form onSubmit={action}>
       {withEmail && (
         <>
-          <label className={label} htmlFor="email">Email{ownerPassword && <span className="normal-case tracking-normal"> (team members; leave empty for the owner password)</span>}</label>
+          <label className={label} htmlFor="email">Email{ownerPassword && <span className="font-normal"> (team members; leave empty for the owner password)</span>}</label>
           <input id="email" name="email" type="email" autoComplete="username webauthn" required={!ownerPassword} className={`${input} mb-3`} />
         </>
       )}
       <label className={label} htmlFor="password">Password</label>
       <input id="password" name="password" type="password" autoComplete="current-password" required className={input} />
-      {state.error && <p className="mt-2 text-sm text-critical">{state.error}</p>}
+      {state.error && <p className="mt-2 text-[14px] text-critical">{state.error}</p>}
       <button disabled={pending} className={button}>{pending ? "Signing in…" : "Sign in"}</button>
     </form>
   );
@@ -39,7 +39,7 @@ export function TwoFactorForm({ autoFocus = true }: { autoFocus?: boolean }) {
     <form onSubmit={action}>
       <label className={label} htmlFor="code">6-digit code or a recovery code</label>
       <input id="code" name="code" autoComplete="one-time-code" autoFocus={autoFocus} required maxLength={20} placeholder="000000" className={codeInput} />
-      {state.error && <p className="mt-2 text-sm text-critical">{state.error}</p>}
+      {state.error && <p className="mt-2 text-[14px] text-critical">{state.error}</p>}
       <button disabled={pending} className={button}>{pending ? "Checking…" : "Verify"}</button>
     </form>
   );
@@ -62,7 +62,7 @@ export function EnrollForm() {
     <form onSubmit={action} className="mt-4">
       <label className={label} htmlFor="code">Enter the 6-digit code it shows</label>
       <input id="code" name="code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9 ]{6,7}" required placeholder="000000" className={codeInput} />
-      {state.error && <p className="mt-2 text-sm text-critical">{state.error}</p>}
+      {state.error && <p className="mt-2 text-[14px] text-critical">{state.error}</p>}
       <button disabled={pending} className={button}>{pending ? "Checking…" : "Turn on 2FA"}</button>
     </form>
   );
@@ -78,7 +78,7 @@ export function AcceptInviteForm({ token, email }: { token: string; email: strin
       <input id="password" name="password" type="password" autoComplete="new-password" minLength={12} required className={`${input} mb-3`} />
       <label className={label} htmlFor="confirm">Type it again</label>
       <input id="confirm" name="confirm" type="password" autoComplete="new-password" minLength={12} required className={input} />
-      {state.error && <p className="mt-2 text-sm text-critical">{state.error}</p>}
+      {state.error && <p className="mt-2 text-[14px] text-critical">{state.error}</p>}
       <button disabled={pending} className={button}>{pending ? "Saving…" : "Set password and continue"}</button>
       <p className="mt-3 text-[13px] text-muted">Next you&apos;ll set up an authenticator app; it&apos;s required for everyone.</p>
     </form>
@@ -106,7 +106,7 @@ function usePasskeyCeremony(getOptions: () => Promise<RequestOptionsResult>, ver
   return { run, pending, error, setError };
 }
 
-const passkeyBtn = "hud-btn min-h-14 w-full gap-3 text-[13px] tracking-[0.18em] [--b:#3df5a0]";
+const passkeyBtn = "hud-btn hud-btn-solid min-h-12 w-full gap-2.5 rounded-xl text-[16px]";
 
 /**
  * "Sign in with a passkey": no username, the passkey says who you are, and no
@@ -143,7 +143,7 @@ export function PasskeySignIn({ autofill = false }: { autofill?: boolean }) {
         <KeyRound size={18} aria-hidden />
         {pending ? "Waiting for your passkey…" : "Sign in with a passkey"}
       </button>
-      {error && <p role="alert" className="mt-2 text-sm text-critical">{error}</p>}
+      {error && <p role="alert" className="mt-2 text-[14px] text-critical">{error}</p>}
       <p className="mt-2 text-[13px] text-muted">Face ID, fingerprint or your device PIN. No authenticator code needed.</p>
     </div>
   );
@@ -160,7 +160,7 @@ export function PasskeySecondFactor() {
         <KeyRound size={18} aria-hidden />
         {pending ? "Waiting for your passkey…" : "Use a passkey instead of a code"}
       </button>
-      {error && <p role="alert" className="mt-2 text-sm text-critical">{error}</p>}
+      {error && <p role="alert" className="mt-2 text-[14px] text-critical">{error}</p>}
     </div>
   );
 }

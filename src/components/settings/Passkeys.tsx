@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, type CSSProperties } from "react";
+import { useState, useTransition } from "react";
 import { KeyRound, Trash2 } from "lucide-react";
 import { startAuthentication, startRegistration } from "@simplewebauthn/browser";
 import { passkeyReauthOptions, passkeyReauthVerify, passkeyReauthWithCode, passkeyRegisterOptions, passkeyRegisterVerify, removePasskeyAction } from "@/app/actions/passkeys";
@@ -16,14 +16,13 @@ export interface PasskeyItem {
   lastUsedAt: string | null;
 }
 
-const solid = `${btn("solid")} min-h-10 gap-2 sm:min-h-0`;
-const outline = `${btn()} min-h-10 gap-2 sm:min-h-0`;
-const green = { "--b": "#3df5a0" } as CSSProperties;
-const field = "hud-input min-h-10 px-3 py-1.5 text-sm";
+const solid = `${btn("solid")} min-h-10 gap-2 sm:min-h-9`;
+const outline = `${btn()} min-h-10 gap-2 sm:min-h-9`;
+const field = "hud-input min-h-10 px-3 py-1.5 text-[15px]";
 
 function Msg({ error, ok }: { error?: string | null; ok?: string | null }) {
-  if (error) return <p role="alert" className="text-xs text-critical">{error}</p>;
-  if (ok) return <p className="text-xs text-emerald">✓ {ok}</p>;
+  if (error) return <p role="alert" className="text-[13px] text-critical">{error}</p>;
+  if (ok) return <p className="text-[13px] text-ok">✓ {ok}</p>;
   return null;
 }
 
@@ -50,12 +49,12 @@ function Reauth({ hasPasskeys, onDone }: { hasPasskeys: boolean; onDone: () => v
       }
     });
   return (
-    <div className="grid gap-2.5 border border-line/70 bg-bg/40 p-3">
+    <div className="grid gap-2.5 rounded-xl bg-panel-2 p-3">
       <p className="text-[13px] text-muted">For your security, confirm it&apos;s you first (you signed in more than 10 minutes ago).</p>
       <form onSubmit={action} className="flex flex-wrap items-center gap-2">
         <input name="code" inputMode="numeric" autoComplete="one-time-code" placeholder="123456" required maxLength={8} aria-label="Authenticator code" className={`${field} w-32 text-center font-mono tracking-[0.3em]`} />
         <button disabled={pending} className={outline}>{pending ? "Checking…" : "Confirm with code"}</button>
-        {hasPasskeys && <button type="button" onClick={withPasskey} disabled={keyPending} className={outline} style={green}><KeyRound size={14} aria-hidden />{keyPending ? "Waiting…" : "Use a passkey"}</button>}
+        {hasPasskeys && <button type="button" onClick={withPasskey} disabled={keyPending} className={outline}><KeyRound size={14} aria-hidden />{keyPending ? "Waiting…" : "Use a passkey"}</button>}
       </form>
       <Msg error={state.error ?? keyError} />
     </div>
@@ -99,19 +98,19 @@ export function PasskeyManager({ passkeys, fresh, available }: { passkeys: Passk
 
   return (
     <div className="grid gap-3">
-      <p className="text-[13px] text-muted">
+      <p className="text-[13px] leading-snug text-muted">
         Sign in with Face ID, your fingerprint or your device PIN, with <span className="text-ink">no authenticator code</span>. On iPhone and Mac it&apos;s saved to iCloud Keychain, on Android to Google Password Manager, on a Windows PC to Windows Hello. Your authenticator app and recovery codes keep working as a backup.
       </p>
       {passkeys.length > 0 && (
-        <ul className="border border-line/70">
+        <ul className="overflow-hidden rounded-xl bg-panel-2 [&>li+li]:border-t [&>li+li]:border-line">
           {passkeys.map((p) => (
-            <li key={p.id} className="flex items-center gap-3 border-b border-line/50 px-3 py-2.5 last:border-0">
-              <span className="grid h-8 w-8 shrink-0 place-items-center border border-emerald/60 text-emerald shadow-[0_0_8px_rgb(61_245_160/0.25)]"><KeyRound size={15} aria-hidden /></span>
+            <li key={p.id} className="flex items-center gap-3 px-3 py-2.5">
+              <span className="grid h-[29px] w-[29px] shrink-0 place-items-center rounded-[7px] bg-[#34c759] text-white"><KeyRound size={16} aria-hidden /></span>
               <div className="min-w-0 flex-1">
-                <div className="truncate text-sm">{p.name}</div>
-                <div className="text-xs text-muted">{p.synced ? "Synced" : "This device only"} · added {timeAgo(p.createdAt)}{p.lastUsedAt ? ` · last used ${timeAgo(p.lastUsedAt)}` : " · not used yet"}</div>
+                <div className="truncate text-[15px]">{p.name}</div>
+                <div className="text-[13px] text-muted">{p.synced ? "Synced" : "This device only"} · added {timeAgo(p.createdAt)}{p.lastUsedAt ? ` · last used ${timeAgo(p.lastUsedAt)}` : " · not used yet"}</div>
               </div>
-              <button type="button" onClick={() => remove(p)} disabled={pending} className={`${outline} px-3 text-[11px] [--b:#ff3d6e]`} aria-label={`Remove passkey ${p.name}`}>
+              <button type="button" onClick={() => remove(p)} disabled={pending} className={`${outline} hud-btn-danger px-3 text-[13px]`} aria-label={`Remove passkey ${p.name}`}>
                 <Trash2 size={13} aria-hidden /><span className="hidden sm:inline">Remove</span>
               </button>
             </li>
@@ -127,7 +126,7 @@ export function PasskeyManager({ passkeys, fresh, available }: { passkeys: Passk
       ) : (
         <form className="flex flex-wrap items-center gap-2" onSubmit={(e) => { e.preventDefault(); add(); }}>
           <input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} placeholder="Name it, e.g. iPhone" aria-label="Passkey name" className={`${field} min-w-0 flex-1 sm:max-w-60`} />
-          <button disabled={pending} className={solid} style={green}><KeyRound size={14} aria-hidden />{pending ? "Waiting for your device…" : "Add a passkey"}</button>
+          <button disabled={pending} className={solid}><KeyRound size={14} aria-hidden />{pending ? "Waiting for your device…" : "Add a passkey"}</button>
         </form>
       )}
       <Msg error={msg.error} ok={msg.ok} />

@@ -75,7 +75,7 @@ export default async function AgendaPage() {
 
   return (
     <>
-      <PageHeader mode={d.modes.calendar} title="Agenda" subtitle={`The next 7 days from the shared Google and Outlook calendars${d.calendar.some((e) => e.owner) ? " and your own (private to you)" : ""}. Times in ${tz}${other ? `, with ${other.label} alongside` : ""}.`}>
+      <PageHeader mode={d.modes.calendar} title="Calendar" subtitle={`The next 7 days from the shared Google and Outlook calendars${d.calendar.some((e) => e.owner) ? " and your own (private to you)" : ""}. Times in ${tz}${other ? `, with ${other.label} alongside` : ""}.`}>
         <Link href="/settings#my-mail" className="text-xs text-cyan hover:underline">My calendar ›</Link>
       </PageHeader>
 

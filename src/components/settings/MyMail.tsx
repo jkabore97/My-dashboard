@@ -3,7 +3,7 @@
 import { useTransition } from "react";
 import { disconnectMine, disconnectPersonal } from "@/app/actions/connections";
 
-const cls = "hud-btn min-h-10 shrink-0 px-2.5 py-1 text-[10.5px] text-muted [--b:#7f97ab] hover:text-critical sm:min-h-0";
+const cls = "hud-btn hud-btn-danger min-h-9 shrink-0 px-3 py-1 text-[13px] sm:min-h-8";
 
 /** Disconnects the signed-in person's own mailbox and calendar. */
 export function DisconnectMineButton({ id, name }: { id: string; name: string }) {
