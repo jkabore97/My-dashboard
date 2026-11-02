@@ -1,6 +1,7 @@
 import { RefreshCw } from "lucide-react";
 import { mailGrants, needsReconnect } from "@/lib/mail/access";
 import type { MailboxRef } from "@/lib/mail/types";
+import { SYS } from "@/components/ui";
 
 const isMs = (m: Pick<MailboxRef, "provider" | "id">) => m.provider === "outlook" || m.id.startsWith("ms:");
 
@@ -9,7 +10,7 @@ export function ProviderMark({ mailbox }: { mailbox: Pick<MailboxRef, "provider"
   const ms = isMs(mailbox);
   const demo = mailbox.provider === "demo";
   return (
-    <span title={demo ? "Sample mailbox" : ms ? "Outlook" : "Gmail"} className={`inline-grid h-[17px] w-[17px] shrink-0 place-items-center border font-display text-[10px] font-bold ${demo ? "border-gold text-gold" : ms ? "border-cyan text-cyan" : "border-pink text-pink"}`}>
+    <span title={demo ? "Sample mailbox" : ms ? "Outlook" : "Gmail"} className="inline-grid h-[18px] w-[18px] shrink-0 place-items-center rounded-[5px] text-[11px] font-bold leading-none text-white" style={{ background: demo ? SYS.gray : ms ? SYS.blue : SYS.pink }}>
       {demo ? "S" : ms ? "O" : "G"}
     </span>
   );
@@ -24,15 +25,15 @@ export function ReconnectNotice({ mailbox, canReconnect, compact = false }: { ma
   const ms = isMs(mailbox);
   const href = `/api/connect/${ms ? "microsoft" : "gmail"}${mailbox.owner ? "?mine=1" : ""}`;
   return (
-    <div className={`hud-cut flex flex-wrap items-center gap-x-4 gap-y-2 border border-high/50 bg-high/[0.07] px-4 ${compact ? "py-2.5" : "py-3"}`} role="status">
-      <p className="min-w-0 flex-1 text-[13px] text-[#ffe2bd]">
-        <b className="font-display text-[12px] uppercase tracking-[0.1em] text-high">Reconnect to enable replying</b>
-        <span className="block text-[#d9c3a5]">
+    <div className={`flex flex-wrap items-center gap-x-4 gap-y-2 rounded-[14px] bg-high/12 px-4 ${compact ? "py-2.5" : "py-3"}`} role="status">
+      <p className="min-w-0 flex-1 text-[15px] text-ink">
+        <b className="font-semibold text-warn">Reconnect to enable replying</b>
+        <span className="mt-0.5 block text-[13px] text-muted">
           {mailbox.address} was connected with read-only access. {canReconnect ? `Sign in to ${ms ? "Microsoft" : "Google"} again with this mailbox to allow organising and sending.` : "Ask the dashboard owner to reconnect it on Platforms."}
         </span>
       </p>
       {canReconnect && (
-        <a href={href} className="hud-btn hud-btn-solid inline-flex min-h-10 shrink-0 items-center gap-1.5 px-3 [--b:#ff9f1c]">
+        <a href={href} className="hud-btn hud-btn-solid min-h-10 shrink-0 rounded-full px-4">
           <RefreshCw size={14} />Reconnect
         </a>
       )}

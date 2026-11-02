@@ -1,15 +1,15 @@
 import { requireSection } from "@/lib/server/auth";
 import Link from "next/link";
-import type { CSSProperties } from "react";
+import type { ReactNode } from "react";
 import { getDashboard, getTasksByStatus, type TaskView } from "@/lib/server/dashboard";
 import { SEVERITY_ORDER, type Severity } from "@/lib/types";
-import { Card, Empty, PageHeader, SeverityIcon, businessColor, timeAgo } from "@/components/ui";
+import { Empty, PageHeader, SeverityIcon, SYS, businessColor, timeAgo } from "@/components/ui";
 import { TaskRow } from "@/components/TaskRow";
 import { AddTaskForm } from "@/components/AddTaskForm";
 import { people as listPeople } from "@/lib/server/people";
 import { listActivity } from "@/lib/server/store/tasks";
 import { canSeeTask } from "@/lib/access";
-import { Avatar, Chip, ChipRow, KpiStrip, SEV_COLOR, SEV_WORD } from "@/components/command/hud";
+import { Avatar, Chip, ChipRow, KpiStrip, SEV_COLOR, SEV_TEXT, SEV_WORD } from "@/components/command/hud";
 import { severityCounts } from "@/components/command/logic";
 
 const ACTION: Record<string, string> = { done: "marked done", reopen: "reopened", snooze: "snoozed", business: "moved", assign: "assigned", delete: "deleted", create: "created" };
@@ -23,6 +23,36 @@ const BLURB = {
 
 const VIEWS = { open: "Open", mine: "Assigned to me", snoozed: "Snoozed", done: "Done", activity: "Activity" } as const;
 type View = keyof typeof VIEWS;
+
+/** A Reminders-style list: coloured title with the count on the right, rows in a rounded group, a muted note under it. */
+function TaskList({ title, count, color, icon, footer, children }: { title: ReactNode; count?: ReactNode; color?: string; icon?: ReactNode; footer?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="min-w-0">
+      <div className="mb-2 flex items-baseline justify-between gap-3 px-1">
+        <h2 className="flex min-w-0 items-center gap-2 text-[20px] font-bold tracking-[-0.01em]" style={{ color: color ?? "var(--color-ink)" }}>
+          {icon && <span className="self-center">{icon}</span>}
+          <span className="truncate">{title}</span>
+        </h2>
+        {count !== undefined && <span className="shrink-0 text-[20px] font-bold tabular-nums text-muted">{count}</span>}
+      </div>
+      <div className="overflow-hidden rounded-[14px] bg-panel shadow-[0_0_0_1px_var(--color-line)]">{children}</div>
+      {footer && <p className="mt-1.5 px-4 text-[13px] leading-snug text-muted">{footer}</p>}
+    </section>
+  );
+}
+
+/** A small side group (Team load, Activity, Snoozed): grey header, rounded rows. */
+function Side({ header, note, children }: { header: string; note?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="min-w-0">
+      <div className="mb-1.5 flex items-baseline justify-between gap-2 px-4">
+        <h3 className="text-[13px] uppercase tracking-[0.02em] text-muted">{header}</h3>
+        {note && <span className="text-[13px] text-muted">{note}</span>}
+      </div>
+      <div className="overflow-hidden rounded-[14px] bg-panel shadow-[0_0_0_1px_var(--color-line)]">{children}</div>
+    </section>
+  );
+}
 
 export default async function TasksPage({ searchParams }: { searchParams: Promise<{ business?: string; view?: string }> }) {
   const user = await requireSection("tasks");
@@ -67,7 +97,8 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
   const openBusinesses = new Set(open.map((t) => t.business ?? "Unassigned")).size;
   const byBusiness = (b: string) => d.openTasks.filter((t) => (t.business ?? "Unassigned") === b).length;
   const viewCount: Partial<Record<View, number>> = { open: open.length, mine: mine.filter(inBiz).length, ...(d.dbError ? {} : { snoozed: snoozed.filter(inBiz).length, done: done.filter(inBiz).length }) };
-  const kpiTone: Record<Severity, [string, string]> = { critical: ["#ff3d6e", "#ff7a9a"], high: ["#ff9f1c", "#ffc56b"], medium: ["#3fd0ff", "#a98bff"], low: ["#8fa6b8", "#a98bff"] };
+  // Numbers are only coloured when they mean trouble (critical / high with something in them).
+  const kpiColor = (s: Severity) => ((s === "critical" || s === "high") && counts[s] ? SEV_COLOR[s] : SYS.gray);
   const KPI_HINT: Record<Severity, string> = { critical: "handle today", high: "this week", medium: "schedule it", low: "batch it" };
 
   // Side panels
@@ -90,13 +121,13 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
         <KpiStrip
           className="order-1 basis-full"
           items={[
-            { label: "Open", value: open.length, hint: `across ${openBusinesses} business${openBusinesses === 1 ? "" : "es"}${business ? ` · ${business}` : ""}`, c1: "#3df5a0", c2: "#2ef2d0", bar: open.length ? 1 : 0 },
-            ...SEVERITY_ORDER.map((s) => ({ label: SEV_WORD[s], value: counts[s], hint: KPI_HINT[s], c1: kpiTone[s][0], c2: kpiTone[s][1], bar: open.length ? counts[s] / open.length : 0 })),
+            { label: "Open", value: open.length, hint: `across ${openBusinesses} business${openBusinesses === 1 ? "" : "es"}${business ? ` · ${business}` : ""}`, c1: SYS.gray, bar: open.length ? 1 : 0 },
+            ...SEVERITY_ORDER.map((s) => ({ label: SEV_WORD[s], value: counts[s], hint: KPI_HINT[s], c1: kpiColor(s), bar: open.length ? counts[s] / open.length : 0 })),
           ]}
         />
       </div>
 
-      <div className="mb-5 grid gap-2.5">
+      <div className="mb-6 grid gap-2.5">
         <ChipRow label="View">
           {(Object.keys(VIEWS) as View[]).map((v) => <Chip key={v} href={href({ view: v })} active={view === v} count={viewCount[v]}>{VIEWS[v]}</Chip>)}
         </ChipRow>
@@ -106,76 +137,81 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
         </ChipRow>
       </div>
 
-      <div className={`grid items-start gap-4 lg:gap-[22px] ${withSide ? "xl:grid-cols-[minmax(0,1fr)_340px]" : ""}`}>
-        <div className="grid min-w-0 gap-4 lg:gap-[22px]">
+      <div className={`grid items-start gap-7 ${withSide ? "xl:grid-cols-[minmax(0,1fr)_320px] xl:gap-8" : ""}`}>
+        <div className="grid min-w-0 gap-7">
           {view === "activity" ? (
-            <Card title="Activity" flush action={`${activity.length > 100 ? "latest 100" : activity.length} change${activity.length === 1 ? "" : "s"}`}>
+            <TaskList title="Activity" count={activity.length > 100 ? "100+" : activity.length}>
               {activity.length === 0 ? <Empty>No task activity yet.</Empty> : <ActivityList items={activity.slice(0, 100)} names={names} />}
-            </Card>
+            </TaskList>
           ) : view === "open" ? (
             SEVERITY_ORDER.map((sev) => {
               const list = tasks.filter((t) => t.severity === sev);
               return (
-                <section key={sev} className="hud-panel" style={{ "--a": SEV_COLOR[sev] } as CSSProperties}>
-                  <header className="hud-head flex flex-wrap items-center justify-between gap-2 px-4 py-3 sm:px-5">
-                    <h2 className="hud-title flex items-center gap-2.5 text-[13px]"><SeverityIcon severity={sev} size={16} />{SEV_WORD[sev]} <span className="font-mono tabular-nums">{list.length}</span></h2>
-                    <span className="hidden text-[12.5px] text-muted sm:inline">{BLURB[sev]}</span>
-                  </header>
-                  {list.length ? <ul>{list.map((t) => <TaskRow key={t.id} task={t} businesses={businesses} people={people} names={names} me={user.email} />)}</ul> : <p className="px-5 py-4 text-sm text-muted">Nothing here.</p>}
-                </section>
+                <TaskList key={sev} title={SEV_WORD[sev]} count={list.length} color={SEV_TEXT[sev]} icon={<SeverityIcon severity={sev} size={18} />} footer={BLURB[sev]}>
+                  {list.length ? (
+                    <ul className="divide-y divide-line [&>li]:border-line">{list.map((t) => <TaskRow key={t.id} task={t} businesses={businesses} people={people} names={names} me={user.email} />)}</ul>
+                  ) : (
+                    <p className="px-4 py-3 text-[15px] text-muted">Nothing here.</p>
+                  )}
+                </TaskList>
               );
             })
           ) : (
-            <Card title={VIEWS[view]} flush action={`${tasks.length} task${tasks.length === 1 ? "" : "s"}`}>
+            <TaskList title={VIEWS[view]} count={tasks.length}>
               {tasks.length ? (
-                <ul>{tasks.map((t) => <TaskRow key={t.id} task={t} businesses={businesses} people={people} names={names} me={user.email} badge />)}</ul>
+                <ul className="divide-y divide-line">{tasks.map((t) => <TaskRow key={t.id} task={t} businesses={businesses} people={people} names={names} me={user.email} badge />)}</ul>
               ) : (
-                <Empty>{view === "done" ? "Nothing completed in the last 90 days." : view === "mine" ? "Nothing assigned to you." : "Nothing snoozed."}</Empty>
+                <Empty>{view === "done" ? "Nothing completed in the last 90 days." : view === "mine" ? "Nothing assigned to you ✓" : "Nothing snoozed."}</Empty>
               )}
-            </Card>
+            </TaskList>
           )}
         </div>
 
         {withSide && (
-          <aside className="grid min-w-0 gap-4 lg:gap-[22px]">
+          <aside className="grid min-w-0 gap-7">
             {load.length > 0 && (
-              <Card title="Team load" accent="pink" flush action="open tasks">
-                <div className="py-2">
+              <Side header="Team load" note="open tasks">
+                <div className="divide-y divide-line">
                   {load.map((r) => {
                     const c = severityCounts(r.list);
                     return (
-                      <div key={r.key || "none"} className="grid grid-cols-[20px_minmax(0,90px)_minmax(0,1fr)_24px] items-center gap-2.5 px-4 py-2 text-[13px] sm:px-5">
-                        {r.key ? <Avatar name={r.name} color={businessColor(r.name)} /> : <span className="inline-grid h-5 w-5 place-items-center rounded-full bg-line text-[10px] text-muted">?</span>}
-                        <span className="truncate">{r.name}</span>
-                        <div className="flex h-2 gap-[2px] bg-cyan/[0.08]" role="img" aria-label={SEVERITY_ORDER.map((s) => `${c[s]} ${s}`).join(", ")}>
-                          {SEVERITY_ORDER.map((s) => (c[s] ? <i key={s} className="block h-full" style={{ width: `${(c[s] / maxLoad) * 100}%`, background: SEV_COLOR[s] }} title={`${c[s]} ${s}`} /> : null))}
+                      <div key={r.key || "none"} className="flex min-h-11 items-center gap-3 px-4 py-2.5">
+                        {r.key ? <Avatar name={r.name} color={businessColor(r.name)} /> : <span className="inline-grid h-6 w-6 shrink-0 place-items-center rounded-full bg-fill-2 text-[11px] font-semibold text-muted">?</span>}
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-[15px] text-ink">{r.name}</div>
+                          <div className="mt-1 flex h-1.5 gap-[2px] overflow-hidden rounded-full bg-fill" role="img" aria-label={SEVERITY_ORDER.map((s) => `${c[s]} ${s}`).join(", ")}>
+                            {SEVERITY_ORDER.map((s) => (c[s] ? <i key={s} className="block h-full first:rounded-l-full last:rounded-r-full" style={{ width: `${(c[s] / maxLoad) * 100}%`, background: SEV_COLOR[s] }} title={`${c[s]} ${s}`} /> : null))}
+                          </div>
                         </div>
-                        <span className="text-right font-mono tabular-nums">{r.list.length}</span>
+                        <span className="w-6 shrink-0 text-right text-[15px] tabular-nums text-muted">{r.list.length}</span>
                       </div>
                     );
                   })}
                 </div>
-              </Card>
+              </Side>
             )}
             {!d.dbError && (
-              <Card title="Activity" accent="lime" flush action={today24.length ? "last 24 h" : "latest"}>
-                {recent.length === 0 ? <p className="px-5 py-4 text-sm text-muted">No task activity yet.</p> : <ActivityList items={recent} names={names} />}
-                <Link href={href({ view: "activity" })} className="hud-label block px-5 pb-4 pt-1 text-[12px] text-cyan hover:underline">Full activity log →</Link>
-              </Card>
+              <Side header="Activity" note={today24.length ? "last 24 h" : "latest"}>
+                {recent.length === 0 ? <p className="px-4 py-3 text-[15px] text-muted">No task activity yet.</p> : <ActivityList items={recent} names={names} />}
+                <Link href={href({ view: "activity" })} className="flex min-h-11 items-center border-t border-line px-4 text-[15px] text-cyan hover:bg-fill">Full activity log</Link>
+              </Side>
             )}
             {!d.dbError && sleeping.length > 0 && view !== "snoozed" && (
-              <Card title="Snoozed" accent="violet" flush action={`${viewCount.snoozed} · wake up on their own`}>
-                {sleeping.map((t) => (
-                  <div key={t.id} className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 border-b border-line/50 px-4 py-2.5 text-[13px] last:border-0 sm:px-5">
-                    <div className="min-w-0">
-                      <div className="break-words">{t.title}</div>
-                      <div className="truncate text-xs text-muted">{[t.source, t.business, t.assignee ? `→ ${names[t.assignee] ?? t.assignee}` : null].filter(Boolean).join(" · ")}</div>
+              <Side header="Snoozed" note="wake up on their own">
+                <div className="divide-y divide-line">
+                  {sleeping.map((t) => (
+                    <div key={t.id} className="flex min-h-11 items-start gap-3 px-4 py-2.5">
+                      <span className="mt-[3px] block h-[18px] w-[18px] shrink-0 rounded-full border-[1.5px] border-dashed" style={{ borderColor: SEV_COLOR[t.severity] }} aria-hidden />
+                      <div className="min-w-0 flex-1">
+                        <div className="break-words text-[15px] leading-snug text-ink">{t.title}</div>
+                        <div className="truncate text-[13px] text-muted">{[t.source, t.business, t.assignee ? `→ ${names[t.assignee] ?? t.assignee}` : null].filter(Boolean).join(" · ")}</div>
+                      </div>
+                      {t.snoozedUntil && <span className="shrink-0 pt-0.5 text-[13px] tabular-nums text-muted">{new Date(t.snoozedUntil).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" })}</span>}
                     </div>
-                    {t.snoozedUntil && <span className="font-mono text-[11.5px] tabular-nums text-violet">{new Date(t.snoozedUntil).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" })}</span>}
-                  </div>
-                ))}
-                {(viewCount.snoozed ?? 0) > sleeping.length && <Link href={href({ view: "snoozed" })} className="hud-label block px-5 pb-4 pt-2 text-[12px] text-cyan hover:underline">All snoozed →</Link>}
-              </Card>
+                  ))}
+                </div>
+                {(viewCount.snoozed ?? 0) > sleeping.length && <Link href={href({ view: "snoozed" })} className="flex min-h-11 items-center border-t border-line px-4 text-[15px] text-cyan hover:bg-fill">All {viewCount.snoozed} snoozed</Link>}
+              </Side>
             )}
           </aside>
         )}
@@ -186,17 +222,17 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
 
 function ActivityList({ items, names }: { items: Awaited<ReturnType<typeof listActivity>>; names: Record<string, string> }) {
   return (
-    <ul>
+    <ul className="divide-y divide-line">
       {items.map((a) => {
         const actor = names[a.actor] ?? a.actor;
         return (
-          <li key={a.id} className="grid grid-cols-[20px_minmax(0,1fr)] gap-2.5 border-b border-line/50 px-4 py-2.5 text-[13px] leading-snug last:border-0 sm:px-5">
+          <li key={a.id} className="flex gap-3 px-4 py-2.5 text-[15px] leading-snug">
             <Avatar name={actor} color={businessColor(actor)} />
-            <div className="min-w-0 break-words">
-              <span className="font-medium">{actor}</span> {ACTION[a.action] ?? a.action}
+            <div className="min-w-0 flex-1 break-words text-ink">
+              <span className="font-semibold">{actor}</span> {ACTION[a.action] ?? a.action}
               {a.action === "assign" ? <> to {a.detail?.assignee ? names[String(a.detail.assignee)] ?? String(a.detail.assignee) : "nobody"}</> : null}
-              {a.action === "snooze" && a.detail?.preset ? <> for {String(a.detail.preset)}</> : null} <span className="text-[#a9bbc9]">“{a.taskTitle}”</span>
-              <span className="mt-0.5 block text-[11.5px] text-muted">{timeAgo(a.at)}{a.business ? ` · ${a.business}` : ""}</span>
+              {a.action === "snooze" && a.detail?.preset ? <> for {String(a.detail.preset)}</> : null} <span className="text-muted">“{a.taskTitle}”</span>
+              <span className="mt-0.5 block text-[13px] text-muted">{timeAgo(a.at)}{a.business ? ` · ${a.business}` : ""}</span>
             </div>
           </li>
         );

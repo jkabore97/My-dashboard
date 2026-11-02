@@ -8,6 +8,10 @@ import type { ComposeMode, MailPermissions } from "@/lib/mail/types";
 import { ab } from "../command/hud";
 import { Composer } from "./Composer";
 
+const pill = `${ab} rounded-full`;
+const on = `${pill.replace("bg-fill ", "bg-cyan ").replace("text-cyan", "text-white").replace("hover:bg-fill-2", "hover:brightness-110")}`;
+const red = pill.replace("text-cyan", "text-critical");
+
 export interface ReplyDefaults {
   to: string;
   cc: string;
@@ -61,8 +65,8 @@ export function MessageControls(p: {
   };
 
   const replyBtn = (m: Exclude<ComposeMode, "new">, label: string, Icon: typeof Reply) => (
-    <button type="button" className={`${ab} ${mode === m ? "border-pink/70 text-ink" : ""}`} onClick={() => setMode(mode === m ? null : m)} aria-pressed={mode === m}>
-      <Icon size={14} />{label}
+    <button type="button" className={mode === m ? on : pill} onClick={() => setMode(mode === m ? null : m)} aria-pressed={mode === m}>
+      <Icon size={15} />{label}
     </button>
   );
 
@@ -78,27 +82,27 @@ export function MessageControls(p: {
         )}
         {p.perms.triage && (
           <>
-            <button type="button" className={ab} disabled={pending} onClick={() => act({ kind: "read", read: unread }, () => setUnread(!unread))}>
-              {unread ? <MailOpen size={14} /> : <Mail size={14} />}{unread ? "Mark read" : "Mark unread"}
+            <button type="button" className={pill} disabled={pending} onClick={() => act({ kind: "read", read: unread }, () => setUnread(!unread))}>
+              {unread ? <MailOpen size={15} /> : <Mail size={15} />}<span className="max-sm:sr-only">{unread ? "Mark read" : "Mark unread"}</span>
             </button>
-            <button type="button" className={`${ab} ${flagged ? "border-gold/60 text-gold" : ""}`} disabled={pending} onClick={() => act({ kind: "flag", flagged: !flagged }, () => setFlagged(!flagged))}>
-              {flagged ? <FlagOff size={14} /> : <Flag size={14} />}{flagged ? "Unflag" : "Flag"}
+            <button type="button" className={pill} disabled={pending} onClick={() => act({ kind: "flag", flagged: !flagged }, () => setFlagged(!flagged))} aria-pressed={flagged}>
+              {flagged ? <FlagOff size={15} /> : <Flag size={15} />}<span className="max-sm:sr-only">{flagged ? "Unflag" : "Flag"}</span>
             </button>
           </>
         )}
         {p.perms.organize && (
           <>
-            <button type="button" className={ab} disabled={pending} onClick={() => act({ kind: "archive" }, leave)}><Archive size={14} />Archive</button>
+            <button type="button" className={pill} disabled={pending} onClick={() => act({ kind: "archive" }, leave)}><Archive size={15} /><span className="max-sm:sr-only">Archive</span></button>
             {!p.inTrash && (
-              <button type="button" className={`${ab} hover:border-critical/60 hover:text-critical`} disabled={pending} onClick={() => confirm("Move this message to Deleted Items? You can restore it from there.") && act({ kind: "delete" }, leave)}>
-                <Trash2 size={14} />Delete
+              <button type="button" className={red} disabled={pending} onClick={() => confirm("Move this message to Deleted Items? You can restore it from there.") && act({ kind: "delete" }, leave)}>
+                <Trash2 size={15} /><span className="max-sm:sr-only">Delete</span>
               </button>
             )}
           </>
         )}
       </div>
-      {!p.perms.send && p.perms.sendBlocked && <p className="text-[12.5px] text-muted">{p.perms.sendBlocked}</p>}
-      {error && <p role="alert" className="border-l-2 border-critical bg-critical/10 px-3 py-2 text-[13px] text-[#ffc2d1]">{error}</p>}
+      {!p.perms.send && p.perms.sendBlocked && <p className="text-[13px] text-muted">{p.perms.sendBlocked}</p>}
+      {error && <p role="alert" className="rounded-[14px] bg-critical/10 px-4 py-3 text-[15px] text-ink"><b className="font-semibold text-critical">Didn&apos;t work.</b> {error}</p>}
       {mode && (
         <Composer key={mode} mailbox={p.mailbox} mode={mode} messageKey={p.messageKey} defaults={p.defaults[mode]} ai={p.ai} backHref={p.backHref} onCancel={() => setMode(null)} />
       )}

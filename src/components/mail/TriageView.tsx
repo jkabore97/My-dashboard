@@ -1,14 +1,28 @@
 import Link from "next/link";
-import { ExternalLink, MailOpen, Reply } from "lucide-react";
-import { Card, Empty, SeverityBadge, businessColor, timeAgo } from "@/components/ui";
+import type { ReactNode } from "react";
+import { ExternalLink, MailOpen, Reply, Sparkles } from "lucide-react";
+import { BizLabel, Empty, SeverityBadge, SYS, Tag, timeAgo } from "@/components/ui";
 import { DraftReply } from "@/components/ai/DraftReply";
-import { Chip, ChipRow, Donut, KpiStrip, KV, ab, type Kpi } from "@/components/command/hud";
+import { Chip, ChipRow, Donut, KpiStrip, KV, SEV_COLOR, ab, type Kpi } from "@/components/command/hud";
 import { inboxStats } from "@/components/command/logic";
 import type { EmailMessage } from "@/lib/types";
 import { ProviderMark } from "./bits";
 
 const provider = (mailbox: string) => (mailbox.startsWith("ms:") ? "Outlook" : "Gmail");
 const markFor = (mailbox: string) => ({ id: mailbox, provider: mailbox.startsWith("ms:") ? ("outlook" as const) : mailbox.startsWith("demo:") ? ("demo" as const) : ("gmail" as const) });
+
+/** Rounded group with a 17px title row (Mail-style list container). */
+function ListGroup({ title, note, children }: { title: string; note?: string; children: ReactNode }) {
+  return (
+    <section className="min-w-0 overflow-hidden rounded-[14px] bg-panel shadow-[0_0_0_1px_var(--color-line)]">
+      <header className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 border-b border-line px-4 py-3 sm:px-5">
+        <h2 className="min-w-0 truncate text-[17px] font-semibold text-ink">{title}</h2>
+        {note && <span className="text-[13px] text-muted">{note}</span>}
+      </header>
+      {children}
+    </section>
+  );
+}
 
 /**
  * The triage view: the last 14 days of every mailbox the person can see, from
@@ -24,16 +38,16 @@ export function TriageView({ emails, account, ai, hrefFor, canReply }: { emails:
   const firstCritical = emails.find((e) => e.severity === "critical");
 
   const kpis: Kpi[] = [
-    { label: "Unread", value: stats.unread, hint: `of ${stats.total} in the last 14 days`, c1: "#3fd0ff", c2: "#a98bff" },
-    ...(ai ? [{ label: "Needs reply", value: stats.needsReply, hint: `Claude flagged · ${stats.triaged} read`, c1: "#ff5fd7", c2: "#a98bff" }] : []),
-    { label: "Critical", value: stats.critical, hint: firstCritical ? firstCritical.subject : "nothing urgent", c1: stats.critical ? "#ff3d6e" : "#3df5a0", c2: stats.critical ? "#ff9f1c" : "#2ef2d0" },
-    { label: "High", value: high, hint: high ? "worth a look today" : "none", c1: high ? "#ff9f1c" : "#3df5a0", c2: high ? "#ffc56b" : "#2ef2d0" },
-    { label: "Mailboxes", value: stats.mailboxes.length, hint: [gmail ? `${gmail} Gmail` : null, outlook ? `${outlook} Outlook` : null].filter(Boolean).join(" · ") || "none connected", c1: "#ffd84d", c2: "#ff9f6b" },
+    { label: "Unread", value: stats.unread, hint: `of ${stats.total} in the last 14 days`, c1: SYS.gray },
+    ...(ai ? [{ label: "Needs reply", value: stats.needsReply, hint: `Claude flagged · ${stats.triaged} read`, c1: SYS.gray }] : []),
+    { label: "Critical", value: stats.critical, hint: firstCritical ? firstCritical.subject : "Nothing urgent", c1: stats.critical ? SEV_COLOR.critical : SYS.gray },
+    { label: "High", value: high, hint: high ? "worth a look today" : "none", c1: high ? SEV_COLOR.high : SYS.gray },
+    { label: "Mailboxes", value: stats.mailboxes.length, hint: [gmail ? `${gmail} Gmail` : null, outlook ? `${outlook} Outlook` : null].filter(Boolean).join(" · ") || "none connected", c1: SYS.gray },
   ];
 
   return (
     <>
-      <KpiStrip items={kpis} accent="#ff5fd7" className="mb-5" />
+      <KpiStrip items={kpis} className="mb-5" />
 
       {stats.mailboxes.length > 1 && (
         <div className="mb-5">
@@ -42,97 +56,115 @@ export function TriageView({ emails, account, ai, hrefFor, canReply }: { emails:
             {stats.mailboxes.map((m) => (
               <Chip key={m.account} href={`/inbox?view=triage&account=${encodeURIComponent(m.account)}`} active={account === m.account} count={m.unread}>
                 <ProviderMark mailbox={markFor(m.mailbox)} />
-                <span className="font-sans normal-case tracking-normal">{m.account}</span>
+                <span>{m.account}</span>
               </Chip>
             ))}
           </ChipRow>
         </div>
       )}
 
-      <div className="grid items-start gap-4 lg:gap-[22px] xl:grid-cols-[minmax(0,1fr)_330px]">
-        <Card title={`${account ?? "All accounts"} · newest first`} accent="pink" flush action={`${shown.length} message${shown.length === 1 ? "" : "s"}${ai ? " · triaged by Claude" : ""}`}>
+      <div className="grid items-start gap-7 xl:grid-cols-[minmax(0,1fr)_320px] xl:gap-8">
+        <ListGroup title={account ?? "All accounts"} note={`${shown.length} message${shown.length === 1 ? "" : "s"} · newest first${ai ? " · triaged by Claude" : ""}`}>
           {shown.length === 0 ? <Empty>No mail in the last 14 days.</Empty> : (
-            <ul>
+            <ul className="[&>li+li>div>div]:border-t [&>li+li>div>div]:border-line">
               {shown.map((e) => {
                 const href = hrefFor(e);
+                const subjectCls = `min-w-0 text-[15px] text-ink hover:text-cyan sm:truncate ${e.unread ? "font-semibold" : "font-medium"}`;
                 return (
-                  <li key={e.id} className="grid grid-cols-[8px_minmax(0,1fr)] gap-x-3 gap-y-1.5 border-b border-line/50 px-4 py-3.5 last:border-0 sm:grid-cols-[10px_84px_minmax(0,1fr)] sm:px-5">
-                    <span className={`row-span-2 mt-2 h-2 w-2 rounded-full sm:row-span-1 ${e.unread ? "bg-cyan shadow-[0_0_8px_#3fd0ff]" : ""}`} aria-label={e.unread ? "Unread" : undefined} />
-                    <span className="justify-self-start sm:mt-0.5"><SeverityBadge severity={e.severity} /></span>
-                    <div className="col-start-2 min-w-0 sm:col-start-3">
-                      <div className="flex items-baseline justify-between gap-3">
-                        {href ? (
-                          <Link href={href} prefetch={false} className={`min-w-0 text-[14.5px] hover:text-cyan sm:truncate ${e.unread ? "font-medium text-[#f2faff]" : "text-[#b7c7d4]"}`}>{e.subject}</Link>
+                  <li key={e.id}>
+                    <div className="flex gap-2.5 pl-2.5 sm:pl-3">
+                      <span className="mt-[19px] flex w-3 shrink-0 justify-center self-start" aria-label={e.unread ? "Unread" : undefined}>
+                        {e.unread && <span className="h-2.5 w-2.5 rounded-full bg-cyan" />}
+                      </span>
+                      <div className="min-w-0 flex-1 py-3 pr-4 sm:pr-5">
+                        <div className="flex items-baseline justify-between gap-3">
+                          <span className={`min-w-0 truncate text-[15px] text-ink ${e.unread ? "font-semibold" : "font-medium"}`}>{e.from}</span>
+                          <span className="shrink-0 text-[13px] tabular-nums text-muted">{timeAgo(e.receivedAt)}</span>
+                        </div>
+                        <div className="flex min-w-0 items-baseline gap-2">
+                          {(e.severity === "critical" || e.severity === "high") && <SeverityBadge severity={e.severity} />}
+                          {href ? (
+                            <Link href={href} prefetch={false} className={subjectCls}>{e.subject}</Link>
+                          ) : (
+                            <a href={e.url} target="_blank" rel="noreferrer" className={subjectCls}>{e.subject}</a>
+                          )}
+                        </div>
+                        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[13px] text-muted">
+                          <span className="min-w-0 truncate">{e.account}</span>
+                          {e.owner ? <Tag color={SYS.blue} title="Your own mailbox: only you see it">Mine</Tag> : null}
+                        </div>
+                        {e.triage ? (
+                          <div className="mt-2 rounded-[10px] bg-panel-2 px-3 py-2 text-[14px] leading-snug text-ink">
+                            <Sparkles size={13} className="mr-1.5 inline -translate-y-px text-violet" aria-hidden />
+                            {e.triage.summary}
+                            {e.triage.task ? <span className="text-muted"> · To do: <b className="font-semibold text-ink">{e.triage.task}</b></span> : null}
+                          </div>
                         ) : (
-                          <a href={e.url} target="_blank" rel="noreferrer" className={`min-w-0 text-[14.5px] hover:text-cyan sm:truncate ${e.unread ? "font-medium text-[#f2faff]" : "text-[#b7c7d4]"}`}>{e.subject}</a>
+                          <div className="mt-0.5 line-clamp-2 text-[14px] leading-snug text-muted">{e.snippet}</div>
                         )}
-                        <span className="shrink-0 font-mono text-[11.5px] tabular-nums text-muted">{timeAgo(e.receivedAt)}</span>
+                        {href && (e.unread || e.severity === "critical") ? (
+                          <div className="mt-2.5 flex flex-wrap gap-2">
+                            {canReply(e) && <Link href={`${href}?compose=reply`} prefetch={false} className="inline-flex min-h-9 items-center gap-1.5 rounded-full bg-cyan px-3.5 text-[13px] font-semibold text-white transition hover:brightness-110 active:opacity-80 sm:min-h-8"><Reply size={14} />Reply</Link>}
+                            <Link href={href} prefetch={false} className={`${ab} rounded-full`}><MailOpen size={14} />Open</Link>
+                          </div>
+                        ) : ai && (!e.triage || e.triage.needsReply) && e.unread ? (
+                          <DraftReply emailId={e.id} url={e.url} provider={provider(e.mailbox)} />
+                        ) : e.url && (e.unread || e.severity === "critical") ? (
+                          <div className="mt-2.5"><a href={e.url} target="_blank" rel="noreferrer" className={`${ab} rounded-full`}><ExternalLink size={14} />Open in {provider(e.mailbox)}</a></div>
+                        ) : null}
                       </div>
-                      <div className="truncate text-[12.5px] text-muted"><span className="text-[#c5d3de]">{e.from}</span> · {e.account}{e.owner ? <span className="ml-1.5 border border-cyan/40 px-1 font-display text-[10px] uppercase tracking-[0.12em] text-cyan" title="Your own mailbox: only you see it">Mine</span> : null}</div>
-                      {e.triage ? (
-                        <div className="mt-2 border-l-2 border-violet bg-violet/[0.07] px-2.5 py-1.5 text-[13px] leading-relaxed text-[#c9d8e4]">
-                          <span className="mr-1.5 text-violet">✦</span>{e.triage.summary}
-                          {e.triage.task ? <span className="text-muted"> · To do: <b className="font-medium text-lime">{e.triage.task}</b></span> : null}
-                        </div>
-                      ) : (
-                        <div className="mt-1 line-clamp-1 text-[12.5px] text-[#8197a8]">{e.snippet}</div>
-                      )}
-                      {href && (e.unread || e.severity === "critical") ? (
-                        <div className="mt-2.5 flex flex-wrap gap-2">
-                          <Link href={href} prefetch={false} className={ab}><MailOpen size={13} />Open</Link>
-                          {canReply(e) && <Link href={`${href}?compose=reply`} prefetch={false} className={ab}><Reply size={13} />Reply</Link>}
-                        </div>
-                      ) : ai && (!e.triage || e.triage.needsReply) && e.unread ? (
-                        <DraftReply emailId={e.id} url={e.url} provider={provider(e.mailbox)} />
-                      ) : e.url && (e.unread || e.severity === "critical") ? (
-                        <div className="mt-2.5"><a href={e.url} target="_blank" rel="noreferrer" className={ab}><ExternalLink size={13} />Open in {provider(e.mailbox)}</a></div>
-                      ) : null}
                     </div>
                   </li>
                 );
               })}
             </ul>
           )}
-        </Card>
+        </ListGroup>
 
-        <aside className="grid min-w-0 gap-4 lg:gap-[22px]">
+        <aside className="grid min-w-0 gap-7">
           {ai && stats.triaged > 0 && (
-            <Card title="Claude triage" accent="violet" flush action="last 14 days">
+            <ListGroup title="Claude triage" note="last 14 days">
               <div className="grid grid-cols-[110px_minmax(0,1fr)] items-center gap-4 px-4 py-4 sm:px-5">
                 <Donut
                   size={110}
                   value={stats.triaged}
                   label="Read"
                   parts={[
-                    { value: stats.needsReply, color: "#ff5fd7" },
-                    { value: stats.withTask, color: "#3fd0ff" },
-                    { value: stats.fyi, color: "#2ef2d0" },
+                    { value: stats.needsReply, color: SYS.blue },
+                    { value: stats.withTask, color: SYS.indigo },
+                    { value: stats.fyi, color: SYS.teal },
                   ]}
                 />
                 <div className="min-w-0">
-                  <KV k="Needs reply" v={stats.needsReply} dot="#ff5fd7" />
-                  <KV k="Has a to-do" v={stats.withTask} dot="#3fd0ff" />
-                  <KV k="FYI only" v={stats.fyi} dot="#2ef2d0" />
-                  {stats.total > stats.triaged && <KV k="Not read yet" v={stats.total - stats.triaged} dot="#5e7a8f" />}
+                  <KV k="Needs reply" v={stats.needsReply} dot={SYS.blue} />
+                  <KV k="Has a to-do" v={stats.withTask} dot={SYS.indigo} />
+                  <KV k="FYI only" v={stats.fyi} dot={SYS.teal} />
+                  {stats.total > stats.triaged && <KV k="Not read yet" v={stats.total - stats.triaged} dot={SYS.gray} />}
                 </div>
               </div>
-            </Card>
+            </ListGroup>
           )}
-          <Card title="Mailboxes" accent="cyan" flush action="unread · 14 days">
-            {stats.mailboxes.length === 0 ? <Empty>No mailbox connected.</Empty> : stats.mailboxes.map((m) => (
-              <Link key={m.account} href={`/inbox?view=triage&account=${encodeURIComponent(m.account)}`} className="grid min-h-12 grid-cols-[17px_minmax(0,1fr)_auto] items-center gap-2.5 border-b border-line/50 px-4 py-2.5 last:border-0 hover:bg-cyan/5 sm:px-5">
-                <ProviderMark mailbox={markFor(m.mailbox)} />
-                <div className="min-w-0">
-                  <div className="truncate text-[13px]">{m.account}</div>
-                  <div className="truncate text-[11.5px] text-muted">
-                    {m.business && <><span className="mr-1 inline-block h-1.5 w-1.5" style={{ background: businessColor(m.business) }} /><span className="text-[#c5d3de]">{m.business}</span> · </>}
-                    {m.provider === "outlook" ? "Outlook" : "Gmail"} · {m.total} in 14 days
+          <section className="min-w-0">
+            <div className="mb-1.5 flex items-baseline justify-between gap-2 px-4">
+              <h3 className="text-[13px] uppercase tracking-[0.02em] text-muted">Mailboxes</h3>
+              <span className="text-[13px] text-muted">unread · 14 days</span>
+            </div>
+            <div className="overflow-hidden rounded-[14px] bg-panel shadow-[0_0_0_1px_var(--color-line)] [&>*+*]:border-t [&>*+*]:border-line">
+              {stats.mailboxes.length === 0 ? <Empty>No mailbox connected.</Empty> : stats.mailboxes.map((m) => (
+                <Link key={m.account} href={`/inbox?view=triage&account=${encodeURIComponent(m.account)}`} className="flex min-h-12 items-center gap-3 px-4 py-2.5 transition-colors hover:bg-fill">
+                  <ProviderMark mailbox={markFor(m.mailbox)} />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[15px] text-ink">{m.account}</div>
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[13px] text-muted">
+                      {m.business && <><BizLabel name={m.business} /><span>·</span></>}
+                      <span>{m.provider === "outlook" ? "Outlook" : "Gmail"} · {m.total} in 14 days</span>
+                    </div>
                   </div>
-                </div>
-                <span className={`border px-1.5 font-mono text-[12px] tabular-nums ${m.unread ? "border-cyan/40 text-cyan" : "border-line text-muted"}`}>{m.unread}</span>
-              </Link>
-            ))}
-          </Card>
+                  <span className={`shrink-0 text-[15px] tabular-nums ${m.unread ? "font-semibold text-cyan" : "text-muted"}`}>{m.unread}</span>
+                </Link>
+              ))}
+            </div>
+          </section>
         </aside>
       </div>
     </>

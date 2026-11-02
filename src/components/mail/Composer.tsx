@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition, type CSSProperties } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Paperclip, PenLine, Send, X } from "lucide-react";
 import { draftMailReplyAction } from "@/app/actions/mail";
@@ -8,7 +8,8 @@ import { formatBytes, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS, MAX_TOTAL_ATTACHMEN
 import type { ComposeMode } from "@/lib/mail/types";
 import { ab } from "../command/hud";
 
-const field = "hud-input w-full min-h-10 px-3 py-2 text-base sm:text-[13.5px] placeholder:text-muted/70";
+const field = "min-h-10 min-w-0 flex-1 bg-transparent py-2 text-base text-ink outline-none placeholder:text-muted/70 sm:text-[15px]";
+const red = `${ab} rounded-full`.replace("text-cyan", "text-critical");
 const TITLE: Record<ComposeMode, string> = { new: "New message", reply: "Reply", replyAll: "Reply all", forward: "Forward" };
 
 export interface ComposerProps {
@@ -96,70 +97,66 @@ export function Composer({ mailbox, mode, messageKey, defaults, ai, backHref, on
     }
   };
 
+  const sendLabel = sending ? "Sending…" : mode === "new" ? "Send" : mode === "forward" ? "Send forward" : "Send reply";
+  const row = (label: string, input: React.ReactNode, extra?: React.ReactNode) => (
+    <label className="flex min-h-11 items-center gap-2 border-b border-line px-4 sm:px-5">
+      <span className="shrink-0 text-[15px] text-muted">{label}:</span>
+      {input}
+      {extra}
+    </label>
+  );
+
   return (
-    <section className="hud-panel" style={{ "--a": "#ff5fd7" } as CSSProperties} aria-label={TITLE[mode]}>
-      <header className="hud-head flex flex-wrap items-center justify-between gap-2 px-4 py-3 sm:px-5">
-        <h2 className="hud-title text-[13px]">{TITLE[mode]}</h2>
-        <span className="hud-label min-w-0 truncate text-[11px] tracking-[0.12em] text-muted">from {mailbox.address}</span>
+    <section className="overflow-hidden rounded-[14px] bg-panel shadow-[0_0_0_1px_var(--color-line),0_10px_40px_rgb(0_0_0/0.08)]" aria-label={TITLE[mode]}>
+      <header className="flex items-center justify-between gap-2 border-b border-line px-3 py-2 sm:px-4">
+        {onCancel ? (
+          <button type="button" className="min-h-10 rounded-lg px-2 text-[15px] text-cyan hover:opacity-70 disabled:opacity-40" onClick={onCancel} disabled={sending}>Cancel</button>
+        ) : <span className="w-16" />}
+        <h2 className="min-w-0 truncate text-[17px] font-semibold text-ink">{TITLE[mode]}</h2>
+        <button type="button" disabled={sending} onClick={send} className="inline-flex min-h-9 items-center gap-1.5 rounded-full bg-cyan px-3.5 text-[15px] font-semibold text-white transition hover:brightness-110 active:opacity-80 disabled:opacity-50" aria-label={sendLabel}>
+          <Send size={15} /><span className="max-sm:sr-only">{sendLabel}</span>
+        </button>
       </header>
-      <div className="grid gap-2.5 px-4 py-4 sm:px-5">
-        <label className="grid gap-1">
-          <span className="hud-label text-[11px] text-muted">To</span>
-          <input className={field} value={to} onChange={(e) => setTo(e.target.value)} placeholder="name@example.com, …" autoComplete="off" inputMode="email" />
-        </label>
-        {showCc && (
-          <label className="grid gap-1">
-            <span className="hud-label text-[11px] text-muted">Cc</span>
-            <input className={field} value={cc} onChange={(e) => setCc(e.target.value)} autoComplete="off" inputMode="email" />
-          </label>
-        )}
-        {showBcc && (
-          <label className="grid gap-1">
-            <span className="hud-label text-[11px] text-muted">Bcc</span>
-            <input className={field} value={bcc} onChange={(e) => setBcc(e.target.value)} autoComplete="off" inputMode="email" />
-          </label>
-        )}
-        {(!showCc || !showBcc) && (
-          <div className="flex gap-2">
-            {!showCc && <button type="button" className={ab} onClick={() => setShowCc(true)}>+ Cc</button>}
-            {!showBcc && <button type="button" className={ab} onClick={() => setShowBcc(true)}>+ Bcc</button>}
-          </div>
-        )}
-        <label className="grid gap-1">
-          <span className="hud-label text-[11px] text-muted">Subject</span>
-          <input className={field} value={subject} onChange={(e) => setSubject(e.target.value)} maxLength={400} />
-        </label>
-        <label className="grid gap-1">
-          <span className="hud-label flex items-center justify-between text-[11px] text-muted">
-            <span>Message</span>
-            {mode !== "new" && mode !== "forward" ? <span className="normal-case tracking-normal">the original is quoted below it</span> : mode === "forward" ? <span className="normal-case tracking-normal">the original and its attachments follow</span> : null}
-          </span>
-          <textarea className={`${field} min-h-[220px] leading-relaxed`} value={body} onChange={(e) => setBody(e.target.value)} rows={10} />
+      <div className="grid grid-cols-[minmax(0,1fr)]">
+        {row("To", <input className={field} value={to} onChange={(e) => setTo(e.target.value)} placeholder="name@example.com, …" autoComplete="off" inputMode="email" />,
+          (!showCc || !showBcc) && (
+            <span className="flex shrink-0 gap-1">
+              {!showCc && <button type="button" className="min-h-8 rounded-md px-1.5 text-[14px] text-cyan hover:bg-fill" onClick={() => setShowCc(true)}>Cc</button>}
+              {!showBcc && <button type="button" className="min-h-8 rounded-md px-1.5 text-[14px] text-cyan hover:bg-fill" onClick={() => setShowBcc(true)}>Bcc</button>}
+            </span>
+          ))}
+        {showCc && row("Cc", <input className={field} value={cc} onChange={(e) => setCc(e.target.value)} autoComplete="off" inputMode="email" />)}
+        {showBcc && row("Bcc", <input className={field} value={bcc} onChange={(e) => setBcc(e.target.value)} autoComplete="off" inputMode="email" />)}
+        <div className="flex min-h-11 items-center gap-2 border-b border-line px-4 text-[15px] sm:px-5">
+          <span className="shrink-0 text-muted">From:</span>
+          <span className="min-w-0 truncate text-ink">{mailbox.address}</span>
+        </div>
+        {row("Subject", <input className={field} value={subject} onChange={(e) => setSubject(e.target.value)} maxLength={400} />)}
+        <label className="block">
+          <span className="sr-only">Message</span>
+          <textarea className="block min-h-[240px] w-full resize-y bg-transparent px-4 py-3 text-base leading-relaxed text-ink outline-none placeholder:text-muted/70 sm:px-5 sm:text-[15px]" value={body} onChange={(e) => setBody(e.target.value)} rows={10} placeholder={mode === "new" ? "Write your message" : mode === "forward" ? "Add a note (the original and its attachments follow)" : "Write your reply (the original is quoted below it)"} />
         </label>
         {files.length > 0 && (
-          <ul className="grid gap-1.5">
+          <ul className="grid gap-1.5 px-4 pb-3 sm:px-5">
             {files.map((f, i) => (
-              <li key={`${f.name}-${i}`} className="flex min-w-0 items-center gap-2 border border-line/60 px-2.5 py-1.5 text-[13px]">
-                <Paperclip size={13} className="shrink-0 text-muted" />
+              <li key={`${f.name}-${i}`} className="flex min-w-0 items-center gap-2 rounded-[10px] bg-panel-2 py-1 pl-3 pr-1 text-[14px] text-ink">
+                <Paperclip size={14} className="shrink-0 text-muted" />
                 <span className="min-w-0 flex-1 truncate">{f.name}</span>
-                <span className="shrink-0 font-mono text-[11.5px] text-muted">{formatBytes(f.size)}</span>
-                <button type="button" className="grid h-10 w-10 shrink-0 place-items-center text-muted hover:text-critical sm:h-8 sm:w-8" aria-label={`Remove ${f.name}`} onClick={() => setFiles(files.filter((_, j) => j !== i))}><X size={14} /></button>
+                <span className="shrink-0 text-[12px] text-muted">{formatBytes(f.size)}</span>
+                <button type="button" className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-muted hover:bg-fill hover:text-critical sm:h-8 sm:w-8" aria-label={`Remove ${f.name}`} onClick={() => setFiles(files.filter((_, j) => j !== i))}><X size={15} /></button>
               </li>
             ))}
           </ul>
         )}
-        {error && <p role="alert" className="border-l-2 border-critical bg-critical/10 px-3 py-2 text-[13px] text-[#ffc2d1]">{error}</p>}
-        <div className="flex flex-wrap items-center gap-2 pt-1">
-          <button type="button" disabled={sending} onClick={send} className="hud-btn hud-btn-solid inline-flex min-h-10 items-center gap-1.5 px-4 [--b:#ff5fd7]">
-            <Send size={14} />{sending ? "Sending…" : mode === "new" ? "Send" : mode === "forward" ? "Send forward" : "Send reply"}
-          </button>
+        {error && <p role="alert" className="mx-4 mb-3 rounded-[14px] bg-critical/10 px-4 py-3 text-[15px] text-ink sm:mx-5"><b className="font-semibold text-critical">Not sent.</b> {error}</p>}
+        <div className="flex flex-wrap items-center gap-2 border-t border-line px-4 py-3 sm:px-5">
           <input ref={fileInput} type="file" multiple className="hidden" onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />
-          <button type="button" className={ab} onClick={() => fileInput.current?.click()} disabled={sending}><Paperclip size={13} />Attach</button>
+          <button type="button" className={`${ab} rounded-full`} onClick={() => fileInput.current?.click()} disabled={sending}><Paperclip size={14} />Attach</button>
           {ai && messageKey && mode !== "forward" && (
-            <button type="button" className={`${ab} border-violet/60 bg-violet/10 text-[#e1d8ff]`} disabled={drafting || sending} onClick={draft}><PenLine size={13} />{drafting ? "Drafting…" : "Draft with Claude"}</button>
+            <button type="button" className={`${ab} rounded-full`} disabled={drafting || sending} onClick={draft}><PenLine size={14} />{drafting ? "Drafting…" : "Draft with Claude"}</button>
           )}
-          {onCancel && <button type="button" className={ab} onClick={onCancel} disabled={sending}><X size={13} />Discard</button>}
-          <span className="basis-full text-[11.5px] text-muted sm:basis-auto">Up to {formatBytes(MAX_TOTAL_ATTACHMENT_BYTES)} of attachments.</span>
+          {onCancel && <button type="button" className={red} onClick={onCancel} disabled={sending}><X size={14} />Discard</button>}
+          <span className="basis-full text-[12px] text-muted sm:ml-auto sm:basis-auto">Up to {formatBytes(MAX_TOTAL_ATTACHMENT_BYTES)} of attachments.</span>
         </div>
       </div>
     </section>

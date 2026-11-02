@@ -1,11 +1,10 @@
-import type { CSSProperties } from "react";
+import type { ReactNode } from "react";
 import { ExternalLink } from "lucide-react";
 import { AZURE_BILLING, M365_ADMIN } from "@/lib/billing/microsoft";
 import { firebaseConsole, gcpConsole } from "@/lib/billing/google";
 import type { Bills } from "@/lib/billing/types";
 import type { SourceMode } from "@/lib/types";
-import { ModePill, Tag } from "@/components/ui";
-import { HeadPanel } from "@/components/admin/bits";
+import { ModePill, SYS, Tag } from "@/components/ui";
 
 // Admin consoles the owner jumps to: Microsoft 365, Entra, Azure billing,
 // Google Cloud, Firebase, Google Workspace. Links only (plus the status of
@@ -19,34 +18,55 @@ export interface ConsoleLink {
 }
 
 export const CONSOLES: ConsoleLink[] = [
-  { id: "m365", name: "Microsoft 365 admin", url: "https://admin.microsoft.com", color: "#3fd0ff" },
-  { id: "entra", name: "Entra admin", url: "https://entra.microsoft.com", color: "#7aa2ff" },
-  { id: "azure-billing", name: "Azure billing", url: AZURE_BILLING, color: "#5ee6ff" },
-  { id: "gcp", name: "Google Cloud console", url: "https://console.cloud.google.com", color: "#2ef2d0" },
-  { id: "firebase", name: "Firebase console", url: "https://console.firebase.google.com", color: "#ffd84d" },
-  { id: "workspace", name: "Google Workspace admin", url: "https://admin.google.com", color: "#3df5a0" },
+  { id: "m365", name: "Microsoft 365 admin", url: "https://admin.microsoft.com", color: SYS.blue },
+  { id: "entra", name: "Entra admin", url: "https://entra.microsoft.com", color: SYS.indigo },
+  { id: "azure-billing", name: "Azure billing", url: AZURE_BILLING, color: SYS.cyan },
+  { id: "gcp", name: "Google Cloud console", url: "https://console.cloud.google.com", color: SYS.teal },
+  { id: "firebase", name: "Firebase console", url: "https://console.firebase.google.com", color: SYS.yellow },
+  { id: "workspace", name: "Google Workspace admin", url: "https://admin.google.com", color: SYS.green },
 ];
+const colorOf = (id: string) => CONSOLES.find((c) => c.id === id)?.color ?? SYS.gray;
 
-const link = "inline-flex min-h-10 items-center gap-1.5 text-xs text-cyan hover:underline sm:min-h-0";
+const link = "inline-flex min-h-9 items-center gap-1 text-[14px] text-cyan hover:opacity-70 sm:min-h-7";
 
-/** Compact quick-launch strip. */
+/** Compact quick-launch strip: pills that scroll sideways on phones. */
 export function ConsoleStrip() {
   return (
-    <nav aria-label="Consoles" className="hud-panel mb-5 flex flex-wrap items-center gap-2 px-4 py-3 sm:px-5" style={{ "--a": "#3fd0ff" } as CSSProperties}>
-      <span className="hud-label mr-1 text-[11px] text-muted">Consoles</span>
-      {CONSOLES.map((c) => (
-        <a key={c.id} href={c.url} target="_blank" rel="noreferrer" className="hud-btn inline-flex min-h-10 items-center gap-1.5 px-2.5 py-1 text-[11px] sm:min-h-8" style={{ "--b": c.color } as CSSProperties}>
-          {c.name}
-          <ExternalLink size={11} aria-hidden />
-        </a>
-      ))}
+    <nav aria-label="Consoles" className="mb-6 flex min-w-0 flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+      <span className="text-[13px] text-muted">Consoles</span>
+      <div className="no-scrollbar -mx-4 flex min-w-0 gap-2 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:px-0">
+        {CONSOLES.map((c) => (
+          <a key={c.id} href={c.url} target="_blank" rel="noreferrer" className="inline-flex min-h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-panel px-3.5 text-[14px] font-medium text-ink shadow-[0_0_0_1px_var(--color-line)] transition hover:bg-panel-2">
+            <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: c.color }} />
+            {c.name}
+            <ExternalLink size={12} className="text-muted" aria-hidden />
+          </a>
+        ))}
+      </div>
     </nav>
   );
 }
 
-const Status = ({ on, label }: { on: boolean; label: string }) => <Tag color={on ? "#3df5a0" : "#7f97ab"}>{label}</Tag>;
+const Status = ({ on, label }: { on: boolean; label: string }) => <Tag color={on ? SYS.green : SYS.gray}>{label}</Tag>;
 
-/** One card per console, with what the dashboard reads from it. */
+/** One row per console: tile, name, what the dashboard reads from it, status, links. */
+function ConsoleRow({ id, title, status, children, links }: { id: string; title: string; status: ReactNode; children: ReactNode; links: ReactNode }) {
+  return (
+    <div className="flex items-start gap-3 px-4 py-3">
+      <span aria-hidden className="mt-0.5 grid h-[29px] w-[29px] shrink-0 place-items-center rounded-[7px] text-white" style={{ background: colorOf(id) }}><ExternalLink size={15} /></span>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+          <span className="min-w-0 text-[15px] text-ink">{title}</span>
+          <span className="shrink-0">{status}</span>
+        </div>
+        <div className="mt-0.5 text-[13px] leading-snug text-muted">{children}</div>
+        <div className="mt-1 flex flex-wrap gap-x-4">{links}</div>
+      </div>
+    </div>
+  );
+}
+
+/** One row per console, with what the dashboard reads from it. */
 export function ConsoleCards({ bills, modes, msadminConnected, gcloudConnected, msAppConfigured }: { bills: Bills; modes: Record<string, SourceMode>; msadminConnected: boolean; gcloudConnected: boolean; msAppConfigured: boolean }) {
   const ms = bills.microsoft;
   // Links come from the connector's data only once it's really connected (never sample projects).
@@ -54,56 +74,57 @@ export function ConsoleCards({ bills, modes, msadminConnected, gcloudConnected, 
   const billingOk = msadminConnected && !ms.billing.error && ms.billing.accounts.length > 0;
   const firebase = g.projects.filter((p) => p.firebase);
   const waste = ms.licences.filter((l) => !l.free && l.unassigned > 0).reduce((n, l) => n + l.unassigned, 0);
+  const ext = <ExternalLink size={12} aria-hidden />;
   return (
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-      <HeadPanel accent="#3fd0ff" title="Microsoft 365 admin center" status={msadminConnected ? <ModePill mode={modes.msadmin ?? "demo"} /> : <Status on={false} label="Not connected" />}>
-        <p className="text-[13px] text-muted">Users, licences, billing, service health.</p>
-        {msadminConnected && (
-          <>
-          <p className="mt-2 text-sm">{ms.tenant ?? ms.account ?? ""}{ms.licences.length ? ` · ${ms.licences.filter((l) => !l.free).length} paid licence types${waste ? `, ${waste} unassigned seats` : ""}` : ""}{ms.health.length ? ` · ${ms.health.length} open health issue${ms.health.length === 1 ? "" : "s"}` : ""}</p>
-          {ms.healthNote && <p className="mt-1 text-xs text-muted">{ms.healthNote}</p>}
-          </>
-        )}
-        <div className="mt-auto flex flex-wrap gap-x-4 pt-3">
-          <a href={M365_ADMIN} target="_blank" rel="noreferrer" className={link}>Open admin center <ExternalLink size={11} /></a>
-          <a href={`${M365_ADMIN}#/licenses`} target="_blank" rel="noreferrer" className={link}>Licences <ExternalLink size={11} /></a>
-          <a href={`${M365_ADMIN}#/servicehealth`} target="_blank" rel="noreferrer" className={link}>Service health <ExternalLink size={11} /></a>
-        </div>
-      </HeadPanel>
-      <HeadPanel accent="#7aa2ff" title="Entra admin" status={<Status on={msAppConfigured} label={msAppConfigured ? "App configured" : "App not set"} />}>
-        <p className="text-[13px] text-muted">App registration and API permissions for the Microsoft connections (Outlook, Microsoft 365 admin).</p>
-        <div className="mt-auto flex flex-wrap gap-x-4 pt-3">
-          <a href="https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noreferrer" className={link}>App registrations <ExternalLink size={11} /></a>
-          <a href="https://entra.microsoft.com" target="_blank" rel="noreferrer" className={link}>Open Entra <ExternalLink size={11} /></a>
-        </div>
-      </HeadPanel>
-      <HeadPanel accent="#5ee6ff" title="Azure portal · billing" status={<Status on={billingOk} label={billingOk ? "Billing readable" : msadminConnected ? "No billing access" : "Not connected"} />}>
-        <p className="text-[13px] text-muted">Billing accounts, invoices and roles (Cost Management + Billing).</p>
-        {msadminConnected && ms.billing.error && <p className="mt-2 text-xs text-high">{ms.billing.error}</p>}
-        <div className="mt-auto flex flex-wrap gap-x-4 pt-3">
-          <a href={AZURE_BILLING} target="_blank" rel="noreferrer" className={link}>Open billing <ExternalLink size={11} /></a>
-        </div>
-      </HeadPanel>
-      <HeadPanel accent="#2ef2d0" title="Google Cloud console" status={gcloudConnected ? <ModePill mode={modes.gcloud ?? "demo"} /> : <Status on={false} label="Not connected" />}>
-        <p className="text-[13px] text-muted">{gcloudConnected ? `${g.projects.length} project${g.projects.length === 1 ? "" : "s"} · ${g.billingAccounts.length} billing account${g.billingAccounts.length === 1 ? "" : "s"}` : "Projects, APIs, billing and the BigQuery billing export."}</p>
-        <div className="mt-auto flex flex-wrap gap-x-4 pt-3">
-          <a href={gcpConsole()} target="_blank" rel="noreferrer" className={link}>Open console <ExternalLink size={11} /></a>
-          {g.projects.slice(0, 4).map((p) => <a key={p.projectId} href={gcpConsole(p.projectId)} target="_blank" rel="noreferrer" className={link}>{p.name} <ExternalLink size={11} /></a>)}
-        </div>
-      </HeadPanel>
-      <HeadPanel accent="#ffd84d" title="Firebase console" status={gcloudConnected ? <Status on={firebase.length > 0} label={`${firebase.length} project${firebase.length === 1 ? "" : "s"}`} /> : <Status on={false} label="Not connected" />}>
-        <p className="text-[13px] text-muted">Firebase apps, hosting and usage. Its costs show under Google Cloud on Platform spend.</p>
-        <div className="mt-auto flex flex-wrap gap-x-4 pt-3">
-          {firebase.length ? firebase.slice(0, 5).map((p) => <a key={p.projectId} href={firebaseConsole(p.projectId)} target="_blank" rel="noreferrer" className={link}>{p.name} <ExternalLink size={11} /></a>) : <a href="https://console.firebase.google.com" target="_blank" rel="noreferrer" className={link}>Open Firebase <ExternalLink size={11} /></a>}
-        </div>
-      </HeadPanel>
-      <HeadPanel accent="#3df5a0" title="Google Workspace admin" status={<Tag>No billing API</Tag>}>
-        <p className="text-[13px] text-muted">Google offers no Workspace billing API to customers. Workspace invoices are recognised from payments-noreply@google.com e-mails in a shared mailbox and shown on Platform spend to track.</p>
-        <div className="mt-auto flex flex-wrap gap-x-4 pt-3">
-          <a href="https://admin.google.com" target="_blank" rel="noreferrer" className={link}>Open admin <ExternalLink size={11} /></a>
-          <a href="https://admin.google.com/ac/billing/subscriptions" target="_blank" rel="noreferrer" className={link}>Billing <ExternalLink size={11} /></a>
-        </div>
-      </HeadPanel>
+    <div className="grid items-start gap-5 lg:grid-cols-2">
+      <div className="overflow-hidden rounded-[14px] bg-panel shadow-[0_0_0_1px_var(--color-line)] [&>*+*]:border-t [&>*+*]:border-line">
+        <ConsoleRow id="m365" title="Microsoft 365 admin center" status={msadminConnected ? <ModePill mode={modes.msadmin ?? "demo"} /> : <Status on={false} label="Not connected" />}
+          links={<>
+            <a href={M365_ADMIN} target="_blank" rel="noreferrer" className={link}>Open admin center {ext}</a>
+            <a href={`${M365_ADMIN}#/licenses`} target="_blank" rel="noreferrer" className={link}>Licences {ext}</a>
+            <a href={`${M365_ADMIN}#/servicehealth`} target="_blank" rel="noreferrer" className={link}>Service health {ext}</a>
+          </>}>
+          Users, licences, billing, service health.
+          {msadminConnected && (
+            <>
+              <span className="mt-1 block text-ink">{ms.tenant ?? ms.account ?? ""}{ms.licences.length ? ` · ${ms.licences.filter((l) => !l.free).length} paid licence types${waste ? `, ${waste} unassigned seats` : ""}` : ""}{ms.health.length ? ` · ${ms.health.length} open health issue${ms.health.length === 1 ? "" : "s"}` : ""}</span>
+              {ms.healthNote && <span className="mt-1 block">{ms.healthNote}</span>}
+            </>
+          )}
+        </ConsoleRow>
+        <ConsoleRow id="entra" title="Entra admin" status={<Status on={msAppConfigured} label={msAppConfigured ? "App configured" : "App not set"} />}
+          links={<>
+            <a href="https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noreferrer" className={link}>App registrations {ext}</a>
+            <a href="https://entra.microsoft.com" target="_blank" rel="noreferrer" className={link}>Open Entra {ext}</a>
+          </>}>
+          App registration and API permissions for the Microsoft connections (Outlook, Microsoft 365 admin).
+        </ConsoleRow>
+        <ConsoleRow id="azure-billing" title="Azure portal · billing" status={<Status on={billingOk} label={billingOk ? "Billing readable" : msadminConnected ? "No billing access" : "Not connected"} />}
+          links={<a href={AZURE_BILLING} target="_blank" rel="noreferrer" className={link}>Open billing {ext}</a>}>
+          Billing accounts, invoices and roles (Cost Management + Billing).
+          {msadminConnected && ms.billing.error && <span className="mt-1 block text-warn">{ms.billing.error}</span>}
+        </ConsoleRow>
+      </div>
+      <div className="overflow-hidden rounded-[14px] bg-panel shadow-[0_0_0_1px_var(--color-line)] [&>*+*]:border-t [&>*+*]:border-line">
+        <ConsoleRow id="gcp" title="Google Cloud console" status={gcloudConnected ? <ModePill mode={modes.gcloud ?? "demo"} /> : <Status on={false} label="Not connected" />}
+          links={<>
+            <a href={gcpConsole()} target="_blank" rel="noreferrer" className={link}>Open console {ext}</a>
+            {g.projects.slice(0, 4).map((p) => <a key={p.projectId} href={gcpConsole(p.projectId)} target="_blank" rel="noreferrer" className={link}>{p.name} {ext}</a>)}
+          </>}>
+          {gcloudConnected ? `${g.projects.length} project${g.projects.length === 1 ? "" : "s"} · ${g.billingAccounts.length} billing account${g.billingAccounts.length === 1 ? "" : "s"}` : "Projects, APIs, billing and the BigQuery billing export."}
+        </ConsoleRow>
+        <ConsoleRow id="firebase" title="Firebase console" status={gcloudConnected ? <Status on={firebase.length > 0} label={`${firebase.length} project${firebase.length === 1 ? "" : "s"}`} /> : <Status on={false} label="Not connected" />}
+          links={firebase.length ? firebase.slice(0, 5).map((p) => <a key={p.projectId} href={firebaseConsole(p.projectId)} target="_blank" rel="noreferrer" className={link}>{p.name} {ext}</a>) : <a href="https://console.firebase.google.com" target="_blank" rel="noreferrer" className={link}>Open Firebase {ext}</a>}>
+          Firebase apps, hosting and usage. Its costs show under Google Cloud on Platform spend.
+        </ConsoleRow>
+        <ConsoleRow id="workspace" title="Google Workspace admin" status={<Tag>No billing API</Tag>}
+          links={<>
+            <a href="https://admin.google.com" target="_blank" rel="noreferrer" className={link}>Open admin {ext}</a>
+            <a href="https://admin.google.com/ac/billing/subscriptions" target="_blank" rel="noreferrer" className={link}>Billing {ext}</a>
+          </>}>
+          Google offers no Workspace billing API to customers. Workspace invoices are recognised from payments-noreply@google.com e-mails in a shared mailbox and shown on Platform spend to track.
+        </ConsoleRow>
+      </div>
     </div>
   );
 }

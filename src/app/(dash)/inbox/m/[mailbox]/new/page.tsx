@@ -4,7 +4,6 @@ import { requireSection } from "@/lib/server/auth";
 import { errorMessage } from "@/lib/source";
 import { parseAddressList, formatAddressList } from "@/lib/mail/access";
 import { MailAccessError, openMailbox, publicRef } from "@/lib/server/mail";
-import { Card } from "@/components/ui";
 import { Composer } from "@/components/mail/Composer";
 import { listQuery } from "@/components/mail/format";
 
@@ -16,7 +15,7 @@ export default async function NewMessagePage({ params, searchParams }: { params:
   const { mailbox } = await params;
   const sp = await searchParams;
   const back = `/inbox?${listQuery({ mb: mailbox })}`;
-  const backLink = <Link href={back} className="mb-3 inline-flex min-h-10 items-center gap-1 text-[13px] text-cyan hover:underline"><ChevronLeft size={15} />Back to the inbox</Link>;
+  const backLink = <Link href={back} className="-ml-1.5 mb-2 inline-flex min-h-10 items-center gap-0.5 text-[17px] text-cyan hover:opacity-70"><ChevronLeft size={22} />Inbox</Link>;
   try {
     const o = await openMailbox(user, mailbox, "send");
     const ref = publicRef(o.h);
@@ -32,7 +31,7 @@ export default async function NewMessagePage({ params, searchParams }: { params:
     return (
       <>
         {backLink}
-        <Card title="New message" accent="pink"><p className="text-[13.5px] text-[#ffc2d1]">{err instanceof MailAccessError ? err.message : errorMessage(err)}</p></Card>
+        <div className="rounded-[14px] bg-critical/10 px-4 py-3 text-[15px] text-ink"><b className="font-semibold text-critical">Can&apos;t write from this mailbox.</b> {err instanceof MailAccessError ? err.message : errorMessage(err)}</div>
       </>
     );
   }
