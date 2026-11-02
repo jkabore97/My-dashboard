@@ -16,10 +16,13 @@ function useWidth(initial = 640) {
   return [ref, w] as const;
 }
 
-const LIME = "#c6f432";
-const GOLD = "#ffd84d";
-const GRID = "rgb(63 208 255 / 0.10)";
-const AXIS = "#7f97ab";
+/** Theme-aware colours: solar in readable gold (amber on white, yellow on black), home use in indigo. */
+export const SOLAR_COLOR = "var(--color-gold)";
+export const HOME_COLOR = "var(--color-indigo)";
+const LIME = SOLAR_COLOR;
+const GOLD = HOME_COLOR;
+const GRID = "var(--color-line)";
+const AXIS = "var(--color-muted)";
 
 const kw = (w: number) => (Math.abs(w) >= 1000 ? `${(w / 1000).toFixed(1)} kW` : `${Math.round(w)} W`);
 const hhmm = (h: number) => `${String(Math.floor(h)).padStart(2, "0")}:${String(Math.round((h % 1) * 60) % 60).padStart(2, "0")}`;
@@ -59,36 +62,36 @@ export function ProductionChart({ solar, load, nowH }: { solar: DayPoint[]; load
       >
         <defs>
           <linearGradient id="solar-fill" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0" stopColor={LIME} stopOpacity="0.35" />
+            <stop offset="0" stopColor={LIME} stopOpacity="0.25" />
             <stop offset="1" stopColor={LIME} stopOpacity="0.02" />
           </linearGradient>
         </defs>
         {ticks.map((t) => (
           <g key={t}>
             <line x1={L} x2={W - R} y1={y(t)} y2={y(t)} stroke={GRID} />
-            <text x={L - 8} y={y(t) + 4} textAnchor="end" fontSize="11" fill={AXIS} className="font-mono">{t === 0 ? "0" : `${t / 1000}`}</text>
+            <text x={L - 8} y={y(t) + 4} textAnchor="end" fontSize="11" fill={AXIS} className="tabular-nums">{t === 0 ? "0" : `${t / 1000}`}</text>
           </g>
         ))}
-        <text x={4} y={12} fontSize="10" fill={AXIS} className="font-mono">kW</text>
-        {(W < 420 ? [0, 12, 24] : [0, 6, 12, 18, 24]).map((h) => <text key={h} x={x(h)} y={H - 6} textAnchor="middle" fontSize="11" fill={AXIS} className="font-mono">{String(h).padStart(2, "0")}</text>)}
+        <text x={4} y={12} fontSize="11" fill={AXIS}>kW</text>
+        {(W < 420 ? [0, 12, 24] : [0, 6, 12, 18, 24]).map((h) => <text key={h} x={x(h)} y={H - 6} textAnchor="middle" fontSize="11" fill={AXIS} className="tabular-nums">{String(h).padStart(2, "0")}</text>)}
         {area && <path d={area} fill="url(#solar-fill)" />}
-        {solar.length > 1 && <path d={path(solar)} fill="none" stroke={LIME} strokeWidth="2" strokeLinejoin="round" style={{ filter: `drop-shadow(0 0 4px ${LIME})` }} />}
-        {load.length > 1 && <path d={path(load)} fill="none" stroke={GOLD} strokeWidth="1.6" strokeDasharray="4 4" />}
-        <line x1={x(nowH)} x2={x(nowH)} y1={T} y2={H - B} stroke="#3fd0ff" strokeDasharray="2 3" />
-        <text x={Math.min(x(nowH), W - R - 2)} y={T - 4} textAnchor={x(nowH) > W - 80 ? "end" : "middle"} fontSize="10.5" fill="#3fd0ff" className="font-mono">now {hhmm(nowH)}</text>
+        {solar.length > 1 && <path d={path(solar)} fill="none" stroke={LIME} strokeWidth="2.2" strokeLinejoin="round" />}
+        {load.length > 1 && <path d={path(load)} fill="none" stroke={GOLD} strokeWidth="2" strokeDasharray="5 4" strokeLinecap="round" />}
+        <line x1={x(nowH)} x2={x(nowH)} y1={T} y2={H - B} stroke="var(--color-cyan)" strokeDasharray="2 3" />
+        <text x={Math.min(x(nowH), W - R - 2)} y={T - 4} textAnchor={x(nowH) > W - 80 ? "end" : "middle"} fontSize="11" fontWeight="600" fill="var(--color-cyan)" className="tabular-nums">Now {hhmm(nowH)}</text>
         {hover !== null && (
           <g pointerEvents="none">
-            <line x1={x(hover)} x2={x(hover)} y1={T} y2={H - B} stroke="#ddebf5" strokeOpacity="0.35" />
-            {hs && <circle cx={x(hs.h)} cy={y(hs.w)} r="4" fill={LIME} stroke="#0b1626" strokeWidth="2" />}
-            {hl && <circle cx={x(hl.h)} cy={y(hl.w)} r="4" fill={GOLD} stroke="#0b1626" strokeWidth="2" />}
+            <line x1={x(hover)} x2={x(hover)} y1={T} y2={H - B} stroke="var(--color-muted)" strokeOpacity="0.6" />
+            {hs && <circle cx={x(hs.h)} cy={y(hs.w)} r="4" fill={LIME} stroke="var(--color-panel)" strokeWidth="2" />}
+            {hl && <circle cx={x(hl.h)} cy={y(hl.w)} r="4" fill={GOLD} stroke="var(--color-panel)" strokeWidth="2" />}
           </g>
         )}
       </svg>
       {hover !== null && (hs || hl) && (
-        <div className="pointer-events-none absolute top-2 rounded-sm border border-line bg-panel/95 px-2.5 py-1.5 text-xs shadow-lg" style={{ left: `${Math.min(70, Math.max(8, (x(hover) / W) * 100))}%` }}>
-          <div className="font-mono text-muted tabular-nums">{hhmm((hs ?? hl)!.h)}</div>
-          {hs && <div className="tabular-nums"><span className="mr-1.5 inline-block h-0.5 w-3 align-middle" style={{ background: LIME }} />Solar {kw(hs.w)}</div>}
-          {hl && <div className="tabular-nums"><span className="mr-1.5 inline-block h-0.5 w-3 align-middle" style={{ background: GOLD }} />Home {kw(hl.w)}</div>}
+        <div className="pointer-events-none absolute top-2 rounded-lg bg-panel px-2.5 py-1.5 text-[12px] text-ink shadow-[0_10px_40px_rgb(0_0_0/0.18),0_0_0_1px_var(--color-line)]" style={{ left: `${Math.min(70, Math.max(8, (x(hover) / W) * 100))}%` }}>
+          <div className="text-muted tabular-nums">{hhmm((hs ?? hl)!.h)}</div>
+          {hs && <div className="tabular-nums"><span className="mr-1.5 inline-block h-2 w-2 rounded-full align-middle" style={{ background: LIME }} />Solar {kw(hs.w)}</div>}
+          {hl && <div className="tabular-nums"><span className="mr-1.5 inline-block h-2 w-2 rounded-full align-middle" style={{ background: GOLD }} />Home {kw(hl.w)}</div>}
         </div>
       )}
     </div>
@@ -113,14 +116,14 @@ export function DailyBars({ days }: { days: { date: string; value: number; label
       <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label="Energy produced per day" onPointerLeave={() => setHover(null)}>
         <defs>
           <linearGradient id="day-bar" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0" stopColor={LIME} />
-            <stop offset="1" stopColor="#3df5a0" stopOpacity="0.45" />
+            <stop offset="0" stopColor={LIME} stopOpacity="0.55" />
+            <stop offset="1" stopColor={LIME} stopOpacity="0.55" />
           </linearGradient>
         </defs>
         {Array.from({ length: top / step + 1 }, (_, i) => i * step).map((t) => (
           <g key={t}>
             <line x1={L} x2={W - R} y1={y(t)} y2={y(t)} stroke={GRID} />
-            <text x={L - 8} y={y(t) + 4} textAnchor="end" fontSize="11" fill={AXIS} className="font-mono">{t}</text>
+            <text x={L - 8} y={y(t) + 4} textAnchor="end" fontSize="11" fill={AXIS} className="tabular-nums">{t}</text>
           </g>
         ))}
         {days.map((d, i) => {
@@ -133,20 +136,19 @@ export function DailyBars({ days }: { days: { date: string; value: number; label
                 d={`M${bx},${y(0)}V${y(d.value) + 3}q0,-3 3,-3h${bw - 6}q3,0 3,3V${y(0)}Z`}
                 fill={last ? LIME : "url(#day-bar)"}
                 opacity={hover === null || hover === i ? 1 : 0.55}
-                style={last ? { filter: `drop-shadow(0 0 6px ${LIME})` } : undefined}
               />
-              {last && <text x={bx + bw / 2} y={y(d.value) - 6} textAnchor="middle" fontSize="11" fill="#ddebf5" className="font-mono">{d.value}</text>}
+              {last && <text x={bx + bw / 2} y={y(d.value) - 6} textAnchor="middle" fontSize="11" fontWeight="600" fill="var(--color-ink)" className="tabular-nums">{d.value}</text>}
               {(last || (days.length - 1 - i) % labelEvery === 0) && i !== days.length - 2 && (
-                <text x={bx + bw / 2} y={H - 6} textAnchor="middle" fontSize="11" fill={AXIS} className="font-mono">{last ? "Today" : d.label}</text>
+                <text x={bx + bw / 2} y={H - 6} textAnchor="middle" fontSize="11" fill={AXIS} className="tabular-nums">{last ? "Today" : d.label}</text>
               )}
             </g>
           );
         })}
-        <line x1={L} x2={W - R} y1={y(avg)} y2={y(avg)} stroke="#ddebf5" strokeOpacity="0.45" strokeDasharray="5 5" pointerEvents="none" />
+        <line x1={L} x2={W - R} y1={y(avg)} y2={y(avg)} stroke="var(--color-muted)" strokeOpacity="0.8" strokeDasharray="5 5" pointerEvents="none" />
       </svg>
       {hover !== null && (
-        <div className="pointer-events-none absolute top-1 rounded-sm border border-line bg-panel/95 px-2.5 py-1.5 text-xs shadow-lg" style={{ left: `${Math.min(72, Math.max(4, ((L + hover * slot) / W) * 100))}%` }}>
-          <div className="font-mono text-muted">{days[hover].date}</div>
+        <div className="pointer-events-none absolute top-1 rounded-lg bg-panel px-2.5 py-1.5 text-[12px] text-ink shadow-[0_10px_40px_rgb(0_0_0/0.18),0_0_0_1px_var(--color-line)]" style={{ left: `${Math.min(72, Math.max(4, ((L + hover * slot) / W) * 100))}%` }}>
+          <div className="text-muted">{days[hover].date}</div>
           <div className="tabular-nums">{days[hover].value} kWh</div>
         </div>
       )}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState } from "react";
 import { CameraOff, Pause, Play, RefreshCw } from "lucide-react";
 import { btn } from "@/components/ui";
 
@@ -13,23 +13,13 @@ interface Cam {
 const pad = (n: number) => String(n).padStart(2, "0");
 
 function CamStatus({ online }: { online: boolean | null }) {
-  if (online === false) {
-    return (
-      <span className="flex shrink-0 items-center gap-1.5 font-display text-[11px] font-bold uppercase tracking-[0.12em] text-critical">
-        <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden><path d="M12 2 22 12 12 22 2 12Z" fill="#ff3d6e33" stroke="#ff3d6e" strokeWidth="2" /></svg>
-        Offline
-      </span>
-    );
-  }
-  if (online) {
-    return (
-      <span className="flex shrink-0 items-center gap-1.5 font-display text-[11px] font-bold uppercase tracking-[0.12em] text-emerald">
-        <span className="h-1.5 w-1.5 rounded-full bg-emerald shadow-[0_0_6px_#3df5a0]" />
-        Online
-      </span>
-    );
-  }
-  return <span className="shrink-0 font-display text-[11px] font-bold uppercase tracking-[0.12em] text-muted">Unknown</span>;
+  const [dot, text, word] = online === false ? ["var(--color-critical)", "var(--color-critical)", "Offline"] : online ? ["var(--color-ok)", "var(--color-ok)", "Online"] : ["var(--color-low)", "var(--color-muted)", "Unknown"];
+  return (
+    <span className="flex shrink-0 items-center gap-1.5 text-[13px] font-medium" style={{ color: text }}>
+      <span className="h-2 w-2 rounded-full" style={{ background: dot }} />
+      {word}
+    </span>
+  );
 }
 
 /** Still images from each camera, refreshed every 30 s while the tab is visible. */
@@ -46,12 +36,12 @@ export function SnapshotGrid({ site, channels, live }: { site: string; channels:
 
   return (
     <div>
-      <div className="flex flex-wrap items-center gap-2 px-4 pt-3 text-[12.5px] text-muted sm:px-5">
+      <div className="flex flex-wrap items-center gap-2 px-4 pt-3.5 text-[13px] text-muted sm:px-5">
         <span className="mr-auto">{live ? (paused ? "Snapshots paused." : "Snapshots refresh every 30 seconds.") : "Sample recorder: no live images."}</span>
         {live && (
           <>
-            <button type="button" className={`${btn()} min-h-10 sm:min-h-0`} style={{ "--b": "#c6f432" } as CSSProperties} onClick={() => { setFailed({}); setTick(Date.now()); }}><RefreshCw size={12} />Refresh</button>
-            <button type="button" className={`${btn()} min-h-10 sm:min-h-0`} style={{ "--b": "#c6f432" } as CSSProperties} onClick={() => setPaused((p) => !p)}>{paused ? <><Play size={12} />Resume</> : <><Pause size={12} />Pause</>}</button>
+            <button type="button" className={`${btn()} min-h-10 sm:min-h-0`} onClick={() => { setFailed({}); setTick(Date.now()); }}><RefreshCw size={14} />Refresh</button>
+            <button type="button" className={`${btn()} min-h-10 sm:min-h-0`} onClick={() => setPaused((p) => !p)}>{paused ? <><Play size={14} />Resume</> : <><Pause size={14} />Pause</>}</button>
           </>
         )}
       </div>
@@ -59,8 +49,8 @@ export function SnapshotGrid({ site, channels, live }: { site: string; channels:
         {channels.map((c) => {
           const showImage = live && c.online !== false && !failed[c.id];
           return (
-            <figure key={c.id} className="min-w-0 border border-violet/30 bg-[#080a18]/60">
-              <div className={`relative aspect-video overflow-hidden ${showImage ? "bg-[#0b0d16]" : "bg-[repeating-linear-gradient(45deg,#0c141b_0_6px,#101a23_6px_12px)]"}`}>
+            <figure key={c.id} className="min-w-0 overflow-hidden rounded-xl bg-panel-2">
+              <div className={`relative aspect-video overflow-hidden ${showImage ? "bg-black" : "bg-fill"}`}>
                 {showImage ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
@@ -71,20 +61,19 @@ export function SnapshotGrid({ site, channels, live }: { site: string; channels:
                     onLoad={() => failed[c.id] && setFailed((f) => ({ ...f, [c.id]: false }))}
                   />
                 ) : (
-                  <div className={`flex h-full flex-col items-center justify-center gap-1.5 text-center font-display text-[11px] uppercase tracking-[0.14em] ${c.online === false ? "text-critical" : "text-muted"}`}>
+                  <div className={`flex h-full flex-col items-center justify-center gap-1.5 text-center text-[13px] font-medium ${c.online === false ? "text-critical" : "text-muted"}`}>
                     <CameraOff size={20} className="opacity-80" />
                     {c.online === false ? "Camera offline" : !live ? "Sample camera" : "No image"}
                   </div>
                 )}
-                <span className="pointer-events-none absolute inset-0 bg-[repeating-linear-gradient(0deg,rgb(255_255_255/0.03)_0_1px,transparent_1px_3px)]" />
                 {showImage && (
-                  <span className="absolute bottom-1.5 left-2 hidden max-w-[85%] truncate font-display text-[11px] font-semibold uppercase tracking-[0.12em] text-white [text-shadow:0_0_3px_#000] sm:block">
+                  <span className="absolute bottom-1.5 left-1.5 hidden max-w-[85%] truncate rounded-md bg-black/55 px-1.5 py-0.5 text-[12px] font-medium text-white backdrop-blur-sm sm:block">
                     {pad(c.id)} {c.name}
                   </span>
                 )}
               </div>
-              <figcaption className="flex flex-col gap-1 px-2.5 py-2 text-[12.5px] sm:flex-row sm:items-center sm:justify-between sm:gap-2">
-                <span className="min-w-0 truncate"><span className="font-mono text-muted tabular-nums">{pad(c.id)}</span> · {c.name}</span>
+              <figcaption className="flex flex-col gap-0.5 px-3 py-2 text-[13px] sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+                <span className="min-w-0 truncate text-ink"><span className="text-muted tabular-nums">{pad(c.id)}</span> · {c.name}</span>
                 <CamStatus online={c.online} />
               </figcaption>
             </figure>

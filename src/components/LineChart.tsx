@@ -26,7 +26,7 @@ export function LineChart({ points, format: formatFn, unit, height = 140, label,
       ? new Date(s).toLocaleTimeString("en-US", { timeZone, hour: "numeric", minute: "2-digit" })
       : new Date(`${s}T00:00:00Z`).toLocaleDateString("en-US", { timeZone: "UTC", month: "short", day: "numeric" });
   const h = hover === null ? null : points[hover];
-  const stroke = color ? { stroke: color, filter: `drop-shadow(0 0 5px ${color})` } : undefined;
+  const stroke = color ? { stroke: color } : undefined;
   const gid = `lc-${label.replace(/[^a-z0-9]/gi, "")}-${height}`;
 
   const onMove = (clientX: number) => {
@@ -68,7 +68,7 @@ export function LineChart({ points, format: formatFn, unit, height = 140, label,
             <line x1={0} x2={W} y1={H - pad.bottom} y2={H - pad.bottom} className="stroke-line" strokeWidth={1} vectorEffect="non-scaling-stroke" />
             {area && (
               <>
-                <defs><linearGradient id={gid} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor={color ?? "#3fd0ff"} stopOpacity={0.32} /><stop offset="1" stopColor={color ?? "#3fd0ff"} stopOpacity={0} /></linearGradient></defs>
+                <defs><linearGradient id={gid} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor={color ?? "#007aff"} stopOpacity={0.22} /><stop offset="1" stopColor={color ?? "#007aff"} stopOpacity={0} /></linearGradient></defs>
                 <path d={`${d} L${x(points.length - 1).toFixed(1)},${H - pad.bottom} L${x(0).toFixed(1)},${H - pad.bottom}Z`} fill={`url(#${gid})`} stroke="none" />
               </>
             )}
@@ -94,7 +94,7 @@ export function Sparkline({ points, width = 96, height = 24, color }: { points: 
   const d = points.map((p, i) => `${i ? "L" : "M"}${((i / (points.length - 1)) * width).toFixed(1)},${(2 + (1 - p.value / max) * (height - 4)).toFixed(1)}`).join(" ");
   return (
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden="true" className="shrink-0">
-      <path d={d} fill="none" className={color ? undefined : "stroke-accent"} style={color ? { stroke: color, filter: `drop-shadow(0 0 3px ${color})` } : undefined} strokeWidth={1.5} strokeLinejoin="round" />
+      <path d={d} fill="none" className={color ? undefined : "stroke-accent"} style={color ? { stroke: color } : undefined} strokeWidth={1.5} strokeLinejoin="round" />
     </svg>
   );
 }
