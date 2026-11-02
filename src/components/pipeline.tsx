@@ -9,7 +9,7 @@ import type { DealStage } from "@/lib/server/store/pipeline";
 import { STAGE_LABEL } from "@/lib/pipeline-labels";
 
 // Kept as it was for the Settings page (PlacesForm), which owns its look.
-const input = "w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent";
+const input = "hud-input w-full px-3 py-2 text-[15px] placeholder:text-muted/70";
 const legacyPrimary = "hud-btn hud-btn-solid";
 
 const OPEN: DealStage[] = ["lead", "proposal", "negotiation"];
@@ -41,7 +41,7 @@ function F({ label, className = "", children }: { label: string; className?: str
 
 function Footer({ pending, save, onClose, state }: { pending: boolean; save: string; onClose: () => void; state: PipelineState }) {
   return (
-    <div className="col-span-full flex flex-wrap items-center justify-end gap-3 border-t border-line/70 pt-4">
+    <div className="col-span-full flex flex-wrap items-center justify-end gap-3 border-t border-line pt-4">
       <span className="mr-auto"><Status state={state} /></span>
       <button type="button" onClick={onClose} className={ghost}>Close</button>
       <button disabled={pending} className={primary}>{pending ? "Saving…" : save}</button>
@@ -136,12 +136,12 @@ export function DealForm({ deal = {}, clients, businesses, label = "Add deal" }:
           {(Object.keys(STAGE_LABEL) as DealStage[]).map((s) => <option key={s} value={s}>{STAGE_LABEL[s]}</option>)}
         </select>
       </F>
-      <F label="Value" className="@lg:col-span-2"><input name="value" inputMode="decimal" placeholder="Optional" defaultValue={deal.value} className={`${field} font-mono`} /></F>
-      <F label="Currency" className="@lg:col-span-1"><input name="currency" defaultValue={deal.currency ?? "USD"} maxLength={3} className={`${field} font-mono uppercase`} /></F>
+      <F label="Value" className="@lg:col-span-2"><input name="value" inputMode="decimal" placeholder="Optional" defaultValue={deal.value} className={field} /></F>
+      <F label="Currency" className="@lg:col-span-1"><input name="currency" defaultValue={deal.currency ?? "USD"} maxLength={3} className={`${field} uppercase`} /></F>
       <F label="Business" className="@lg:col-span-1"><BusinessField businesses={businesses} value={deal.business} /></F>
       <F label="Next step" className="@lg:col-span-4"><input name="nextStep" maxLength={200} placeholder="e.g. Send revised quote" defaultValue={deal.nextStep ?? ""} className={field} /></F>
-      <F label="Next step due" className="@lg:col-span-2"><input name="nextStepDue" type="date" defaultValue={deal.nextStepDue ?? ""} className={`${field} font-mono`} /></F>
-      <F label="Expected close" className="@lg:col-span-2"><input name="expectedClose" type="date" defaultValue={deal.expectedClose ?? ""} className={`${field} font-mono`} /></F>
+      <F label="Next step due" className="@lg:col-span-2"><input name="nextStepDue" type="date" defaultValue={deal.nextStepDue ?? ""} className={field} /></F>
+      <F label="Expected close" className="@lg:col-span-2"><input name="expectedClose" type="date" defaultValue={deal.expectedClose ?? ""} className={field} /></F>
       <F label="Notes" className="@lg:col-span-4"><textarea name="notes" maxLength={1000} rows={2} placeholder="Optional" defaultValue={deal.notes ?? ""} className={field} /></F>
       <Footer pending={pending} save="Save deal" onClose={() => setOpen(false)} state={state} />
     </form></div>
@@ -162,8 +162,8 @@ export function DealMoves({ id, stage, title }: { id: string; stage: DealStage; 
   }
   return (
     <div className="flex flex-wrap gap-1.5">
-      {i > 0 && <button className={`${act} [--b:#7f97ab]`} disabled={pending} aria-label={`Back to ${STAGE_LABEL[OPEN[i - 1]]}`} title={`Back to ${STAGE_LABEL[OPEN[i - 1]]}`} onClick={() => move(OPEN[i - 1])}><ChevronLeft size={12} /></button>}
-      {i < OPEN.length - 1 && <button className={`${act} [--b:#7f97ab]`} disabled={pending} aria-label={`On to ${STAGE_LABEL[OPEN[i + 1]]}`} title={`On to ${STAGE_LABEL[OPEN[i + 1]]}`} onClick={() => move(OPEN[i + 1])}><ChevronRight size={12} /></button>}
+      {i > 0 && <button className={act} disabled={pending} aria-label={`Back to ${STAGE_LABEL[OPEN[i - 1]]}`} title={`Back to ${STAGE_LABEL[OPEN[i - 1]]}`} onClick={() => move(OPEN[i - 1])}><ChevronLeft size={12} /></button>}
+      {i < OPEN.length - 1 && <button className={act} disabled={pending} aria-label={`On to ${STAGE_LABEL[OPEN[i + 1]]}`} title={`On to ${STAGE_LABEL[OPEN[i + 1]]}`} onClick={() => move(OPEN[i + 1])}><ChevronRight size={12} /></button>}
       <button className={actOk} disabled={pending} onClick={() => move("won")}>Won</button>
       <button className={act} disabled={pending} onClick={() => move("lost")}>Lost</button>
     </div>
@@ -176,7 +176,7 @@ export function PlacesForm({ initial }: { initial: string }) {
   const [state, action, pending] = useFormState(savePlacesAction, {});
   return (
     <form onSubmit={action} className="grid gap-2">
-      <textarea name="places" rows={4} defaultValue={initial} placeholder={"ChIJN1t_tDeuEmsRUsoyG83frY4 | Kaj Consulting"} className={`${input} font-mono text-xs`} />
+      <textarea name="places" rows={4} defaultValue={initial} placeholder={"ChIJN1t_tDeuEmsRUsoyG83frY4 | Kaj Consulting"} className={`${input} font-mono text-[13px]`} />
       <div className="flex items-center gap-3"><button disabled={pending} className={legacyPrimary}>Save</button><Status state={state} /></div>
     </form>
   );

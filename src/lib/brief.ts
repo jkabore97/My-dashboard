@@ -10,6 +10,28 @@ import type { CalendarEvent, Severity, StripeAccountSummary } from "./types";
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
+// Email look (Apple style, light): a white card on #f5f5f7, system font, inset
+// grouped tables with hairlines, one blue pill button. Inline styles only.
+const INK = "#1d1d1f";
+const MUTED = "#6e6e73";
+const LINE = "#e5e5ea";
+const BLUE = "#0071e3";
+const FONT = "-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',Helvetica,Arial,sans-serif";
+const CELL = `padding:11px 16px;border-top:1px solid ${LINE};font-size:15px;line-height:1.35`;
+const SEV_TEXT: Record<Severity, string> = { critical: "#d70015", high: "#c93400", medium: "#0071e3", low: "#6e6e73" };
+const SEV_BG: Record<Severity, string> = { critical: "#ffe5e3", high: "#fff0dc", medium: "#e5f1ff", low: "#eeeef0" };
+
+const mailPage = (inner: string) => `<!doctype html><html><head><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light"></head><body style="margin:0;padding:24px 12px;background:#f5f5f7;font-family:${FONT};color:${INK};-webkit-font-smoothing:antialiased">
+<div style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:18px;padding:28px 24px;border:1px solid ${LINE}">${inner}
+</div>
+<p style="max-width:560px;margin:14px auto 0;text-align:center;font-size:12px;color:#86868b">Kaj Command Center</p>
+</body></html>`;
+/** Small grey heading above a group. */
+const groupHeader = (t: string) => `<p style="margin:0 0 6px;padding:0 16px;font-size:13px;color:${MUTED}">${esc(t)}</p>`;
+/** An inset grouped table of <tr> rows; hairlines between rows, none above the first. */
+const group = (rows: string[]) => `<table role="presentation" cellspacing="0" cellpadding="0" style="width:100%;border-collapse:separate;border-spacing:0;background:#f5f5f7;border-radius:12px;overflow:hidden;margin:0 0 20px"><tbody>${rows.map((r, i) => (i ? r : r.replaceAll(`border-top:1px solid ${LINE}`, "border-top:0"))).join("")}</tbody></table>`;
+const kvRow = (k: string, v: string) => `<tr><td style="${CELL};color:${INK}">${esc(k)}</td><td style="${CELL};text-align:right;font-weight:600;color:${INK};white-space:nowrap">${esc(v)}</td></tr>`;
+
 export interface BriefTask {
   title: string;
   severity: Severity;
@@ -73,16 +95,14 @@ export function renderBrief(b: BriefInput): Rendered {
     `Open the dashboard: ${b.dashboardUrl}`,
   ].join("\n");
 
-  const color: Record<Severity, string> = { critical: "#dc2626", high: "#ea580c", medium: "#ca8a04", low: "#64748b" };
-  const html = `<!doctype html><html><body style="margin:0;padding:24px;background:#f6f7f9;font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#0f172a">
-<div style="max-width:560px;margin:auto;background:#fff;border-radius:12px;padding:24px">
-<p style="margin:0;color:#64748b;font-size:13px">${esc(formatDate(b.date))}</p>
-<h1 style="margin:4px 0 16px;font-size:20px">Good morning: ${esc(headline)}</h1>
-${lines.length ? `<table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:16px">${lines.map(([k, v]) => `<tr><td style="padding:4px 0;color:#64748b">${esc(k)}</td><td style="padding:4px 0;text-align:right;font-weight:600">${esc(v)}</td></tr>`).join("")}</table>` : ""}
-${top.length ? `<h2 style="font-size:14px;margin:16px 0 8px">Needs attention</h2><ul style="padding-left:0;list-style:none;margin:0">${top.map((t) => `<li style="padding:6px 0;border-top:1px solid #eef0f3;font-size:14px"><span style="color:${color[t.severity]};font-weight:600;text-transform:uppercase;font-size:11px">${t.severity}</span> ${esc(t.title)}${t.business ? ` <span style="color:#64748b">· ${esc(t.business)}</span>` : ""}</li>`).join("")}</ul>` : `<p style="font-size:14px">Nothing critical or high open.</p>`}
-${meetings.length ? `<h2 style="font-size:14px;margin:16px 0 8px">Today</h2><ul style="padding-left:18px;margin:0;font-size:14px">${meetings.map((m) => `<li>${esc(m)}</li>`).join("")}</ul>` : ""}
-<p style="margin-top:24px"><a href="${esc(b.dashboardUrl)}" style="background:#2563eb;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px;font-size:14px">Open the dashboard</a></p>
-</div></body></html>`;
+  const word: Record<Severity, string> = { critical: "Critical", high: "High", medium: "Medium", low: "Low" };
+  const html = mailPage(`
+<p style="margin:0;color:${MUTED};font-size:13px">${esc(formatDate(b.date))}</p>
+<h1 style="margin:2px 0 20px;font-size:24px;line-height:1.25;font-weight:700;letter-spacing:-0.02em;color:${INK}">Good morning: ${esc(headline)}</h1>
+${lines.length ? group(lines.map(([k, v]) => kvRow(k, v))) : ""}
+${top.length ? `${groupHeader("Needs attention")}${group(top.map((t) => `<tr><td style="${CELL}"><span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;font-weight:600;color:${SEV_TEXT[t.severity]};background:${SEV_BG[t.severity]}">${word[t.severity]}</span> <span style="color:${INK}">${esc(t.title)}</span>${t.business ? ` <span style="color:${MUTED}">· ${esc(t.business)}</span>` : ""}</td></tr>`))}` : `<p style="margin:0 0 20px;font-size:15px;color:${INK}">Nothing critical or high open. ✓</p>`}
+${meetings.length ? `${groupHeader("Today")}${group(meetings.map((m) => `<tr><td style="${CELL};color:${INK}">${esc(m)}</td></tr>`))}` : ""}
+<p style="margin:24px 0 0"><a href="${esc(b.dashboardUrl)}" style="display:inline-block;background:${BLUE};color:#ffffff;text-decoration:none;padding:11px 20px;border-radius:980px;font-size:15px;font-weight:600">Open the dashboard</a></p>`);
   return { subject, text, html };
 }
 
@@ -163,12 +183,10 @@ export function renderWeeklyReport(r: WeeklyReport, reportUrl: string): Rendered
     ["Deals won", r.dealsWon.length ? r.dealsWon.map((d) => d.title).join(", ") : "none"],
   ];
   const text = [subject, "", ...rows.map(([k, v]) => `${k}: ${v}`), "", `Full report: ${reportUrl}`].join("\n");
-  const html = `<!doctype html><html><body style="margin:0;padding:24px;background:#f6f7f9;font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#0f172a">
-<div style="max-width:560px;margin:auto;background:#fff;border-radius:12px;padding:24px">
-<p style="margin:0;color:#64748b;font-size:13px">${esc(formatDate(r.from))} – ${esc(formatDate(r.to))}</p>
-<h1 style="margin:4px 0 16px;font-size:20px">${esc(r.business)}: weekly report</h1>
-<table style="width:100%;border-collapse:collapse;font-size:14px">${rows.map(([k, v]) => `<tr><td style="padding:6px 0;border-top:1px solid #eef0f3;color:#64748b">${esc(k)}</td><td style="padding:6px 0;border-top:1px solid #eef0f3;text-align:right;font-weight:600">${esc(v)}</td></tr>`).join("")}</table>
-<p style="margin-top:24px"><a href="${esc(reportUrl)}" style="color:#2563eb">Open the full report</a></p>
-</div></body></html>`;
+  const html = mailPage(`
+<p style="margin:0;color:${MUTED};font-size:13px">${esc(formatDate(r.from))} – ${esc(formatDate(r.to))}</p>
+<h1 style="margin:2px 0 20px;font-size:24px;line-height:1.25;font-weight:700;letter-spacing:-0.02em;color:${INK}">${esc(r.business)}: weekly report</h1>
+${group(rows.map(([k, v]) => kvRow(k, v)))}
+<p style="margin:24px 0 0"><a href="${esc(reportUrl)}" style="display:inline-block;background:${BLUE};color:#ffffff;text-decoration:none;padding:11px 20px;border-radius:980px;font-size:15px;font-weight:600">Open the full report</a></p>`);
   return { subject, text, html };
 }

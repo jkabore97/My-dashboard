@@ -20,6 +20,7 @@ import {
   type RecordState,
 } from "@/app/actions/records";
 import { act, actOk, field, fieldWrap, ghost, label as labelCls, primary } from "@/components/treasury/styles";
+import { Switch } from "@/components/ui";
 
 // Kept as they were for the Domains and Security pages, which own their look.
 const legacyInput = "hud-input w-full px-3 py-2 text-sm placeholder:text-muted/70";
@@ -60,7 +61,7 @@ function Toggle({ label, children }: { label: string; children: (close: () => vo
 
 function FormFooter({ pending, saveLabel, onClose, closeLabel = "Close", state }: { pending: boolean; saveLabel: string; onClose?: () => void; closeLabel?: string; state: RecordState }) {
   return (
-    <div className="flex flex-wrap items-center justify-end gap-3 col-span-full border-t border-line/70 pt-4">
+    <div className="flex flex-wrap items-center justify-end gap-3 col-span-full border-t border-line pt-4">
       <span className="mr-auto"><Status state={state} /></span>
       {onClose && <button type="button" onClick={onClose} className={ghost}>{closeLabel}</button>}
       <button disabled={pending} className={primary}>{pending ? "Saving…" : saveLabel}</button>
@@ -82,9 +83,9 @@ function Segmented({ name, options, defaultValue, label }: { name: string; optio
   return (
     <fieldset className={fieldWrap}>
       <legend className={labelCls}>{label}</legend>
-      <div className="flex border border-line">
+      <div className="flex min-h-10 gap-0.5 rounded-[9px] bg-fill p-0.5">
         {options.map(([value, text]) => (
-          <label key={value} className="hud-label flex min-h-10 flex-1 cursor-pointer items-center justify-center px-2 text-[11px] text-muted has-[:checked]:bg-[color-mix(in_srgb,var(--ga,#ffd84d)_12%,transparent)] has-[:checked]:text-[var(--ga,#ffd84d)] has-[:checked]:shadow-[inset_0_0_0_1px_var(--ga,#ffd84d)] has-[:focus-visible]:outline has-[:focus-visible]:outline-cyan">
+          <label key={value} className="flex flex-1 cursor-pointer items-center justify-center rounded-[7px] px-2 text-[13px] font-medium text-ink/80 transition has-[:checked]:bg-panel has-[:checked]:text-ink has-[:checked]:shadow-[0_1px_3px_rgb(0_0_0/0.12)] has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-cyan dark:has-[:checked]:bg-[#636366]">
             <input type="radio" name={name} value={value} defaultChecked={value === defaultValue} className="sr-only" />
             {text}
           </label>
@@ -96,9 +97,9 @@ function Segmented({ name, options, defaultValue, label }: { name: string; optio
 
 function Check2({ name, defaultChecked, children }: { name: string; defaultChecked: boolean; children: ReactNode }) {
   return (
-    <label className="flex min-h-10 cursor-pointer items-center gap-2.5 text-sm">
-      <input name={name} type="checkbox" defaultChecked={defaultChecked} className="h-4 w-4 accent-[#3df5a0]" />
-      {children}
+    <label className="flex min-h-11 cursor-pointer items-center justify-between gap-3 text-[15px] text-ink">
+      <span>{children}</span>
+      <Switch name={name} defaultChecked={defaultChecked} />
     </label>
   );
 }
@@ -114,11 +115,11 @@ export function InvoiceForm({ businesses }: { businesses: string[] }) {
         <form ref={ref} onSubmit={action} className="grid gap-3 sm:grid-cols-6">
           <F label="Client" className="sm:col-span-3"><input name="client" required maxLength={120} placeholder="Who it's for" className={field} /></F>
           <F label="Invoice #" className="sm:col-span-3"><input name="number" maxLength={40} placeholder="Optional" className={field} /></F>
-          <F label="Amount" className="sm:col-span-2"><input name="amount" required inputMode="decimal" placeholder="1250.00" className={`${field} font-mono`} /></F>
-          <F label="Currency" className="sm:col-span-1"><input name="currency" defaultValue="USD" maxLength={3} className={`${field} font-mono uppercase`} /></F>
+          <F label="Amount" className="sm:col-span-2"><input name="amount" required inputMode="decimal" placeholder="1250.00" className={field} /></F>
+          <F label="Currency" className="sm:col-span-1"><input name="currency" defaultValue="USD" maxLength={3} className={`${field} uppercase`} /></F>
           <F label="Business" className="sm:col-span-3"><BusinessInput businesses={businesses} /></F>
-          <F label="Issued" className="sm:col-span-3"><input name="issuedOn" type="date" className={`${field} font-mono`} /></F>
-          <F label="Due" className="sm:col-span-3"><input name="dueOn" type="date" required className={`${field} font-mono`} /></F>
+          <F label="Issued" className="sm:col-span-3"><input name="issuedOn" type="date" className={field} /></F>
+          <F label="Due" className="sm:col-span-3"><input name="dueOn" type="date" required className={field} /></F>
           <F label="Notes" className="sm:col-span-6"><input name="notes" maxLength={500} placeholder="Optional" className={field} /></F>
           <FormFooter pending={pending} saveLabel="Save invoice" onClose={close} state={state} />
         </form>
@@ -170,14 +171,14 @@ function SubscriptionFields({ s, businesses }: { s: SubscriptionDraft; businesse
       {s.id && <input type="hidden" name="id" value={s.id} />}
       <F label="Platform / vendor" className="col-span-2"><input name="vendor" required maxLength={80} placeholder="e.g. Vercel" defaultValue={s.vendor} className={field} /></F>
       <F label="Plan" className="col-span-2"><input name="plan" maxLength={80} placeholder="Optional, e.g. Pro · 3 seats" defaultValue={s.plan ?? ""} className={field} /></F>
-      <F label="Price per period"><input name="amount" required inputMode="decimal" placeholder="20.00" defaultValue={s.amount} className={`${field} font-mono`} /></F>
-      <F label="Currency"><input name="currency" defaultValue={s.currency ?? "USD"} maxLength={3} className={`${field} font-mono uppercase`} /></F>
+      <F label="Price per period"><input name="amount" required inputMode="decimal" placeholder="20.00" defaultValue={s.amount} className={field} /></F>
+      <F label="Currency"><input name="currency" defaultValue={s.currency ?? "USD"} maxLength={3} className={`${field} uppercase`} /></F>
       <div className="col-span-2"><Segmented name="interval" label="Billing cycle" defaultValue={s.interval ?? "month"} options={[["month", "Monthly"], ["year", "Yearly"]]} /></div>
-      <F label="Next renewal"><input name="nextRenewal" type="date" defaultValue={s.nextRenewal ?? ""} className={`${field} font-mono`} /></F>
+      <F label="Next renewal"><input name="nextRenewal" type="date" defaultValue={s.nextRenewal ?? ""} className={field} /></F>
       <F label="Charged to"><BusinessInput businesses={businesses} defaultValue={s.business} /></F>
       <F label="Billing page URL" className="col-span-2"><input name="url" type="url" placeholder="Optional, https://…" defaultValue={s.url ?? ""} className={field} /></F>
       <F label="Notes" className="col-span-2 sm:col-span-4"><input name="notes" maxLength={500} placeholder="Optional" defaultValue={s.notes ?? ""} className={field} /></F>
-      <div className="col-span-2 sm:col-span-4"><Check2 name="autoRenew" defaultChecked={s.autoRenew ?? true}>Renews automatically <span className="text-xs text-muted">(off: you get a warning before it ends)</span></Check2></div>
+      <div className="col-span-2 sm:col-span-4"><Check2 name="autoRenew" defaultChecked={s.autoRenew ?? true}>Renews automatically <span className="text-[13px] text-muted">(off: you get a warning before it ends)</span></Check2></div>
     </>
   );
 }
@@ -218,7 +219,7 @@ function SubscriptionEdit({ s, businesses, onDone }: { s: SubRowData; businesses
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.at, state.error]);
   return (
-    <form onSubmit={action} className={`${subGrid} hud-cut mt-3 border border-line bg-panel-2/40 p-4`}>
+    <form onSubmit={action} className={`${subGrid} mt-3 rounded-[14px] p-4 shadow-[0_0_0_1px_var(--color-line)]`}>
       <SubscriptionFields s={s} businesses={businesses} />
       <FormFooter pending={saving} saveLabel="Save" onClose={onDone} closeLabel="Cancel" state={state} />
     </form>
@@ -276,7 +277,7 @@ function DeadlineFields({ d, businesses }: { d: DeadlineDraft; businesses: strin
           <option value="other">Other</option>
         </select>
       </F>
-      <F label="Due" className="sm:col-span-2"><input name="dueOn" type="date" required defaultValue={d.dueOn} className={`${field} font-mono`} /></F>
+      <F label="Due" className="sm:col-span-2"><input name="dueOn" type="date" required defaultValue={d.dueOn} className={field} /></F>
       <F label="Repeats" className="sm:col-span-2">
         <select name="recurrence" defaultValue={d.recurrence ?? "none"} className={field}>
           <option value="none">Does not repeat</option>
@@ -285,7 +286,7 @@ function DeadlineFields({ d, businesses }: { d: DeadlineDraft; businesses: strin
           <option value="yearly">Every year</option>
         </select>
       </F>
-      <F label="Remind me (days before)" className="sm:col-span-2"><input name="remindDays" type="number" min={0} max={365} defaultValue={d.remindDays ?? 14} className={`${field} font-mono`} /></F>
+      <F label="Remind me (days before)" className="sm:col-span-2"><input name="remindDays" type="number" min={0} max={365} defaultValue={d.remindDays ?? 14} className={field} /></F>
       <F label="Business" className="sm:col-span-4"><BusinessInput businesses={businesses} defaultValue={d.business} /></F>
       <F label="Link" className="sm:col-span-6"><input name="url" type="url" placeholder="Optional, e.g. the filing portal" defaultValue={d.url ?? ""} className={field} /></F>
       <F label="Notes" className="sm:col-span-6"><input name="notes" maxLength={500} placeholder="Optional" defaultValue={d.notes ?? ""} className={field} /></F>
@@ -328,7 +329,7 @@ function DeadlineEdit({ d, businesses, onDone }: { d: DeadlineRowData; businesse
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.at, state.error]);
   return (
-    <form onSubmit={action} className="hud-cut mt-3 grid gap-3 border border-line bg-panel-2/40 p-4 sm:grid-cols-6">
+    <form onSubmit={action} className="mt-3 grid gap-3 rounded-[14px] p-4 shadow-[0_0_0_1px_var(--color-line)] sm:grid-cols-6">
       <DeadlineFields d={d} businesses={businesses} />
       <FormFooter pending={saving} saveLabel="Save" onClose={onDone} closeLabel="Cancel" state={state} />
     </form>

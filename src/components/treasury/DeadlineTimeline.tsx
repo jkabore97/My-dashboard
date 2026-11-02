@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import { addDays, addMonths, daysBetween, formatDate } from "@/lib/dates";
+import { appleColor, readable, tint } from "@/components/ui";
 
 /**
  * The next ~100 days on one axis, with a pin per deadline and its label above
@@ -20,32 +21,33 @@ export function DeadlineTimeline({ today, pins }: { today: string; pins: { id: s
   return (
     <div className="hidden px-5 pb-4 pt-3 md:block" aria-label="Deadlines on a timeline">
       <div className="relative mx-1.5 h-[178px]">
-        <div className="absolute inset-x-0 h-0.5" style={{ top: AXIS, background: "linear-gradient(90deg, #ff3d6e, #ff9f1c 8%, #3fd0ff 20%, #a98bff 60%, #ff5fd7)" }} />
+        <div className="absolute inset-x-0 h-0.5 rounded-full bg-line" style={{ top: AXIS }} />
         {months.map((m) => (
           <div key={m}>
-            <div className="absolute h-2.5 w-px bg-cyan/50" style={{ top: AXIS - 4, left: `${pos(m)}%` }} />
-            <div className="hud-label absolute -translate-x-1/2 text-[11px] text-muted" style={{ top: 158, left: `${pos(m)}%` }}>{new Date(`${m}T00:00:00Z`).toLocaleDateString("en-US", { timeZone: "UTC", month: "short" })}</div>
+            <div className="absolute h-2.5 w-px bg-line" style={{ top: AXIS - 4, left: `${pos(m)}%` }} />
+            <div className="absolute -translate-x-1/2 text-[12px] text-muted" style={{ top: 158, left: `${pos(m)}%` }}>{new Date(`${m}T00:00:00Z`).toLocaleDateString("en-US", { timeZone: "UTC", month: "short" })}</div>
           </div>
         ))}
-        <div className="absolute w-0.5 bg-[#eaf7ff] shadow-[0_0_10px_#eaf7ff]" style={{ top: AXIS - 14, height: 30, left: `${pos(today)}%` }}>
-          <span className="hud-label absolute -top-4 left-1.5 whitespace-nowrap text-[10px] text-[#eaf7ff]">Today</span>
+        <div className="absolute w-0.5 rounded-full bg-cyan" style={{ top: AXIS - 14, height: 30, left: `${pos(today)}%` }}>
+          <span className="absolute -top-4 left-1.5 whitespace-nowrap text-[12px] font-semibold text-cyan">Today</span>
         </div>
         {pins.map((p, i) => {
           const top = LANES[order[i % 4]];
           const above = top < AXIS;
           const left = pos(p.date);
           const right = left > 66;
-          const c = { "--c": p.color } as CSSProperties;
+          const color = appleColor(p.color);
+          const c = { "--c": color } as CSSProperties;
           return (
             <div key={p.id} style={c}>
-              <div className="absolute w-px" style={{ left: `${left}%`, top: above ? top + 20 : AXIS + 7, height: above ? AXIS - 5 - (top + 20) : top - AXIS - 7, background: "linear-gradient(var(--c), color-mix(in srgb, var(--c) 30%, transparent))" }} />
-              <div className="absolute h-3 w-3 -translate-x-1/2 rotate-45" style={{ left: `${left}%`, top: AXIS - 5, background: "var(--c)", boxShadow: "0 0 10px var(--c)" }} />
+              <div className="absolute w-px bg-line" style={{ left: `${left}%`, top: above ? top + 22 : AXIS + 7, height: above ? AXIS - 5 - (top + 22) : top - AXIS - 7 }} />
+              <div className="absolute h-3 w-3 -translate-x-1/2 rounded-full ring-2 ring-panel" style={{ left: `${left}%`, top: AXIS - 5, background: "var(--c)" }} />
               <div
-                className={`absolute max-w-[42%] truncate whitespace-nowrap px-2 py-0.5 font-display text-xs font-semibold tracking-[0.05em] ${right ? "-translate-x-full border-r-2" : "border-l-2"}`}
-                style={{ left: `${left}%`, top, color: "var(--c)", borderColor: "var(--c)", background: "color-mix(in srgb, var(--c) 10%, transparent)" }}
+                className={`absolute max-w-[42%] truncate whitespace-nowrap rounded-full px-2.5 py-0.5 text-[12px] font-semibold ${right ? "-translate-x-full" : ""}`}
+                style={{ left: `${left}%`, top, color: readable(color), background: tint(color, 14) }}
                 title={`${short(p.date)} · ${p.label}`}
               >
-                {short(p.date)}<em className="ml-1.5 font-sans font-medium not-italic tracking-normal text-[#eaf7ff]">{p.label}</em>
+                {short(p.date)}<em className="ml-1.5 font-normal not-italic text-ink">{p.label}</em>
               </div>
             </div>
           );

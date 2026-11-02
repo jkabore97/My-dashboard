@@ -3,14 +3,14 @@ import { getDashboard } from "@/lib/server/dashboard";
 import { addDays, daysBetween, formatDate, relativeDays, today } from "@/lib/dates";
 import { deadlineSeverity } from "@/lib/risk";
 import type { Severity } from "@/lib/types";
-import { BizLabel, Card, Empty, PageHeader, SeverityBadge } from "@/components/ui";
+import { BizLabel, Card, Empty, PageHeader, SEVERITY_TEXT, SYS, SeverityBadge, Tag } from "@/components/ui";
 import { DeadlineForm, DeadlineRow, ReopenDeadline } from "@/components/records";
-import { FilterChip, Metrics } from "@/components/treasury/ui";
+import { FilterChip, FilterRow, Metrics } from "@/components/treasury/ui";
 import { DeadlineTimeline } from "@/components/treasury/DeadlineTimeline";
 
 const CATEGORY: Record<string, string> = { tax: "Tax", filing: "Filing", license: "License", insurance: "Insurance", contract: "Contract", other: "Other" };
-const CAT_COLOR: Record<string, string> = { tax: "#ffd84d", filing: "#3fd0ff", license: "#2ef2d0", insurance: "#a98bff", contract: "#ff5fd7", other: "#c6f432" };
-const SEV_COLOR: Record<Severity, string> = { critical: "#ff3d6e", high: "#ff9f1c", medium: "#3fd0ff", low: "#8fa6b8" };
+const CAT_COLOR: Record<string, string> = { tax: SYS.indigo, filing: SYS.blue, license: SYS.teal, insurance: SYS.purple, contract: SYS.pink, other: SYS.brown };
+const SEV_COLOR: Record<Severity, string> = { critical: SYS.red, high: SYS.orange, medium: SYS.blue, low: SYS.gray };
 const REPEAT: Record<string, string> = { none: "", monthly: "monthly", quarterly: "quarterly", yearly: "yearly" };
 const short = (date: string) => formatDate(date).replace(/, \d{4}$/, "");
 
@@ -38,50 +38,55 @@ export default async function DeadlinesPage({ searchParams }: { searchParams: Pr
     return { id: x.id, date: x.dueOn, label: x.title, color: sev ? SEV_COLOR[sev] : CAT_COLOR[x.category] };
   });
 
+
   return (
     <>
       <PageHeader mode={d.modes.deadlines === "live" ? undefined : d.modes.deadlines} title="Deadlines" subtitle="Taxes, filings, licenses, insurance and contract renewals. They join your to-do list as they get close; repeating ones roll forward when you finish them." />
-      <div className="-mt-2 mb-5 flex flex-wrap items-center justify-end gap-2">
-        <FilterChip href="/deadlines" on={!cat}>All</FilterChip>
-        {Object.entries(CATEGORY).map(([k, v]) => <FilterChip key={k} href={`/deadlines?cat=${k}`} on={cat === k}>{v}</FilterChip>)}
+      <div className="mb-5 flex flex-wrap items-center gap-2">
+        <div className="mr-auto min-w-0 max-w-full"><FilterRow>
+          <FilterChip href="/deadlines" on={!cat}>All</FilterChip>
+          {Object.entries(CATEGORY).map(([k, v]) => <FilterChip key={k} href={`/deadlines?cat=${k}`} on={cat === k}>{v}</FilterChip>)}
+        </FilterRow></div>
         <DeadlineForm businesses={businesses} />
       </div>
 
-      <Card flush title="Status" action={`${allOpen.length} open · ${repeating} repeating`}>
-        <Metrics
-          items={[
-            { label: "Overdue", value: overdue.length, tone: overdue.length ? "critical" : "ok", hint: overdue.length ? <span className="text-critical">{overdue[0].title} · {-days(overdue[0])} day{days(overdue[0]) === -1 ? "" : "s"} late{overdue.length > 1 ? ` · +${overdue.length - 1} more` : ""}</span> : "nothing late" },
-            { label: "Next 7 days", value: week.length, tone: week.length ? "high" : "ink", hint: week.length ? `${week[0].title} · ${short(week[0].dueOn)}` : "nothing this week" },
-            { label: "Next 30 days", value: month.length, tone: "cyan", hint: month.length ? `next: ${short(month[0].dueOn)}` : "nothing this month" },
-            { label: "Done · 90 days", value: done90.length, tone: "emerald", hint: done90.length ? (lateDone ? `${lateDone} finished after the due date` : "all on time") : "none yet" },
-          ]}
-        />
-        {pins.length > 0 && <DeadlineTimeline today={now} pins={pins} />}
-      </Card>
+      <Metrics
+        items={[
+          { label: "Overdue", value: overdue.length, tone: overdue.length ? "critical" : "ok", hint: overdue.length ? <span className="font-medium text-critical">{overdue[0].title} · {-days(overdue[0])} day{days(overdue[0]) === -1 ? "" : "s"} late{overdue.length > 1 ? ` · +${overdue.length - 1} more` : ""}</span> : "nothing late" },
+          { label: "Next 7 days", value: week.length, tone: week.length ? "high" : "ink", hint: week.length ? `${week[0].title} · ${short(week[0].dueOn)}` : "nothing this week" },
+          { label: "Next 30 days", value: month.length, hint: month.length ? `next: ${short(month[0].dueOn)}` : "nothing this month" },
+          { label: "Done · 90 days", value: done90.length, hint: done90.length ? (lateDone ? `${lateDone} finished after the due date` : "all on time") : "none yet" },
+        ]}
+      />
 
-      <Card flush accent="pink" className="mt-5" title={cat ? `Upcoming · ${CATEGORY[cat]}` : "Upcoming"} action="sorted by due date">
+      {pins.length > 0 && (
+        <Card flush className="mt-5 max-md:hidden" title="Next 100 days" action={`${allOpen.length} open · ${repeating} repeating`}>
+          <DeadlineTimeline today={now} pins={pins} />
+        </Card>
+      )}
+
+      <Card flush className="mt-5" title={cat ? `Upcoming · ${CATEGORY[cat]}` : "Upcoming"} action="sorted by due date">
         {open.length === 0 ? <Empty>{cat ? `No open ${CATEGORY[cat].toLowerCase()} deadlines.` : "No upcoming deadlines. Add your tax dates, annual filings and renewals so nothing sneaks up on you."}</Empty> : (
           <div>
             {open.map((x) => {
               const n = days(x);
               const sev = sevOf(x);
-              const c = sev ? SEV_COLOR[sev] : undefined;
               return (
                 <DeadlineRow
                   key={x.id}
                   businesses={businesses}
                   recurring={x.recurrence !== "none"}
-                  className="grid grid-cols-[78px_minmax(0,1fr)] items-center gap-x-3 gap-y-2 border-b border-line/50 px-4 py-3.5 sm:grid-cols-[96px_minmax(0,1fr)_auto] sm:gap-x-4 sm:px-5"
+                  className="grid grid-cols-[72px_minmax(0,1fr)] items-center gap-x-3 gap-y-2 border-b border-line px-4 py-3.5 last:border-0 sm:grid-cols-[88px_minmax(0,1fr)_auto] sm:gap-x-4 sm:px-5"
                   d={{ id: x.id, title: x.title, category: x.category, dueOn: x.dueOn, recurrence: x.recurrence, remindDays: x.remindDays, business: x.business, url: x.url, notes: x.notes }}
                 >
-                  <div className="self-start border-l-2 pl-3" style={{ borderColor: c ?? "var(--color-line)" }}>
-                    <div className="font-display text-[15px] font-semibold" style={{ color: c ?? "#eaf7ff" }}>{short(x.dueOn)}</div>
-                    <div className="text-xs text-muted">{relativeDays(n)}</div>
+                  <div className="self-start">
+                    <div className="text-[15px] font-semibold tabular-nums" style={{ color: sev && sev !== "low" ? SEVERITY_TEXT[sev] : "var(--color-ink)" }}>{short(x.dueOn)}</div>
+                    <div className="text-[13px] text-muted">{relativeDays(n)}</div>
                   </div>
                   <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2 text-[15px] font-medium">{sev && <SeverityBadge severity={sev} />}{x.url ? <a href={x.url} target="_blank" rel="noreferrer" className="hover:text-cyan">{x.title}</a> : x.title}</div>
-                    <div className="mt-1 text-xs text-muted">
-                      <span className="hud-label text-[11px]" style={{ color: CAT_COLOR[x.category] }}>{CATEGORY[x.category]}</span>
+                    <div className="flex flex-wrap items-center gap-2 text-[15px] text-ink">{sev && <SeverityBadge severity={sev} />}{x.url ? <a href={x.url} target="_blank" rel="noreferrer" className="hover:text-cyan">{x.title}</a> : x.title}</div>
+                    <div className="mt-1 flex flex-wrap items-center gap-x-1 gap-y-1 text-[13px] text-muted">
+                      <Tag color={CAT_COLOR[x.category]}>{CATEGORY[x.category]}</Tag>
                       {x.business && <> · <BizLabel name={x.business} /></>}
                       {[REPEAT[x.recurrence] && `repeats ${REPEAT[x.recurrence]}`, `reminds ${x.remindDays}d before`, x.notes].filter(Boolean).map((t, i) => <span key={i}> · {t}</span>)}
                     </div>
@@ -93,11 +98,11 @@ export default async function DeadlinesPage({ searchParams }: { searchParams: Pr
         )}
         {done.length > 0 && (
           <details className="group border-t border-line">
-            <summary className="hud-label flex min-h-11 cursor-pointer items-center px-4 text-xs text-cyan sm:px-5"><span className="mr-2 inline-block transition-transform group-open:rotate-90">▸</span>Completed ({done.length})</summary>
+            <summary className="flex min-h-11 cursor-pointer list-none items-center px-4 text-[15px] text-cyan sm:px-5 [&::-webkit-details-marker]:hidden"><span aria-hidden className="mr-2 inline-block transition-transform group-open:rotate-90">›</span>Completed ({done.length})</summary>
             <ul>
               {done.map((x) => (
-                <li key={x.id} className="flex flex-wrap items-center justify-between gap-3 border-t border-line/50 px-4 py-2 text-[13px] text-muted sm:px-5">
-                  <span><s className="text-[#9fb3c3]">{x.title}{x.business ? ` · ${x.business}` : ""}</s> · done {short(x.completedOn!)}</span>
+                <li key={x.id} className="flex min-h-11 flex-wrap items-center justify-between gap-3 border-t border-line px-4 py-2 text-[13px] text-muted sm:px-5">
+                  <span><s>{x.title}{x.business ? ` · ${x.business}` : ""}</s> · done {short(x.completedOn!)}</span>
                   <ReopenDeadline id={x.id} />
                 </li>
               ))}
@@ -106,14 +111,14 @@ export default async function DeadlinesPage({ searchParams }: { searchParams: Pr
         )}
       </Card>
 
-      <Card accent="violet" className="mt-5" title="By category" action="open deadlines">
+      <Card className="mt-5" title="By category" action="open deadlines">
         <div className="grid grid-cols-3 gap-2 lg:grid-cols-6">
           {Object.entries(CATEGORY).map(([k, v]) => {
             const n = allOpen.filter((x) => x.category === k).length;
             return (
-              <a key={k} href={`/deadlines?cat=${k}`} className="block border px-3 py-2.5 hover:brightness-125" style={{ borderColor: `color-mix(in srgb, ${CAT_COLOR[k]} 35%, transparent)`, background: `color-mix(in srgb, ${CAT_COLOR[k]} 8%, transparent)` }}>
-                <b className="block font-display text-xl tabular-nums" style={{ color: CAT_COLOR[k] }}>{n}</b>
-                <span className="hud-label text-[11px] text-muted">{v}</span>
+              <a key={k} href={`/deadlines?cat=${k}`} aria-current={cat === k ? "true" : undefined} className={`block rounded-[12px] px-3 py-2.5 transition hover:bg-fill ${cat === k ? "bg-cyan/10" : "bg-panel-2"}`}>
+                <b className="block text-[22px] font-bold leading-tight tabular-nums text-ink">{n}</b>
+                <span className="flex items-center gap-1.5 text-[13px] text-muted"><span aria-hidden className="h-2 w-2 shrink-0 rounded-full" style={{ background: CAT_COLOR[k] }} />{v}</span>
               </a>
             );
           })}

@@ -4,9 +4,9 @@ import { daysBetween, formatDate, relativeDays, today } from "@/lib/dates";
 import { formatMoney, formatTotals, toInputAmount } from "@/lib/money";
 import type { SourceMode } from "@/lib/types";
 import { moneyOverview } from "@/lib/money-summary";
-import { BizLabel, Card, Empty, PageHeader, Tag, businessColor } from "@/components/ui";
+import { BizLabel, Card, Empty, Group, PageHeader, SYS, Tag, businessColor } from "@/components/ui";
 import { SubscriptionForm, SubscriptionRow } from "@/components/records";
-import { AlertRow, FilterChip, Meter, Metrics, Monogram, StackBar } from "@/components/treasury/ui";
+import { AlertRow, FilterChip, FilterRow, Meter, Metrics, Monogram, StackBar, colHead } from "@/components/treasury/ui";
 import { act, primary } from "@/components/treasury/styles";
 import { AutomaticBills, BillCoverage, DetectedBills, showSource } from "@/components/treasury/AutoBills";
 import { combinedSpend, emptyBills } from "@/lib/billing/spend";
@@ -63,7 +63,7 @@ export default async function SpendPage({ searchParams }: { searchParams: Promis
   const list = (show === "stopped" ? subs.filter((s) => !s.active) : byCost).filter((s) => (show === "month" || show === "year" ? s.interval === show && s.amountMinor > 0 : show === "free" ? s.amountMinor === 0 : true));
   const listTotal = formatTotals(spendTotals(list.filter((s) => !combined.resolution.excludedSubIds.has(s.id)).map((s) => ({ ...s, active: true }))).monthly);
   const stack = combined.lines.filter((l) => l.currency === cur && l.monthly > 0).sort((a, b) => b.monthly - a.monthly);
-  const stackParts = [...stack.slice(0, 7).map((l) => ({ value: l.monthly, color: businessColor(l.vendor), title: l.vendor })), { value: stack.slice(7).reduce((n, l) => n + l.monthly, 0), color: "#5e7a8f", title: "Others" }];
+  const stackParts = [...stack.slice(0, 7).map((l) => ({ value: l.monthly, color: businessColor(l.vendor), title: l.vendor })), { value: stack.slice(7).reduce((n, l) => n + l.monthly, 0), color: SYS.gray, title: "Others" }];
   // Every connected platform, for "Bill coverage" (owners only: it names setup problems).
   const connected = owner
     ? PLATFORM_DEFS.filter((p) => p.available).flatMap((p) => {
@@ -78,18 +78,18 @@ export default async function SpendPage({ searchParams }: { searchParams: Promis
   const withData = trend.months.filter((m) => m.amount > 0);
   const savedMonthly = formatTotals(spendTotals(changes.stopped.map((s) => ({ ...s, active: true }))).monthly);
 
-  const grid = "grid grid-cols-[26px_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 border-b border-line/50 px-4 py-3 sm:px-5 lg:grid-cols-[26px_minmax(0,1.5fr)_minmax(0,1fr)_68px_56px_84px_auto]";
+  const grid = "grid grid-cols-[29px_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 border-b border-line px-4 py-3 sm:px-5 lg:grid-cols-[29px_minmax(0,1.5fr)_minmax(0,1fr)_68px_56px_84px_auto]";
 
   const chargedTo = (
     <Card flush title="Charged to" action="per business / mo">
-          <div className="px-4 py-3 sm:px-5">
-        {perBusiness.length === 0 ? <p className="text-sm text-muted">Nothing tracked yet.</p> : perBusiness.map((b) => {
+      <div className="px-4 py-3 sm:px-5">
+        {perBusiness.length === 0 ? <p className="text-[15px] text-muted">Nothing tracked yet.</p> : perBusiness.map((b) => {
           const amt = b.totals.find((t) => t.currency === cur)?.amount ?? 0;
           return (
-            <div key={b.business} className="grid grid-cols-[minmax(0,120px)_1fr_auto] items-center gap-3 py-1.5 text-[13px] sm:grid-cols-[minmax(0,150px)_1fr_auto]">
-              <BizLabel name={b.business} className="truncate" />
+            <div key={b.business} className="grid min-h-9 grid-cols-[minmax(0,120px)_1fr_auto] items-center gap-3 py-1 text-[13px] sm:grid-cols-[minmax(0,150px)_1fr_auto]">
+              <BizLabel name={b.business} className="truncate !text-ink" />
               <Meter pct={(amt / maxBiz) * 100} color={businessColor(b.business)} className="h-2" />
-              <span className="text-right font-mono tabular-nums">{formatTotals(b.totals)}</span>
+              <span className="text-right font-semibold tabular-nums text-ink">{formatTotals(b.totals)}</span>
             </div>
           );
         })}
@@ -104,7 +104,7 @@ export default async function SpendPage({ searchParams }: { searchParams: Promis
       </PageHeader>
 
       {problems.length > 0 && (
-        <Card flush accent="pink" title="Needs attention" action={`${problems.length} ${problems.length === 1 ? "warning" : "warnings"}`} className="mb-5">
+        <Group className="mb-6" header={`Needs attention · ${problems.length} ${problems.length === 1 ? "warning" : "warnings"}`}>
           {problems.map((p) => {
             const s = subs.find((x) => x.id === p.id)!;
             return (
@@ -118,23 +118,22 @@ export default async function SpendPage({ searchParams }: { searchParams: Promis
               />
             );
           })}
-        </Card>
+        </Group>
       )}
 
-      <Card flush title={`Spend overview · ${new Date(`${now}T00:00:00Z`).toLocaleDateString("en-US", { timeZone: "UTC", month: "long" })}`} action={`${totals.count} subscription${totals.count === 1 ? "" : "s"} · ${cur.toUpperCase()}`}>
-        <Metrics
-          cols={5}
-          items={[
-            { label: "Monthly total", value: <>{formatMoney(main, cur)}<small className="text-sm">/mo</small></>, tone: "pink", hint: [monthlyAll.length > 1 ? `+ ${formatTotals(monthlyAll.slice(1))}/mo` : null, apiMonthly.length ? `incl. ${formatTotals(apiMonthly)} from billing APIs` : monthlyAll.length <= 1 ? "yearly plans spread over 12 months" : null].filter(Boolean).join(" · "), extra: <StackBar parts={stackParts} label="Monthly cost by platform" /> },
-            { label: "Yearly run-rate", value: formatMoney(yearlyAll.find((y) => y.currency === cur)?.amount ?? 0, cur), tone: "gold", hint: yearlyAll.length > 1 ? `+ ${formatTotals(yearlyAll.filter((y) => y.currency !== cur))} · at today's prices` : "at today's prices" },
-            { label: "Renewing · 30 days", value: formatMoney(renewTotal, cur), tone: "cyan", hint: renewals.length ? `${renewals.filter((r) => r.autoRenew).length} charge${renewals.filter((r) => r.autoRenew).length === 1 ? "" : "s"}, ${short(renewals[0].date)} – ${short(renewals[renewals.length - 1].date)}${renewOther.length ? ` · also ${renewOther.join(", ")}` : ""}` : "nothing renews in 30 days" },
-            { label: "Paid platforms", value: <>{totals.paid}<small className="text-sm"> / {totals.count}</small></>, tone: "emerald", hint: totals.count - totals.paid ? `${totals.count - totals.paid} on a free tier` : "entered by hand" },
-            { label: "% of revenue", value: share ? `${share.pct}%` : "—", tone: "lime", hint: share ? `${formatMoney(share.spend, share.currency)} of ${formatMoney(share.revenue, share.currency)} (30d)` : stripeLive ? `no ${cur.toUpperCase()} revenue in 30 days` : "needs live Stripe revenue" },
-          ]}
-        />
-      </Card>
+      <Metrics
+        cols={5}
+        items={[
+          { label: "Monthly total", value: <>{formatMoney(main, cur)}<small className="text-[15px] font-semibold text-muted">/mo</small></>, hint: [monthlyAll.length > 1 ? `+ ${formatTotals(monthlyAll.slice(1))}/mo` : null, apiMonthly.length ? `incl. ${formatTotals(apiMonthly)} from billing APIs` : monthlyAll.length <= 1 ? "yearly plans spread over 12 months" : null].filter(Boolean).join(" · "), extra: <StackBar parts={stackParts} label="Monthly cost by platform" /> },
+          { label: "Yearly run-rate", value: formatMoney(yearlyAll.find((y) => y.currency === cur)?.amount ?? 0, cur), hint: yearlyAll.length > 1 ? `+ ${formatTotals(yearlyAll.filter((y) => y.currency !== cur))} · at today's prices` : "at today's prices" },
+          { label: "Renewing · 30 days", value: formatMoney(renewTotal, cur), hint: renewals.length ? `${renewals.filter((r) => r.autoRenew).length} charge${renewals.filter((r) => r.autoRenew).length === 1 ? "" : "s"}, ${short(renewals[0].date)} – ${short(renewals[renewals.length - 1].date)}${renewOther.length ? ` · also ${renewOther.join(", ")}` : ""}` : "nothing renews in 30 days" },
+          { label: "Paid platforms", value: <>{totals.paid}<small className="text-[15px] font-semibold text-muted"> / {totals.count}</small></>, hint: totals.count - totals.paid ? `${totals.count - totals.paid} on a free tier` : "entered by hand" },
+          { label: "% of revenue", value: share ? `${share.pct}%` : "—", hint: share ? `${formatMoney(share.spend, share.currency)} of ${formatMoney(share.revenue, share.currency)} (30d)` : stripeLive ? `no ${cur.toUpperCase()} revenue in 30 days` : "needs live Stripe revenue" },
+        ]}
+      />
+      <p className="mt-2 px-1 text-[13px] text-muted">{new Date(`${now}T00:00:00Z`).toLocaleDateString("en-US", { timeZone: "UTC", month: "long" })} · {totals.count} subscription{totals.count === 1 ? "" : "s"} · {cur.toUpperCase()}</p>
 
-      <div className="mt-5 grid items-start gap-5 xl:grid-cols-[1.45fr_1fr]">
+      <div className="mt-6 grid items-start gap-5 xl:grid-cols-[1.45fr_1fr]">
         <div className="min-w-0"><AutomaticBills bills={bills} modes={d.modes} api={combined.api} resolution={combined.resolution} owner={owner} today={now} /></div>
         <div className="grid min-w-0 gap-5">
           {(showSource(d.modes.billmail) || bills.email.length > 0) && <DetectedBills bills={bills} subs={subs} businesses={businesses} sample={sampleMail} />}
@@ -144,59 +143,63 @@ export default async function SpendPage({ searchParams }: { searchParams: Promis
 
       <div className="mt-5 grid items-start gap-5 xl:grid-cols-[1.45fr_1fr]">
         <div className="grid min-w-0 gap-5">
-        <Card flush accent="violet" title="6-month trend" action={`${cur.toUpperCase()} · at today's prices`}>
-          {active.length === 0 ? <Empty>Add subscriptions to see how spend moves month to month.</Empty> : !trend.hasHistory ? (
-            <Empty>Everything here was added this month, so there&apos;s no trend yet. It builds up from when each subscription is added or stopped.</Empty>
-          ) : (
-            <>
-              <div className="grid h-64 grid-cols-6 items-end gap-2 px-4 pb-2 pt-5 sm:gap-4 sm:px-5" role="img" aria-label={`Monthly cost over the last 6 months: ${trend.months.map((m) => `${monthName(m.month)} ${formatMoney(m.amount, cur)}`).join(", ")}`}>
-                {trend.months.map((m, i) => {
-                  const last = i === trend.months.length - 1;
-                  return (
-                    <div key={m.month} className="flex h-full flex-col items-center justify-end gap-1.5">
-                      <span className="font-mono text-[11px] tabular-nums text-ink sm:text-xs">{m.amount ? formatMoney(m.amount, cur).replace(/\.00$/, "") : "—"}</span>
-                      <i className="block w-full max-w-16" style={{ height: `${(m.amount / trendMax) * 75}%`, background: "linear-gradient(180deg, #ff5fd7, rgb(169 139 255 / 0.35))", opacity: last ? 1 : 0.7, boxShadow: last ? "0 0 12px rgb(255 95 215 / 0.45)" : undefined }} />
-                      <span className={`hud-label text-[11px] ${last ? "text-gold" : "text-muted"}`}>{monthName(m.month)}</span>
-                    </div>
-                  );
-                })}
-              </div>
-              <p className="px-4 pb-3 text-xs text-muted sm:px-5">Approximate: each subscription counts from the month it was added until it stopped being tracked, at its current price. Price changes aren&apos;t recorded.</p>
-              <div className="grid grid-cols-3 border-t border-line/70">
-                <div className="border-r border-line/70 px-4 py-3 sm:px-5"><div className="hud-label text-[11px] text-muted">Average</div><div className="mt-1 font-mono text-base tabular-nums">{formatMoney(Math.round(withData.reduce((n, m) => n + m.amount, 0) / Math.max(1, withData.length)), cur)}</div></div>
-                <div className="border-r border-line/70 px-4 py-3 sm:px-5"><div className="hud-label text-[11px] text-muted">Since {monthName(withData[0]?.month ?? trend.months[0].month)}</div><div className="mt-1 font-mono text-base tabular-nums">{(() => { const delta = trend.months[trend.months.length - 1].amount - (withData[0]?.amount ?? 0); return `${delta >= 0 ? "+" : "−"}${formatMoney(Math.abs(delta), cur)}`; })()}</div></div>
-                <div className="px-4 py-3 sm:px-5"><div className="hud-label text-[11px] text-muted">Stopped · 30d</div><div className="mt-1 font-mono text-base tabular-nums text-emerald">{changes.stopped.length ? `${savedMonthly}/mo` : "—"}</div></div>
-              </div>
-            </>
-          )}
-        </Card>
-        {!trend.hasHistory && chargedTo}
+          <Card flush title="6-month trend" action={`${cur.toUpperCase()} · at today's prices`}>
+            {active.length === 0 ? <Empty>Add subscriptions to see how spend moves month to month.</Empty> : !trend.hasHistory ? (
+              <Empty>Everything here was added this month, so there&apos;s no trend yet. It builds up from when each subscription is added or stopped.</Empty>
+            ) : (
+              <>
+                <div className="relative mx-4 mb-2 mt-5 h-60 sm:mx-5" style={{ backgroundImage: "linear-gradient(var(--color-line) 1px, transparent 1px)", backgroundSize: "100% 25%" }}>
+                  <div className="absolute inset-0 grid grid-cols-6 items-end gap-2 border-b border-line sm:gap-4" role="img" aria-label={`Monthly cost over the last 6 months: ${trend.months.map((m) => `${monthName(m.month)} ${formatMoney(m.amount, cur)}`).join(", ")}`}>
+                    {trend.months.map((m, i) => {
+                      const last = i === trend.months.length - 1;
+                      return (
+                        <div key={m.month} className="flex h-full flex-col items-center justify-end gap-1.5">
+                          <span className="whitespace-nowrap text-[12px] font-medium tabular-nums text-ink sm:text-[13px]">{m.amount ? formatMoney(m.amount, cur).replace(/\.00$/, "") : "—"}</span>
+                          <i className="block w-full max-w-14 rounded-t-[4px]" style={{ height: `${(m.amount / trendMax) * 75}%`, background: SYS.blue, opacity: last ? 1 : 0.45 }} />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="mx-4 grid grid-cols-6 gap-2 sm:mx-5 sm:gap-4">
+                  {trend.months.map((m, i) => <span key={m.month} className={`text-center text-[12px] ${i === trend.months.length - 1 ? "font-semibold text-ink" : "text-muted"}`}>{monthName(m.month)}</span>)}
+                </div>
+                <p className="px-4 pb-3 pt-2 text-[13px] text-muted sm:px-5">Approximate: each subscription counts from the month it was added until it stopped being tracked, at its current price. Price changes aren&apos;t recorded.</p>
+                <div className="grid grid-cols-3 border-t border-line">
+                  <div className="border-r border-line px-4 py-3 sm:px-5"><div className="text-[13px] text-muted">Average</div><div className="mt-0.5 text-[17px] font-semibold tabular-nums text-ink">{formatMoney(Math.round(withData.reduce((n, m) => n + m.amount, 0) / Math.max(1, withData.length)), cur)}</div></div>
+                  <div className="border-r border-line px-4 py-3 sm:px-5"><div className="text-[13px] text-muted">Since {monthName(withData[0]?.month ?? trend.months[0].month)}</div><div className="mt-0.5 text-[17px] font-semibold tabular-nums text-ink">{(() => { const delta = trend.months[trend.months.length - 1].amount - (withData[0]?.amount ?? 0); return `${delta >= 0 ? "+" : "−"}${formatMoney(Math.abs(delta), cur)}`; })()}</div></div>
+                  <div className="px-4 py-3 sm:px-5"><div className="text-[13px] text-muted">Stopped · 30d</div><div className={`mt-0.5 text-[17px] font-semibold tabular-nums ${changes.stopped.length ? "text-ok" : "text-ink"}`}>{changes.stopped.length ? `${savedMonthly}/mo` : "—"}</div></div>
+                </div>
+              </>
+            )}
+          </Card>
+          {!trend.hasHistory && chargedTo}
         </div>
 
         <div className="grid min-w-0 gap-5">
-        <Card flush title="What changed · last 30 days" action={`${changes.added.length} added · ${changes.stopped.length} stopped`}>
-          <div className="px-4 py-2 sm:px-5">
-            {changes.added.length + changes.stopped.length === 0 ? <p className="py-3 text-sm text-muted">No subscriptions added or stopped in the last 30 days.</p> : (
-              <>
-                {changes.added.map((s) => <div key={s.id} className="flex justify-between gap-3 border-b border-dashed border-line/70 py-2 text-[13px]"><span className="min-w-0 truncate text-muted">{s.vendor} · new{s.business ? ` · ${s.business}` : ""}</span><b className="shrink-0 font-mono font-medium tabular-nums text-ink">+{formatMoney(monthlyOf(s), s.currency)}</b></div>)}
-                {changes.stopped.map((s) => <div key={s.id} className="flex justify-between gap-3 border-b border-dashed border-line/70 py-2 text-[13px]"><span className="min-w-0 truncate text-muted">{s.vendor} · stopped{s.business ? ` · ${s.business}` : ""}</span><b className="shrink-0 font-mono font-medium tabular-nums text-emerald">−{formatMoney(monthlyOf(s), s.currency)}</b></div>)}
-              </>
+          <Card flush title="What changed · last 30 days" action={`${changes.added.length} added · ${changes.stopped.length} stopped`}>
+            {changes.added.length + changes.stopped.length === 0 ? <Empty>No subscriptions added or stopped in the last 30 days.</Empty> : (
+              <ul>
+                {changes.added.map((s) => <li key={s.id} className="flex min-h-11 items-center justify-between gap-3 border-b border-line px-4 py-2 text-[15px] last:border-0 sm:px-5"><span className="min-w-0 truncate text-ink">{s.vendor}<span className="text-muted"> · new{s.business ? ` · ${s.business}` : ""}</span></span><b className="shrink-0 font-semibold tabular-nums text-ink">+{formatMoney(monthlyOf(s), s.currency)}</b></li>)}
+                {changes.stopped.map((s) => <li key={s.id} className="flex min-h-11 items-center justify-between gap-3 border-b border-line px-4 py-2 text-[15px] last:border-0 sm:px-5"><span className="min-w-0 truncate text-ink">{s.vendor}<span className="text-muted"> · stopped{s.business ? ` · ${s.business}` : ""}</span></span><b className="shrink-0 font-semibold tabular-nums text-ok">−{formatMoney(monthlyOf(s), s.currency)}</b></li>)}
+              </ul>
             )}
-          </div>
-        </Card>
-        {trend.hasHistory && chargedTo}
+          </Card>
+          {trend.hasHistory && chargedTo}
         </div>
       </div>
 
       <div className="mt-5 grid items-start gap-5 xl:grid-cols-[1.45fr_1fr]">
-        <Card flush accent="cyan" title="All platforms" action={`${list.length} · ${show === "stopped" ? "not tracked" : "sorted by monthly cost"}`}>
-          <div className="flex flex-wrap gap-2 border-b border-line/70 px-4 py-3 sm:px-5">
-            {(Object.keys(FILTERS) as Filter[]).map((f) => <FilterChip key={f} href={f === "all" ? "/spend" : `/spend?show=${f}`} on={show === f}>{FILTERS[f]}</FilterChip>)}
+        <Card flush title="All platforms" action={`${list.length} · ${show === "stopped" ? "not tracked" : "sorted by monthly cost"}`}>
+          <div className="border-b border-line px-4 py-3 sm:px-5">
+            <FilterRow>
+              {(Object.keys(FILTERS) as Filter[]).map((f) => <FilterChip key={f} href={f === "all" ? "/spend" : `/spend?show=${f}`} on={show === f}>{FILTERS[f]}</FilterChip>)}
+            </FilterRow>
           </div>
           {list.length === 0 ? <Empty>{subs.length === 0 ? "Add the services you pay for (hosting, email, domains, design tools…) to see monthly cost per business and get renewal reminders." : "Nothing matches this filter."}</Empty> : (
             <div role="table" aria-label="Platforms">
-              <div role="row" className="hidden grid-cols-[26px_minmax(0,1.6fr)_minmax(0,1.1fr)_80px_80px_96px_auto] gap-3 border-b border-line px-5 py-2.5 lg:grid">
-                {["", "Platform", "Business", "Billing", "Renews", "/ mo", ""].map((h, i) => <span key={i} role="columnheader" className={`hud-label text-[11px] text-muted ${h === "/ mo" ? "text-right" : ""}`}>{h}</span>)}
+              <div role="row" className="hidden grid-cols-[29px_minmax(0,1.5fr)_minmax(0,1fr)_68px_56px_84px_auto] gap-3 border-b border-line px-5 py-2.5 lg:grid">
+                {["", "Platform", "Business", "Billing", "Renews", "/ mo", ""].map((h, i) => <span key={i} role="columnheader" className={`${colHead} ${h === "/ mo" ? "text-right" : ""}`}>{h}</span>)}
               </div>
               {list.map((s) => {
                 const next = s.active ? nextDate(s, now) : null;
@@ -204,7 +207,7 @@ export default async function SpendPage({ searchParams }: { searchParams: Promis
                 const flag = problemIds.has(s.id);
                 const free = s.amountMinor === 0;
                 return (
-                  <div key={s.id} id={`sub-${s.id}`} className={`scroll-mt-6 ${s.active ? "" : "opacity-60"}`}>
+                  <div key={s.id} id={`sub-${s.id}`} className={`scroll-mt-24 ${s.active ? "" : "opacity-60"}`}>
                     <SubscriptionRow
                       businesses={businesses}
                       className={grid}
@@ -214,50 +217,50 @@ export default async function SpendPage({ searchParams }: { searchParams: Promis
                     >
                       <Monogram name={s.vendor} />
                       <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                        <div className="flex flex-wrap items-center gap-2 text-[15px] text-ink">
                           {s.url ? <a href={s.url} target="_blank" rel="noreferrer" className="hover:text-cyan">{s.vendor}</a> : s.vendor}
-                          {flag && <Tag color={days !== null && days < 0 ? "#ff3d6e" : "#ff9f1c"}>{days !== null && days < 0 ? "Ended" : "Ends soon"}</Tag>}
+                          {flag && <Tag color={days !== null && days < 0 ? SYS.red : SYS.orange}>{days !== null && days < 0 ? "Ended" : "Ends soon"}</Tag>}
                           {!s.active && <Tag>Not tracked</Tag>}
-                          {combined.resolution.excludedSubIds.has(s.id) && <Tag color="#3fd0ff" title="You chose the billing API's amount for this vendor; this entry isn't counted">Billing API counts instead</Tag>}
+                          {combined.resolution.excludedSubIds.has(s.id) && <Tag color={SYS.blue} title="You chose the billing API's amount for this vendor; this entry isn't counted">Billing API counts instead</Tag>}
                         </div>
-                        <div className="truncate text-xs text-muted">{[s.plan, free ? "Free tier" : null].filter(Boolean).join(" · ") || "—"}</div>
-                        <div className="text-xs text-muted lg:hidden">
+                        <div className="truncate text-[13px] text-muted">{[s.plan, free ? "Free tier" : null].filter(Boolean).join(" · ") || "—"}</div>
+                        <div className="text-[13px] text-muted lg:hidden">
                           {s.business ?? "Unassigned"} · {free ? "free" : `${formatMoney(s.amountMinor, s.currency)}/${s.interval === "month" ? "mo" : "yr"}`}{next ? ` · ${s.autoRenew ? "renews" : "ends"} ${short(next)}` : ""}
                         </div>
                       </div>
                       <div className="hidden min-w-0 lg:block"><BizLabel name={s.business ?? "Unassigned"} className="max-w-full overflow-hidden whitespace-nowrap" /></div>
-                      <span className="hidden text-sm lg:block">{free ? "Free" : s.interval === "month" ? "Monthly" : "Yearly"}</span>
-                      <span className={`hidden font-mono text-sm tabular-nums lg:block ${flag ? (days! < 0 ? "text-critical" : "text-high") : ""}`}>{next ? short(next) : "—"}</span>
-                      <span className={`text-right font-mono text-sm tabular-nums ${free ? "text-muted" : ""}`}>{formatMoney(monthlyOf(s), s.currency)}</span>
+                      <span className="hidden text-[13px] text-muted lg:block">{free ? "Free" : s.interval === "month" ? "Monthly" : "Yearly"}</span>
+                      <span className={`hidden text-[13px] tabular-nums lg:block ${flag ? (days! < 0 ? "text-critical" : "text-warn") : "text-muted"}`}>{next ? short(next) : "—"}</span>
+                      <span className={`text-right text-[15px] font-semibold tabular-nums ${free ? "text-muted" : "text-ink"}`}>{formatMoney(monthlyOf(s), s.currency)}</span>
                     </SubscriptionRow>
                   </div>
                 );
               })}
               {show !== "stopped" && (
-                <div className="flex items-center justify-between px-4 py-3 sm:px-5">
-                  <span className="hud-label text-xs text-gold">Total</span>
-                  <span className="font-mono text-base tabular-nums text-gold">{listTotal}/mo</span>
+                <div className="flex min-h-11 items-center justify-between bg-panel-2/60 px-4 py-3 sm:px-5">
+                  <span className="text-[15px] font-semibold text-ink">Total</span>
+                  <span className="text-[17px] font-bold tabular-nums text-ink">{listTotal}/mo</span>
                 </div>
               )}
             </div>
           )}
         </Card>
 
-        <Card flush accent="pink" title="Renewals · next 30 days" action={renewals.length ? formatMoney(renewTotal, cur) : undefined}>
+        <Card flush title="Renewals · next 30 days" action={renewals.length ? formatMoney(renewTotal, cur) : undefined}>
           {renewals.length === 0 ? <Empty>Nothing renews in the next 30 days{active.some((s) => !s.nextRenewal) ? ". Add renewal dates to see them here" : ""}.</Empty> : (
-            <ol className="px-4 py-1.5 sm:px-5">
+            <ol>
               {renewals.map((r) => {
                 const flag = !r.autoRenew;
                 const dt = new Date(`${r.date}T00:00:00Z`);
                 return (
-                  <li key={`${r.id}-${r.date}`} className="grid grid-cols-[56px_minmax(0,1fr)] items-center gap-3.5 border-b border-dashed border-line/70 py-2.5 last:border-0 sm:grid-cols-[60px_minmax(0,1fr)_auto]">
-                    <div className={`border py-1 text-center font-display text-[11px] font-semibold uppercase tracking-[0.06em] ${flag ? "border-high text-high" : "border-line text-[#9be7ff]"}`}>
-                      {dt.toLocaleDateString("en-US", { timeZone: "UTC", month: "short" })}
-                      <b className={`block text-lg leading-tight ${flag ? "text-high" : "text-[#eaf7ff]"}`}>{dt.getUTCDate()}</b>
+                  <li key={`${r.id}-${r.date}`} className="grid grid-cols-[44px_minmax(0,1fr)] items-center gap-3 border-b border-line px-4 py-2.5 last:border-0 sm:grid-cols-[44px_minmax(0,1fr)_auto] sm:px-5">
+                    <div className="overflow-hidden rounded-[9px] bg-panel-2 text-center shadow-[0_0_0_1px_var(--color-line)]">
+                      <div className={`py-0.5 text-[12px] font-semibold leading-tight ${flag ? "bg-high text-white" : "bg-fill text-muted"}`}>{dt.toLocaleDateString("en-US", { timeZone: "UTC", month: "short" })}</div>
+                      <b className="block py-0.5 text-[17px] font-semibold leading-tight tabular-nums text-ink">{dt.getUTCDate()}</b>
                     </div>
                     <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2 text-sm">{r.vendor}{r.plan ? <span className="text-muted">{r.plan}</span> : null}{flag ? <Tag color="#ff9f1c">Ends · no auto-renew</Tag> : r.interval === "year" ? <Tag color="#3fd0ff">Yearly</Tag> : null}</div>
-                      <div className="text-xs text-muted">{r.business ?? "Unassigned"} · <span className="font-mono tabular-nums">{formatMoney(r.amount, r.currency)}</span> · {relativeDays(r.days)}</div>
+                      <div className="flex flex-wrap items-center gap-2 text-[15px] text-ink">{r.vendor}{r.plan ? <span className="text-[13px] text-muted">{r.plan}</span> : null}{flag ? <Tag color={SYS.orange}>Ends · no auto-renew</Tag> : r.interval === "year" ? <Tag color={SYS.blue}>Yearly</Tag> : null}</div>
+                      <div className="text-[13px] text-muted">{r.business ?? "Unassigned"} · <span className="tabular-nums">{formatMoney(r.amount, r.currency)}</span> · {relativeDays(r.days)}</div>
                     </div>
                     <span className="max-sm:hidden"><a href={`#sub-${r.id}`} className={act}>Details</a></span>
                   </li>
@@ -268,7 +271,7 @@ export default async function SpendPage({ searchParams }: { searchParams: Promis
         </Card>
       </div>
 
-      <div id="add-subscription" className="scroll-mt-6">
+      <div id="add-subscription" className="scroll-mt-24">
         <Card className="mt-5" title="Add subscription" action="entered by hand">
           <SubscriptionForm businesses={businesses} inline />
         </Card>
