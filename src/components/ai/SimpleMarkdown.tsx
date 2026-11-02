@@ -6,7 +6,7 @@ import { Check, Copy } from "lucide-react";
 /** Bold, inline code, code blocks, bullet and numbered lists, headings, rules: enough for short answers. Text stays escaped by React. */
 function inline(text: string): ReactNode[] {
   return text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).map((part, i) =>
-    part.startsWith("**") && part.endsWith("**") ? <strong key={i} className="font-semibold text-[#f2faff]">{part.slice(2, -2)}</strong> : part.startsWith("`") && part.endsWith("`") ? <code key={i} className="bg-cyan/10 px-1 font-mono text-xs text-cyan">{part.slice(1, -1)}</code> : <Fragment key={i}>{part}</Fragment>,
+    part.startsWith("**") && part.endsWith("**") ? <strong key={i} className="font-semibold text-ink">{part.slice(2, -2)}</strong> : part.startsWith("`") && part.endsWith("`") ? <code key={i} className="rounded-md bg-fill px-1.5 font-mono text-[12.5px] text-ink">{part.slice(1, -1)}</code> : <Fragment key={i}>{part}</Fragment>,
   );
 }
 
@@ -23,12 +23,12 @@ function CodeBlock({ code }: { code: string }) {
     }
   };
   return (
-    <div className="relative my-3 border border-cyan/20 bg-[#050a14]">
-      <button type="button" onClick={copy} className="hud-btn absolute right-2 top-2 inline-flex min-h-9 items-center gap-1.5 px-2.5 py-1 text-[11px]">
+    <div className="relative my-3 overflow-hidden rounded-[12px] bg-panel-2 shadow-[0_0_0_1px_var(--color-line)]">
+      <button type="button" onClick={copy} className="hud-btn absolute right-2 top-2 min-h-8 rounded-full bg-panel px-3 py-1 text-[13px] shadow-[0_0_0_1px_var(--color-line)]">
         {copied ? <Check size={12} aria-hidden /> : <Copy size={12} aria-hidden />}
         {copied ? "Copied" : "Copy"}
       </button>
-      <pre className="max-h-[28rem] overflow-auto whitespace-pre-wrap break-words p-4 pr-24 font-mono text-[12.5px] leading-relaxed text-[#d6ecff]">{code}</pre>
+      <pre className="max-h-[28rem] overflow-auto whitespace-pre-wrap break-words p-4 pr-24 font-mono text-[12.5px] leading-relaxed text-ink">{code}</pre>
     </div>
   );
 }
@@ -83,11 +83,11 @@ export function SimpleMarkdown({ text }: { text: string }) {
     if (!line.trim()) continue; // blank lines don't end a list
     flush();
     const heading = line.match(/^#{1,4}\s+(.*)$/);
-    if (heading) blocks.push(<p key={blocks.length} className="hud-label mt-3 text-[12px] text-cyan">{inline(heading[1])}</p>);
-    else if (/^\s*([-*_])\1{2,}\s*$/.test(line)) blocks.push(<hr key={blocks.length} className="my-3 border-cyan/15" />);
+    if (heading) blocks.push(<p key={blocks.length} className="mt-3 text-[15px] font-semibold text-ink">{inline(heading[1])}</p>);
+    else if (/^\s*([-*_])\1{2,}\s*$/.test(line)) blocks.push(<hr key={blocks.length} className="my-3 border-line" />);
     else blocks.push(<p key={blocks.length} className="my-2">{inline(line)}</p>);
   }
   if (fence) blocks.push(<CodeBlock key={blocks.length} code={fence.join("\n")} />); // unclosed block
   flush();
-  return <div className="text-sm leading-relaxed">{blocks}</div>;
+  return <div className="text-[15px] leading-relaxed text-ink">{blocks}</div>;
 }
