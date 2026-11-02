@@ -53,12 +53,32 @@ export default async function DashLayout({ children }: { children: React.ReactNo
         )}
         {errors.length > 0 && (
           <div className="mb-4 rounded-[14px] bg-critical/10 px-4 py-3 text-[14px]">
-            <strong className="text-critical">Connector errors:</strong>{" "}
-            <span className="break-words text-muted">{errors.join(" · ")}</span>
+            <strong className="text-critical">{errors.length === 1 ? "A connection needs attention" : `${errors.length} connections need attention`}</strong>
+            <ul className="mt-1 space-y-0.5">
+              {errors.map((e) => <li key={e} title={e} className="break-words text-muted">{friendlyError(e)}</li>)}
+            </ul>
+            <a href="/platforms" className="mt-1 inline-block font-medium text-accent hover:underline">Open Platforms</a>
           </div>
         )}
         {children}
         <AutoRefresh at={d.externalAt} />
     </Shell>
   );
+}
+
+/** "GitHub (401 Unauthorized from api.github.com: {…})" → "GitHub: the sign-in expired or was revoked. Reconnect it." (full text stays in the tooltip). */
+function friendlyError(e: string): string {
+  const m = e.match(/^([^(]+?)\s*\((.*)\)\s*$/s);
+  const name = (m?.[1] ?? "").trim();
+  const detail = m?.[2] ?? e;
+  const code = detail.match(/\b([45]\d\d)\b/)?.[1];
+  const why =
+    code === "401" ? "the sign-in or token expired or was revoked. Reconnect it."
+    : code === "403" ? "permission was refused. Check the token's or app's permissions, then reconnect."
+    : code === "404" ? "the account or resource wasn't found. Check the connection's settings."
+    : code === "429" ? "too many requests right now. It retries on its own."
+    : code?.startsWith("5") ? "the platform is having problems on its side. It retries on its own."
+    : /timed? ?out|abort/i.test(detail) ? "it didn't answer in time. It retries on its own."
+    : detail.length > 140 ? `${detail.slice(0, 140)}…` : detail;
+  return name ? `${name}: ${why}` : why;
 }
