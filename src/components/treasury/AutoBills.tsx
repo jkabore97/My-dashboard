@@ -9,7 +9,7 @@ import type { CoverageHow, CoverageRow } from "@/lib/billing/coverage";
 import type { Bills, InvoiceStatus } from "@/lib/billing/types";
 import type { SourceMode } from "@/lib/types";
 import { samplesEnabled } from "@/lib/source";
-import { BizLabel, Card, Empty, Tag } from "@/components/ui";
+import { BizLabel, Card, Empty, SYS, Tag } from "@/components/ui";
 import { SubscriptionForm } from "@/components/records";
 import { Meter } from "@/components/treasury/ui";
 import { act } from "@/components/treasury/styles";
@@ -19,20 +19,20 @@ import { SpendChoice } from "@/components/treasury/SpendChoice";
 // bills recognised in shared mailboxes, and which platform's bill is known how.
 // Server components; the only client parts are the choice toggle and the form.
 
-const API_TAG = <Tag color="#3fd0ff" title="Read automatically from the platform's billing API">Billing API</Tag>;
+const API_TAG = <Tag color={SYS.blue} title="Read automatically from the platform's billing API">Billing API</Tag>;
 const SAMPLE_TAG = <Tag title="Sample data: connect the platform to see yours">Sample</Tag>;
 const monthName = (ym: string, year = false) => new Date(`${ym}-01T00:00:00Z`).toLocaleDateString("en-US", { timeZone: "UTC", month: "short", ...(year ? { year: "numeric" } : {}) });
 const short = (date: string) => formatDate(date).replace(/, \d{4}$/, "");
-const STATUS: Record<InvoiceStatus, [string, string]> = { due: ["Due", "#3fd0ff"], overdue: ["Overdue", "#ff3d6e"], paid: ["Paid", "#7f97ab"], void: ["Void", "#7f97ab"], other: ["—", "#7f97ab"] };
+const STATUS: Record<InvoiceStatus, [string, string]> = { due: ["Due", SYS.blue], overdue: ["Overdue", SYS.red], paid: ["Paid", SYS.gray], void: ["Void", SYS.gray], other: ["—", SYS.gray] };
 
 /** Whether a source's data should be shown: real data, or samples while developing. */
 export const showSource = (mode: SourceMode | undefined) => mode === "live" || (mode !== undefined && samplesEnabled());
 
 function Block({ title, tags, right, children }: { title: ReactNode; tags?: ReactNode; right?: ReactNode; children: ReactNode }) {
   return (
-    <div className="border-b border-line/70 px-4 py-4 last:border-0 sm:px-5">
+    <div className="border-b border-line px-4 py-4 last:border-0 sm:px-5">
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <h3 className="font-display text-sm font-semibold tracking-wide text-ink">{title}</h3>
+        <h3 className="text-[15px] font-semibold text-ink">{title}</h3>
         {tags}
         {right && <div className="ml-auto flex flex-wrap items-center gap-2">{right}</div>}
       </div>
@@ -54,7 +54,7 @@ function Counted({ vendor, r, owner }: { vendor: string; r: SpendResolution; own
       : `Your entr${v.overlap.length === 1 ? "y" : "ies"} count for ${bizList(v.overlap)}; the API's ${formatTotals(v.leftOutApi)}/mo for ${v.overlap.length === 1 ? "it" : "them"} is left out${v.counted.length ? `. ${formatTotals(v.counted)}/mo for other businesses still counts` : ""}`;
   return (
     <>
-      <span className="max-w-full text-[11px] text-muted">{text}.</span>
+      <span className="max-w-full text-[13px] leading-snug text-muted">{text}.</span>
       {owner && v.hasManual && <SpendChoice vendor={vendor} choice={v.choice} />}
     </>
   );
@@ -63,9 +63,9 @@ function Counted({ vendor, r, owner }: { vendor: string; r: SpendResolution; own
 function Stat({ label, value, hint }: { label: string; value: ReactNode; hint?: ReactNode }) {
   return (
     <div className="min-w-0">
-      <div className="hud-label truncate text-[11px] text-muted">{label}</div>
-      <div className="mt-1 truncate font-mono text-base tabular-nums text-ink">{value}</div>
-      {hint && <div className="truncate text-[11px] text-muted">{hint}</div>}
+      <div className="truncate text-[13px] text-muted">{label}</div>
+      <div className="mt-0.5 truncate text-[17px] font-semibold tabular-nums text-ink">{value}</div>
+      {hint && <div className="truncate text-[12px] text-muted">{hint}</div>}
     </div>
   );
 }
@@ -81,7 +81,7 @@ export function AutomaticBills({ bills, modes, api, resolution, owner, today }: 
   const nothing = !showMs && !showG && !others.length && !stripeFees && !pending.length;
 
   return (
-    <Card flush accent="cyan" title="Automatic bills" action="read from billing APIs · never converted">
+    <Card flush title="Automatic bills" action="read from billing APIs · never converted">
       {nothing ? (
         <Empty>{owner ? "No billing API connected yet. Connect Microsoft 365 admin or Google Cloud on Platforms, or give Cloudflare and GitHub tokens billing access." : "No automatic bills you can see yet."}</Empty>
       ) : (
@@ -106,17 +106,17 @@ export function AutomaticBills({ bills, modes, api, resolution, owner, today }: 
                     })}
                   </div>
                 ) : null}
-                {p.message && <p className={`mt-2 text-xs ${p.status === "permission" || p.status === "error" ? "text-high" : "text-muted"}`}>{p.message}</p>}
+                {p.message && <p className={`mt-2 text-[13px] ${p.status === "permission" || p.status === "error" ? "text-warn" : "text-muted"}`}>{p.message}</p>}
               </Block>
             );
           })}
           {pending.includes("platform billing") && (
             <Block title="Other platforms" tags={API_TAG}>
-              <p className="text-xs text-muted">Reading Cloudflare, GitHub, Vercel and other billing in the background; it shows here within a few minutes.</p>
+              <p className="text-[13px] text-muted">Reading Cloudflare, GitHub, Vercel and other billing in the background; it shows here within a few minutes.</p>
             </Block>
           )}
           {stripeFees && (
-            <Block title="Stripe processing fees" tags={<Tag color="#ffd84d">Stripe balance</Tag>} right={<Counted vendor="stripe" r={resolution} owner={owner} />}>
+            <Block title="Stripe processing fees" tags={<Tag color={SYS.indigo}>Stripe balance</Tag>} right={<Counted vendor="stripe" r={resolution} owner={owner} />}>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                 <Stat label="Last 30 days" value={formatTotals(stripeFees.amounts)} hint="what Stripe kept from your charges" />
                 {[...new Set(stripeFees.byBusiness.map((b) => b.business ?? "Unassigned"))].slice(0, 2).map((b) => (
@@ -147,8 +147,8 @@ function MicrosoftBlock({ bills, sample, resolution, owner, today, api }: { bill
   const nextDue = open.map((i) => i.dueDate).filter((d): d is string => !!d).sort()[0];
   return (
     <Block title="Microsoft 365 / Azure" tags={<>{API_TAG}{sample && SAMPLE_TAG}</>} right={api ? <Counted vendor="microsoft" r={resolution} owner={owner} /> : null}>
-      {b.error && <p className="mb-3 text-xs text-high">{b.error}</p>}
-      {!b.error && !b.checkedAt && !inv.length && <p className="mb-3 text-xs text-muted">Reading invoices from Azure billing in the background; they show here within a few minutes.</p>}
+      {b.error && <p className="mb-3 text-[13px] text-warn">{b.error}</p>}
+      {!b.error && !b.checkedAt && !inv.length && <p className="mb-3 text-[13px] text-muted">Reading invoices from Azure billing in the background; they show here within a few minutes.</p>}
       {inv.length > 0 && (
         <>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -159,10 +159,10 @@ function MicrosoftBlock({ bills, sample, resolution, owner, today, api }: { bill
           </div>
           <ul className="mt-3">
             {inv.slice(0, 6).map((i) => (
-              <li key={i.id} className="grid grid-cols-[64px_minmax(0,1fr)_auto] items-center gap-3 border-b border-dashed border-line/70 py-2 text-[13px] last:border-0">
-                <span className="font-mono text-xs text-muted">{i.date ? monthName(i.date.slice(0, 7), true) : "—"}</span>
+              <li key={i.id} className="grid grid-cols-[64px_minmax(0,1fr)_auto] items-center gap-3 border-b border-line py-2 text-[13px] last:border-0">
+                <span className="text-[13px] text-muted">{i.date ? monthName(i.date.slice(0, 7), true) : "—"}</span>
                 <span className="min-w-0 truncate">{i.number}{i.profile ? <span className="text-muted"> · {i.profile}</span> : null} <Tag color={STATUS[i.status][1]}>{STATUS[i.status][0]}</Tag></span>
-                <span className="font-mono tabular-nums">{i.totalMinor !== null && i.currency ? formatMoney(i.totalMinor, i.currency) : <span className="text-muted">see portal</span>}</span>
+                <span className="tabular-nums">{i.totalMinor !== null && i.currency ? formatMoney(i.totalMinor, i.currency) : <span className="text-muted">see portal</span>}</span>
               </li>
             ))}
           </ul>
@@ -189,9 +189,9 @@ function GoogleBlock({ bills, sample, resolution, owner, today, api }: { bills: 
   const lastM = months[months.length - 2];
   return (
     <Block title="Google Cloud / Firebase" tags={<>{API_TAG}{sample && SAMPLE_TAG}</>} right={api ? <Counted vendor="google-cloud" r={resolution} owner={owner} /> : null}>
-      {g.export.status === null && g.export.table && <p className="mb-3 text-xs text-muted">Reading costs from the billing export in the background; they show here within a few minutes.</p>}
-      {g.export.status === "none" && owner && <p className="mb-3 text-xs text-muted">No billing export table yet, so costs aren&apos;t known. In the Cloud console: Billing → Billing export → BigQuery export → Standard usage cost, pick a dataset, then add the table on Platforms → Google Cloud.</p>}
-      {(g.export.status === "empty" || g.export.status === "error") && g.export.error && <p className={`mb-3 text-xs ${g.export.status === "error" ? "text-high" : "text-muted"}`}>{g.export.error}</p>}
+      {g.export.status === null && g.export.table && <p className="mb-3 text-[13px] text-muted">Reading costs from the billing export in the background; they show here within a few minutes.</p>}
+      {g.export.status === "none" && owner && <p className="mb-3 text-[13px] text-muted">No billing export table yet, so costs aren&apos;t known. In the Cloud console: Billing → Billing export → BigQuery export → Standard usage cost, pick a dataset, then add the table on Platforms → Google Cloud.</p>}
+      {(g.export.status === "empty" || g.export.status === "error") && g.export.error && <p className={`mb-3 text-[13px] ${g.export.status === "error" ? "text-warn" : "text-muted"}`}>{g.export.error}</p>}
       {s.months.length > 0 && (
         <>
           <div className="grid grid-cols-6 items-end gap-2" role="img" aria-label={`Google Cloud net cost per month: ${months.map((m) => `${monthName(m)} ${formatMoney(amountIn(s.months.find((x) => x.month === m)?.totals), cur)}`).join(", ")}`}>
@@ -199,31 +199,31 @@ function GoogleBlock({ bills, sample, resolution, owner, today, api }: { bills: 
               const v = amountIn(s.months.find((x) => x.month === m)?.totals);
               return (
                 <div key={m} className="flex h-28 flex-col items-center justify-end gap-1">
-                  <span className="font-mono text-[10.5px] tabular-nums">{v ? formatMoney(v, cur).replace(/\.\d+$/, "") : "—"}</span>
-                  <i className="block w-full max-w-12" style={{ height: `${(Math.max(0, v) / max) * 70}%`, background: "linear-gradient(180deg, #2ef2d0, rgb(63 208 255 / 0.3))", opacity: m === thisM ? 0.6 : 1 }} />
-                  <span className={`hud-label text-[10.5px] ${m === thisM ? "text-gold" : "text-muted"}`}>{monthName(m)}</span>
+                  <span className="text-[12px] tabular-nums text-ink">{v ? formatMoney(v, cur).replace(/\.\d+$/, "") : "—"}</span>
+                  <i className="block w-full max-w-12 rounded-t-[3px]" style={{ height: `${(Math.max(0, v) / max) * 70}%`, background: SYS.teal, opacity: m === thisM ? 0.55 : 1 }} />
+                  <span className={`text-[12px] ${m === thisM ? "font-semibold text-ink" : "text-muted"}`}>{monthName(m)}</span>
                 </div>
               );
             })}
           </div>
-          <p className="mt-1 text-[11px] text-muted">Net of credits, by invoice month. {monthName(thisM)} is month-to-date (export data lags about a day).</p>
+          <p className="mt-1 text-[12px] text-muted">Net of credits, by invoice month. {monthName(thisM)} is month-to-date (export data lags about a day).</p>
           <div className="mt-3 overflow-x-auto">
             <table className="w-full min-w-[420px] text-[13px]">
               <thead>
                 <tr className="text-left">
-                  {["Project", monthName(lastM), monthName(thisM), "6 months"].map((h, i) => <th key={h} className={`hud-label pb-1.5 text-[11px] font-normal text-muted ${i ? "text-right" : ""}`}>{h}</th>)}
+                  {["Project", monthName(lastM), monthName(thisM), "6 months"].map((h, i) => <th key={h} className={`pb-1.5 text-[12px] font-medium text-muted ${i ? "text-right" : ""}`}>{h}</th>)}
                 </tr>
               </thead>
               <tbody>
                 {s.projects.slice(0, 8).map((p) => (
-                  <tr key={p.key} className="border-t border-dashed border-line/70">
+                  <tr key={p.key} className="border-t border-line">
                     <td className="py-1.5 pr-2">
                       <div className="truncate">{p.projectId && owner ? <a href={gcpBillingConsole(p.projectId)} target="_blank" rel="noreferrer" className="hover:text-cyan">{p.name}</a> : p.name}</div>
                       {p.business && <BizLabel name={p.business} />}
                     </td>
-                    <td className="py-1.5 text-right font-mono tabular-nums">{formatTotals(p.byMonth[lastM] ?? [])}</td>
-                    <td className="py-1.5 text-right font-mono tabular-nums">{formatTotals(p.byMonth[thisM] ?? [])}</td>
-                    <td className="py-1.5 text-right font-mono tabular-nums">{formatTotals(p.total)}</td>
+                    <td className="py-1.5 text-right tabular-nums">{formatTotals(p.byMonth[lastM] ?? [])}</td>
+                    <td className="py-1.5 text-right tabular-nums">{formatTotals(p.byMonth[thisM] ?? [])}</td>
+                    <td className="py-1.5 text-right tabular-nums">{formatTotals(p.total)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -231,12 +231,12 @@ function GoogleBlock({ bills, sample, resolution, owner, today, api }: { bills: 
           </div>
           {s.services.length > 0 && (
             <div className="mt-3">
-              <div className="hud-label mb-1 text-[11px] text-muted">Top services · 6 months</div>
+              <div className="mb-1 text-[13px] text-muted">Top services · 6 months</div>
               {s.services.slice(0, 5).map((x) => (
-                <div key={x.service} className="grid grid-cols-[minmax(0,140px)_1fr_auto] items-center gap-3 py-1 text-[12.5px] sm:grid-cols-[minmax(0,200px)_1fr_auto]">
+                <div key={x.service} className="grid grid-cols-[minmax(0,140px)_1fr_auto] items-center gap-3 py-1 text-[13px] sm:grid-cols-[minmax(0,200px)_1fr_auto]">
                   <span className="truncate text-muted">{x.service}</span>
-                  <Meter pct={(amountIn(x.total) / Math.max(1, amountIn(s.services[0].total))) * 100} color="#2ef2d0" />
-                  <span className="font-mono tabular-nums">{formatTotals(x.total)}</span>
+                  <Meter pct={(amountIn(x.total) / Math.max(1, amountIn(s.services[0].total))) * 100} color={SYS.teal} />
+                  <span className="tabular-nums">{formatTotals(x.total)}</span>
                 </div>
               ))}
             </div>
@@ -262,21 +262,21 @@ export function DetectedBills({ bills, subs, businesses, sample }: { bills: Bill
   const open = [...latest.values()].filter((b) => !tracked.has(b.vendorKey));
   const done = latest.size - open.length;
   return (
-    <Card flush accent="violet" title="Detected from e-mail · check" action={`${open.length} to review${done ? ` · ${done} tracked` : ""}`}>
+    <Card flush title="Detected from e-mail · check" action={`${open.length} to review${done ? ` · ${done} tracked` : ""}`}>
       {open.length === 0 ? (
         <Empty>{latest.size ? "Every bill found in the shared mailboxes is tracked." : "No invoices or receipts recognised in the shared mailboxes yet."}</Empty>
       ) : (
         <ul>
           {open.map((b) => (
-            <li key={b.id} className="border-b border-line/60 px-4 py-3 last:border-0 sm:px-5">
-              <div className="flex flex-wrap items-center gap-2 text-sm">
+            <li key={b.id} className="border-b border-line px-4 py-3 last:border-0 sm:px-5">
+              <div className="flex flex-wrap items-center gap-2 text-[15px] text-ink">
                 <span className="font-medium">{b.vendor}</span>
-                <Tag color="#a98bff" title="Read from an e-mail: check it before tracking">From e-mail</Tag>
+                <Tag color={SYS.indigo} title="Read from an e-mail: check it before tracking">From e-mail</Tag>
                 {!b.verified && <Tag title="The sender's domain couldn't be verified (no SPF/DKIM/DMARC result available). Check the e-mail before tracking.">Unverified sender</Tag>}
                 {sample && SAMPLE_TAG}
-                <span className="ml-auto font-mono tabular-nums">{formatMoney(b.amountMinor, b.currency)}</span>
+                <span className="ml-auto tabular-nums">{formatMoney(b.amountMinor, b.currency)}</span>
               </div>
-              <div className="mt-0.5 truncate text-xs text-muted">{short(b.date)} · {b.account} · {b.url ? <a href={b.url} target="_blank" rel="noreferrer" className="hover:text-cyan">{b.subject}</a> : b.subject}</div>
+              <div className="mt-0.5 truncate text-[13px] text-muted">{short(b.date)} · {b.account} · {b.url ? <a href={b.url} target="_blank" rel="noreferrer" className="hover:text-cyan">{b.subject}</a> : b.subject}</div>
               <div className="mt-2 flex flex-wrap">
                 <SubscriptionForm
                   businesses={businesses}
@@ -288,26 +288,26 @@ export function DetectedBills({ bills, subs, businesses, sample }: { bills: Bill
           ))}
         </ul>
       )}
-      <p className="border-t border-line/70 px-4 py-2.5 text-[11px] text-muted sm:px-5">Shared mailboxes only. Not counted in any total until you track it.</p>
+      <p className="border-t border-line px-4 py-2.5 text-[13px] text-muted sm:px-5">Shared mailboxes only. Not counted in any total until you track it.</p>
     </Card>
   );
 }
 
-const HOW: Record<CoverageHow, [string, string]> = { api: ["Billing API", "#3fd0ff"], email: ["From e-mail", "#a98bff"], manual: ["Manual entry", "#ffd84d"], none: ["Not tracked", "#7f97ab"] };
+const HOW: Record<CoverageHow, [string, string]> = { api: ["Billing API", SYS.blue], email: ["From e-mail", SYS.indigo], manual: ["Manual entry", SYS.teal], none: ["Not tracked", SYS.gray] };
 
 export function BillCoverage({ rows }: { rows: CoverageRow[] }) {
   return (
-    <Card flush accent="teal" title="Bill coverage" action={`${rows.filter((r) => r.how !== "none").length} of ${rows.length} known`}>
+    <Card flush title="Bill coverage" action={`${rows.filter((r) => r.how !== "none").length} of ${rows.length} known`}>
       {rows.length === 0 ? <Empty>No platforms connected yet.</Empty> : (
         <ul>
           {rows.map((r) => (
-            <li key={r.id} className="border-b border-line/60 px-4 py-2.5 last:border-0 sm:px-5">
-              <div className="flex flex-wrap items-center gap-2 text-sm">
+            <li key={r.id} className="border-b border-line px-4 py-2.5 last:border-0 sm:px-5">
+              <div className="flex flex-wrap items-center gap-2 text-[15px] text-ink">
                 <span className="min-w-0 truncate">{r.name}</span>
                 <span className="ml-auto"><Tag color={HOW[r.how][1]}>{HOW[r.how][0]}</Tag></span>
               </div>
-              <div className="text-xs text-muted">{r.detail}</div>
-              {r.fix && <div className="mt-0.5 text-xs text-[#9be7ff]">→ {r.fix}</div>}
+              <div className="text-[13px] text-muted">{r.detail}</div>
+              {r.fix && <div className="mt-0.5 text-[13px] text-cyan">→ {r.fix}</div>}
             </li>
           ))}
         </ul>
